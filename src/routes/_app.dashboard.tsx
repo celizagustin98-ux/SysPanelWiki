@@ -19,9 +19,9 @@ export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Dashboard | SysWiki Panel" },
+      { title: "Dashboard | SysIntranet | Wiki Area" },
       { name: "description", content: "Estadísticas en tiempo real, guardia del día y tareas asignadas." },
-      { property: "og:title", content: "Dashboard | SysWiki Panel" },
+      { property: "og:title", content: "Dashboard | SysIntranet | Wiki Area" },
       { property: "og:description", content: "Panel operativo para sistemas." },
     ],
   }),

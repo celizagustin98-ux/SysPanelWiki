@@ -27,7 +27,10 @@ const contentTypes = {
 
 function getStaticFilePath(url) {
   const pathname = decodeURIComponent(new URL(url, "http://localhost").pathname);
-  const relativePath = pathname === "/favicon.svg" ? "favicon.svg" : pathname.replace(/^\/+/, "");
+  const relativePath =
+    pathname === "/favicon.svg" || pathname === "/favicon.ico"
+      ? "favicon.svg"
+      : pathname.replace(/^\/+/, "");
   const filePath = normalize(join(clientDir, relativePath));
   if (!filePath.startsWith(clientDir)) return null;
   if (!existsSync(filePath)) return null;
@@ -113,5 +116,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`SysWiki Panel listening on http://${host}:${port}`);
+  console.log(`SysIntranet | Wiki Area listening on http://${host}:${port}`);
 });

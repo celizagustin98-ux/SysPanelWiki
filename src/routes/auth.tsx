@@ -12,12 +12,12 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Acceso | SysWiki Panel" },
+      { title: "Acceso | SysIntranet | Wiki Area" },
       {
         name: "description",
-        content: "Ingreso con usuario y contraseña a SysWiki Panel.",
+        content: "Ingreso con usuario y contraseña a SysIntranet | Wiki Area.",
       },
-      { property: "og:title", content: "Acceso | SysWiki Panel" },
+      { property: "og:title", content: "Acceso | SysIntranet | Wiki Area" },
       { property: "og:description", content: "Ingreso seguro a la intranet técnica." },
     ],
   }),
@@ -87,7 +87,7 @@ function AuthPage() {
             <Terminal className="size-6" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">SysWiki Panel</h1>
+            <h1 className="text-xl font-semibold">SysIntranet | Wiki Area</h1>
             <p className="text-sm text-muted-foreground">Wiki, inventario y operación interna</p>
           </div>
         </div>

@@ -21,13 +21,13 @@ import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
 export const Route = createFileRoute("/_app/roles")({
   head: () => ({
     meta: [
-      { title: "Roles y permisos | SysWiki Panel" },
+      { title: "Roles y permisos | SysIntranet | Wiki Area" },
       {
         name: "description",
         content:
           "Administración de roles: matriz de permisos por módulo y asignación de roles a los usuarios de la intranet.",
       },
-      { property: "og:title", content: "Roles y permisos | SysWiki Panel" },
+      { property: "og:title", content: "Roles y permisos | SysIntranet | Wiki Area" },
       {
         property: "og:description",
         content: "Definí qué puede ver, crear, editar y eliminar cada rol, y asignalos a usuarios.",

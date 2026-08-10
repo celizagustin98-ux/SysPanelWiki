@@ -21,13 +21,13 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/_app/auditoria")({
   head: () => ({
     meta: [
-      { title: "Auditoría | SysWiki Panel" },
+      { title: "Auditoría | SysIntranet | Wiki Area" },
       {
         name: "description",
         content:
           "Registro de acciones críticas: quién editó instructivos, borró inventario o cambió roles, y cuándo. Filtrable por usuario y fecha.",
       },
-      { property: "og:title", content: "Auditoría | SysWiki Panel" },
+      { property: "og:title", content: "Auditoría | SysIntranet | Wiki Area" },
       {
         property: "og:description",
         content: "Trazabilidad de las acciones críticas del panel.",

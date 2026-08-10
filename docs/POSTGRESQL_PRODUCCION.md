@@ -1,6 +1,6 @@
-# Instructivo PostgreSQL para SysWiki Panel
+# Instructivo PostgreSQL para SysIntranet | Wiki Area
 
-Este instructivo deja una base PostgreSQL propia, controlada por vos, lista para usar con SysWiki Panel.
+Este instructivo deja una base PostgreSQL propia, controlada por vos, lista para usar con SysIntranet | Wiki Area.
 
 ## 1. Requisitos
 

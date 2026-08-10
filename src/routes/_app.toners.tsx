@@ -29,9 +29,9 @@ export const Route = createFileRoute("/_app/toners")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Tóners | SysWiki Panel" },
+      { title: "Tóners | SysIntranet | Wiki Area" },
       { name: "description", content: "Entradas, salidas, stock crítico y generación de códigos seriados de tóners." },
-      { property: "og:title", content: "Tóners | SysWiki Panel" },
+      { property: "og:title", content: "Tóners | SysIntranet | Wiki Area" },
       { property: "og:description", content: "Control de stock y codificación de tóners." },
     ],
   }),

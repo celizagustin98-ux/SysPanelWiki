@@ -11,12 +11,12 @@ export const Route = createFileRoute("/reset-password")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Restablecer contraseña | SysWiki Panel" },
+      { title: "Restablecer contraseña | SysIntranet | Wiki Area" },
       {
         name: "description",
         content: "Definí una nueva contraseña para tu cuenta de la intranet.",
       },
-      { property: "og:title", content: "Restablecer contraseña | SysWiki Panel" },
+      { property: "og:title", content: "Restablecer contraseña | SysIntranet | Wiki Area" },
       {
         property: "og:description",
         content: "Definí una nueva contraseña para acceder a la intranet.",

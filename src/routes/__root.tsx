@@ -81,12 +81,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "SysWiki Panel" },
+      { title: "SysIntranet | Wiki Area" },
       {
         name: "description",
         content: "Wiki operativa para sistemas: guardias, inventario, tóners y tareas.",
       },
-      { property: "og:title", content: "SysWiki Panel" },
+      { property: "og:title", content: "SysIntranet | Wiki Area" },
       {
         property: "og:description",
         content: "Wiki operativa, guardias, inventario, tóners, tareas y credenciales.",
@@ -99,7 +99,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "shortcut icon", href: "/favicon.svg", type: "image/svg+xml" },
     ],
   }),
 
