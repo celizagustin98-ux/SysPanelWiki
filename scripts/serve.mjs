@@ -169,6 +169,35 @@ async function requireAdmin(req) {
   return session;
 }
 
+async function requireRequestSession(req, url) {
+  const token = bearerToken(req) || url.searchParams.get("token") || "";
+  const session = await getSession(token);
+  if (!session) {
+    const error = new Error("No autorizado");
+    error.statusCode = 401;
+    throw error;
+  }
+  return session;
+}
+
+function storageFilePath(bucket, path) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(bucket)) return null;
+  const base = resolve(process.env.FILE_STORAGE_DIR || join(process.cwd(), "storage"));
+  const safePath = normalize(String(path || ""))
+    .replace(/^(\.\.(\/|\\|$))+/, "")
+    .replace(/^[/\\]+/, "");
+  const filePath = resolve(base, bucket, safePath);
+  const bucketDir = resolve(base, bucket);
+  if (!filePath.startsWith(`${bucketDir}/`) && filePath !== bucketDir) return null;
+  if (!existsSync(filePath)) return null;
+  const stat = statSync(filePath);
+  return stat.isFile() ? { filePath, stat } : null;
+}
+
+function safeDownloadName(name) {
+  return String(name || "instructivo.pdf").replace(/[^\w .()-]/g, "_");
+}
+
 function gitEnvWithToken() {
   const token = process.env.GITHUB_TOKEN;
   return token
@@ -274,6 +303,55 @@ async function handleUpdates(req, res) {
     }
 
     return sendJson(res, 404, { error: "Ruta de actualización inexistente" }), true;
+  } catch (error) {
+    console.error(error);
+    sendJson(res, error.statusCode || 500, {
+      error: error instanceof Error ? error.message : "Error de servidor",
+    });
+    return true;
+  }
+}
+
+async function handleInstructionPdf(req, res) {
+  if ((req.method !== "GET" && req.method !== "HEAD") || !req.url?.startsWith("/api/instructivos/pdf/")) {
+    return false;
+  }
+
+  try {
+    const url = new URL(req.url, "http://localhost");
+    await requireRequestSession(req, url);
+    const attachmentId = decodeURIComponent(url.pathname.replace("/api/instructivos/pdf/", ""));
+    if (!/^[0-9a-fA-F-]{20,80}$/.test(attachmentId)) {
+      return sendJson(res, 400, { error: "PDF invalido" }), true;
+    }
+
+    const attachment = await one(
+      `select id, file_name, file_path from wiki_attachments where id = $1`,
+      [attachmentId],
+    );
+    if (!attachment) {
+      return sendJson(res, 404, { error: "PDF no encontrado" }), true;
+    }
+
+    const file = storageFilePath("instructivos", attachment.file_path);
+    if (!file) {
+      return sendJson(res, 404, { error: "Archivo PDF no encontrado" }), true;
+    }
+
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-length", String(file.stat.size));
+    res.setHeader("cache-control", "private, max-age=300");
+    res.setHeader("content-disposition", `inline; filename="${safeDownloadName(attachment.file_name)}"`);
+    res.setHeader("x-content-type-options", "nosniff");
+
+    if (req.method === "HEAD") {
+      res.end();
+      return true;
+    }
+
+    createReadStream(file.filePath).pipe(res);
+    return true;
   } catch (error) {
     console.error(error);
     sendJson(res, error.statusCode || 500, {
@@ -423,6 +501,7 @@ const server = createServer(async (req, res) => {
   try {
     if (await handleUpdates(req, res)) return;
     if (await handleAuth(req, res)) return;
+    if (await handleInstructionPdf(req, res)) return;
     if (trySendStatic(req, res)) return;
 
     const response = await app.fetch(createWebRequest(req), process.env, {});

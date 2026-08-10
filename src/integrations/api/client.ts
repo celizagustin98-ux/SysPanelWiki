@@ -246,6 +246,12 @@ export const api = {
       return postApp<T>("/api/updates/apply", { version });
     },
   },
+  instructivos: {
+    pdfUrl(attachmentId: string) {
+      const params = new URLSearchParams({ token: token() ?? "" });
+      return `/api/instructivos/pdf/${encodeURIComponent(attachmentId)}?${params.toString()}`;
+    },
+  },
   storage: {
     from(bucket: string) {
       return {

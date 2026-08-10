@@ -288,12 +288,8 @@ function InstructivosPage() {
     await refreshAttachments(activo.id);
   };
 
-  const verPdf = async (a: Adjunto) => {
-    const { data, error } = await api.storage
-      .from("instructivos")
-      .createSignedUrl(a.file_path, 3600);
-    if (error) return toast.error(error.message);
-    setPdfActivo({ id: a.id, name: a.file_name, url: data.signedUrl });
+  const verPdf = (a: Adjunto) => {
+    setPdfActivo({ id: a.id, name: a.file_name, url: api.instructivos.pdfUrl(a.id) });
   };
 
   useEffect(() => {
@@ -636,7 +632,7 @@ function InstructivosPage() {
                                 <span className="min-w-0">
                                 <span className="line-clamp-2 font-medium leading-snug">{a.file_name}</span>
                                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                                  Ver en el visor
+                                  Abrir lectura
                                 </span>
                                 </span>
                               </button>
@@ -690,7 +686,7 @@ function InstructivosPage() {
                               {pdfActivo?.name ?? "Seleccioná un PDF"}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              Vista optimizada para lectura en pantalla.
+                              El PDF se muestra acá, dentro del módulo.
                             </p>
                           </div>
                           {pdfActivo && (
