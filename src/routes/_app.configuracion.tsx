@@ -3,8 +3,6 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   CheckCircle2,
-  Download,
-  Github,
   Loader2,
   RefreshCw,
   Settings2,
@@ -16,8 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { api } from "@/integrations/api/client";
 import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
 import { applyUpdate, checkForUpdates, type UpdateInfo } from "@/lib/updates.functions";
@@ -29,7 +25,7 @@ export const Route = createFileRoute("/_app/configuracion")({
       {
         name: "description",
         content:
-          "Permisos por rol, versión instalada y búsqueda de actualizaciones desde GitHub para SysIntranet | Área Wiki.",
+          "Permisos por rol y búsqueda de actualizaciones para SysIntranet | Área Wiki.",
       },
       { property: "og:title", content: "Configuración | SysIntranet | Área Wiki" },
       {
@@ -66,9 +62,11 @@ const ACCIONES = [
   { key: "can_delete", label: "Eliminar" },
 ] as const;
 
+const NO_UPDATE_MESSAGE = "En estos momentos no hay actualización disponible.";
+const INSTALL_UPDATE_MESSAGE = "Hay una nueva versión disponible. ¿Quiere instalar una nueva versión?";
+
 type Settings = {
   version_actual: string;
-  github_repo: string;
   ultima_revision: string | null;
   ultima_actualizacion: string | null;
 };
@@ -80,7 +78,6 @@ function ConfiguracionPage() {
   const [saving, setSaving] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [repo, setRepo] = useState("");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -95,11 +92,10 @@ function ConfiguracionPage() {
   const loadSettings = async () => {
     const { data } = await api
       .from("app_settings")
-      .select("version_actual, github_repo, ultima_revision, ultima_actualizacion")
+      .select("version_actual, ultima_revision, ultima_actualizacion")
       .maybeSingle();
     if (data) {
       setSettings(data as Settings);
-      setRepo(data.github_repo);
     }
   };
 
@@ -132,15 +128,24 @@ function ConfiguracionPage() {
     try {
       const res = await check({});
       setInfo(res);
-      if (res.error) toast.error(res.error);
-      else if (res.hasUpdate) toast.success(`Nueva versión disponible: ${res.latestVersion}`);
-      else toast.success("La aplicación está al día");
       if (isAdmin) {
         await api
           .from("app_settings")
           .update({ ultima_revision: new Date().toISOString() })
           .eq("singleton", true);
         await loadSettings();
+      }
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      if (!res.hasUpdate) {
+        toast.success(NO_UPDATE_MESSAGE);
+        return;
+      }
+      toast.info(INSTALL_UPDATE_MESSAGE);
+      if (window.confirm(INSTALL_UPDATE_MESSAGE)) {
+        await onApply(res);
       }
     } catch {
       toast.error("No se pudo verificar actualizaciones");
@@ -149,30 +154,24 @@ function ConfiguracionPage() {
     }
   };
 
-  const onApply = async () => {
-    if (!info?.latestVersion) return;
+  const onApply = async (selectedInfo = info) => {
+    if (!selectedInfo?.latestVersion) return;
     setApplying(true);
     try {
-      await apply({ data: { version: info.latestVersion } });
+      await apply({ data: { version: selectedInfo.latestVersion } });
       await loadSettings();
-      setInfo({ ...info, currentVersion: info.latestVersion, hasUpdate: false });
-      toast.success("Actualización aplicada. Recargando…");
+      setInfo({
+        ...selectedInfo,
+        currentVersion: selectedInfo.latestVersion,
+        hasUpdate: false,
+      });
+      toast.success("Actualización instalada. Recargando...");
       setTimeout(() => window.location.reload(), 1200);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo aplicar la actualización");
     } finally {
       setApplying(false);
     }
-  };
-
-  const saveRepo = async () => {
-    const { error } = await api
-      .from("app_settings")
-      .update({ github_repo: repo.trim() })
-      .eq("singleton", true);
-    if (error) return toast.error(error.message);
-    await loadSettings();
-    toast.success("Repositorio guardado");
   };
 
   if (!isAdmin) {
@@ -277,48 +276,11 @@ function ConfiguracionPage() {
       <Card className="panel">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Github className="size-4" /> Actualizaciones
+            <RefreshCw className="size-4" /> Actualizaciones
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-border p-3">
-              <p className="text-xs text-muted-foreground">Versión instalada</p>
-              <p className="text-lg font-semibold">{settings?.version_actual ?? "—"}</p>
-            </div>
-            <div className="rounded-lg border border-border p-3">
-              <p className="text-xs text-muted-foreground">Última revisión</p>
-              <p className="text-sm">
-                {settings?.ultima_revision
-                  ? new Date(settings.ultima_revision).toLocaleString("es-AR")
-                  : "Nunca"}
-              </p>
-            </div>
-            <div className="rounded-lg border border-border p-3">
-              <p className="text-xs text-muted-foreground">Última actualización</p>
-              <p className="text-sm">
-                {settings?.ultima_actualizacion
-                  ? new Date(settings.ultima_actualizacion).toLocaleString("es-AR")
-                  : "—"}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-56 flex-1">
-              <Label htmlFor="repo" className="text-xs">
-                Repositorio de GitHub
-              </Label>
-              <Input
-                id="repo"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder="usuario/repositorio"
-              />
-            </div>
-            <Button variant="outline" onClick={saveRepo}>
-              Guardar
-            </Button>
+          <div className="flex flex-wrap items-center gap-3">
             <Button onClick={onCheck} disabled={checking}>
               {checking ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -327,11 +289,18 @@ function ConfiguracionPage() {
               )}
               Buscar actualización
             </Button>
+            {settings?.ultima_revision ? (
+              <span className="text-xs text-muted-foreground">
+                Última revisión: {new Date(settings.ultima_revision).toLocaleString("es-AR")}
+              </span>
+            ) : null}
           </div>
 
           {info ? (
             info.error ? (
-              <p className="text-sm text-destructive">{info.error}</p>
+              <p className="text-sm text-destructive" role="alert">
+                {info.error}
+              </p>
             ) : info.hasUpdate ? (
               <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
                 <div className="flex flex-wrap items-center gap-2">
@@ -349,27 +318,20 @@ function ConfiguracionPage() {
                   </p>
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button onClick={onApply} disabled={applying}>
+                  <Button onClick={() => onApply()} disabled={applying}>
                     {applying ? (
                       <Loader2 className="mr-2 size-4 animate-spin" />
                     ) : (
-                      <Download className="mr-2 size-4" />
+                      <RefreshCw className="mr-2 size-4" />
                     )}
-                    Sí, actualizar ahora
+                    Instalar nueva versión
                   </Button>
-                  {info.latestUrl ? (
-                    <Button variant="outline" asChild>
-                      <a href={info.latestUrl} target="_blank" rel="noreferrer">
-                        Ver cambios en GitHub
-                      </a>
-                    </Button>
-                  ) : null}
                 </div>
               </div>
             ) : (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <CheckCircle2 className="size-4 text-primary" />
-                Estás en la última versión ({info.currentVersion}).
+                {NO_UPDATE_MESSAGE}
               </p>
             )
           ) : null}
