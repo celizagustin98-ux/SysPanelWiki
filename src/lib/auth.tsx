@@ -199,7 +199,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
 
     async signOut() {
-      await api.auth.signOut();
+      try {
+        await api.auth.signOut();
+      } finally {
+        setSession(null);
+        setProfile(null);
+        setRole(null);
+        setPerms([]);
+      }
     },
   };
 
