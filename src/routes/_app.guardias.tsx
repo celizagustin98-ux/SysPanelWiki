@@ -72,6 +72,15 @@ type Guardia = {
   notas: string | null;
 };
 
+const AREA_OPERARIOS = ["CELIZ AGUSTIN", "CORDOBA SANTINO", "SANTILLAN KEVIN", "SILETTO JOSE"];
+
+const AREA_OPERATOR_CODES: Record<string, string> = {
+  [normalizeOperatorName("CELIZ AGUSTIN")]: "A",
+  [normalizeOperatorName("CORDOBA SANTINO")]: "S",
+  [normalizeOperatorName("SANTILLAN KEVIN")]: "K",
+  [normalizeOperatorName("SILETTO JOSE")]: "J",
+};
+
 function GuardiaDialog({
   guardia,
   trigger,
@@ -146,15 +155,12 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
   const [hasta, setHasta] = useState(periodoSugerido.hasta);
   const [horaInicio, setHoraInicio] = useState("20:00");
   const [duracionDias, setDuracionDias] = useState(7);
-  const [operarios, setOperarios] = useState("");
+  const [operarios, setOperarios] = useState(AREA_OPERARIOS.join("\n"));
   const [notas, setNotas] = useState("Guardia del período");
   const [saving, setSaving] = useState(false);
   const nombres = useMemo(
     () =>
-      operarios
-        .split(/\r?\n/)
-        .map((nombre) => nombre.trim())
-        .filter(Boolean),
+      uniqueOperatorNames(parseOperatorLines(operarios)),
     [operarios],
   );
 
@@ -263,7 +269,7 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
               <Label>Operarios que hacen guardia</Label>
               <Textarea
                 className="min-h-56"
-                placeholder={"Agustin Celiz\nSilvia Perez\nKarina Gomez\nJorge Ruiz"}
+                placeholder={AREA_OPERARIOS.join("\n")}
                 value={operarios}
                 onChange={(e) => setOperarios(e.target.value)}
                 required
@@ -360,15 +366,6 @@ function GuardiasPage() {
       return data as Guardia[];
     },
   });
-  const { data: perfiles = [] } = useQuery({
-    queryKey: ["guardias-perfiles"],
-    queryFn: async () => {
-      const { data, error } = await api.from("profiles").select("full_name").order("full_name");
-      if (error) throw error;
-      return (data ?? []) as { full_name: string | null }[];
-    },
-  });
-
   const del = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await api.from("guardias").delete().eq("id", id);
@@ -397,7 +394,7 @@ function GuardiasPage() {
   const guardiasDelMes = sortedGuardias.filter(
     (g) => new Date(g.desde) <= endOfMonth(cursor) && new Date(g.hasta) >= startOfMonth(cursor),
   );
-  const operadoresDelMes = new Set(guardiasDelMes.map((g) => g.operador_nombre.trim()).filter(Boolean)).size;
+  const operadoresDelMes = uniqueOperatorNames(guardiasDelMes.map((g) => canonicalOperatorName(g.operador_nombre))).length;
   const periodoActual = actual ? calcularPeriodoCobertura(actual, sortedGuardias) : null;
   const diasCubiertosMes = days.filter((day) =>
     isSameMonth(day, cursor)
@@ -412,7 +409,6 @@ function GuardiasPage() {
     ? `${format(periodoLiquidacion?.desdeDate ?? periodoActual.desde, "dd/MM")} -> ${format(periodoLiquidacion?.hastaDate ?? periodoActual.hasta, "dd/MM")}`
     : format(cursor, "MMMM yyyy", { locale: es });
   const planillaGuardias = useMemo(() => {
-    const operadoresArea = perfiles.map((perfil) => perfil.full_name?.trim()).filter(Boolean) as string[];
     const bounds = periodoLiquidacion
       ? { periodStart: periodoLiquidacion.desde, periodEnd: periodoLiquidacion.hasta }
       : undefined;
@@ -423,8 +419,8 @@ function GuardiasPage() {
           return desde <= endOfDay(periodoLiquidacion.hastaDate) && hasta >= startOfDay(periodoLiquidacion.desdeDate);
         })
       : guardiasDelMes;
-    return buildGuardiaSheet(source, { ...bounds, operatorNames: operadoresArea });
-  }, [guardiasDelMes, perfiles, periodoActual, periodoLiquidacion, sortedGuardias]);
+    return buildGuardiaSheet(source, { ...bounds, operatorNames: AREA_OPERARIOS });
+  }, [guardiasDelMes, periodoActual, periodoLiquidacion, sortedGuardias]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
   return (
@@ -943,7 +939,7 @@ function calcularPeriodoCobertura(actual: Guardia, guardias: Guardia[]) {
     desde,
     hasta,
     turnos: turnos.length,
-    operadores: new Set(turnos.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean)).size,
+    operadores: uniqueOperatorNames(turnos.map((guardia) => canonicalOperatorName(guardia.operador_nombre))).length,
   };
 }
 
@@ -962,10 +958,7 @@ function generarTurnosPeriodo({
   operarios: string;
   notas: string;
 }): { turnos: Omit<Guardia, "id">[]; error: string | null } {
-  const nombres = operarios
-    .split(/\r?\n/)
-    .map((nombre) => nombre.trim())
-    .filter(Boolean);
+  const nombres = uniqueOperatorNames(parseOperatorLines(operarios));
 
   if (nombres.length === 0) return { turnos: [], error: "Cargá al menos un operario" };
   if (!desde || !hasta || !horaInicio) return { turnos: [], error: "Completá las fechas y la hora de inicio" };
@@ -1057,7 +1050,7 @@ function buildGuardiaSheet(
     operatorNames?: string[];
   },
 ): GuardiaSheet {
-  const requestedNames = bounds?.operatorNames?.map((name) => name.trim()).filter(Boolean) ?? [];
+  const requestedNames = uniqueOperatorNames(bounds?.operatorNames ?? []);
 
   if (guardias.length === 0 && requestedNames.length === 0) {
     return { days: [], operadores: [], cells: {}, periodLabel: "Sin período" };
@@ -1085,12 +1078,10 @@ function buildGuardiaSheet(
   const start = bounds?.periodStart ? buildDateTime(bounds.periodStart, "00:00") : detectedStart;
   const end = bounds?.periodEnd ? buildDateTime(bounds.periodEnd, "00:00") : detectedEnd;
   const days = eachDayOfInterval({ start, end });
-  const names = [
-    ...new Set([
-      ...requestedNames,
-      ...sorted.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean),
-    ]),
-  ];
+  const names = uniqueOperatorNames([
+    ...requestedNames,
+    ...sorted.map((guardia) => canonicalOperatorName(guardia.operador_nombre)),
+  ]);
   const codes = buildOperatorCodes(names);
   const cells: GuardiaSheet["cells"] = {};
   const palette = [
@@ -1110,7 +1101,7 @@ function buildGuardiaSheet(
       const key = dateKey(day);
       const worksThatDay = sorted.some(
         (guardia) =>
-          guardia.operador_nombre.trim() === name &&
+          canonicalOperatorName(guardia.operador_nombre) === name &&
           new Date(guardia.desde) <= endOfDay(day) &&
           new Date(guardia.hasta) >= startOfDay(day),
       );
@@ -1141,18 +1132,70 @@ function buildOperatorCodes(names: string[]) {
   const result = new Map<string, string>();
 
   for (const name of names) {
-    result.set(name, initialsCode(name));
+    result.set(name, AREA_OPERATOR_CODES[normalizeOperatorName(name)] ?? initialsCode(name));
   }
 
   return result;
 }
 
+function parseOperatorLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((nombre) => canonicalOperatorName(nombre))
+    .filter(Boolean);
+}
+
+function uniqueOperatorNames(names: string[]) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const name of names) {
+    const canonical = canonicalOperatorName(name);
+    if (!canonical) continue;
+    const key = normalizeOperatorName(canonical);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(canonical);
+  }
+
+  return result;
+}
+
+function canonicalOperatorName(name: string) {
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  const normalized = normalizeOperatorName(trimmed);
+  const fixed = AREA_OPERARIOS.find((operario) => normalizeOperatorName(operario) === normalized);
+  if (fixed) return fixed;
+
+  const parts = normalized.split(" ");
+  if (parts.length >= 2) {
+    const reversed = `${parts.slice(1).join(" ")} ${parts[0]}`;
+    const reversedFixed = AREA_OPERARIOS.find((operario) => normalizeOperatorName(operario) === reversed);
+    if (reversedFixed) return reversedFixed;
+  }
+
+  return trimmed.toUpperCase();
+}
+
+function normalizeOperatorName(name: string) {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
 function initialsCode(name: string) {
-  const firstWord = name
+  const normalized = normalizeOperatorName(name);
+  if (AREA_OPERATOR_CODES[normalized]) return AREA_OPERATOR_CODES[normalized];
+  const words = name
     .trim()
     .split(/\s+/)
-    .find(Boolean);
-  return (firstWord?.[0] ?? "?").toUpperCase();
+    .filter(Boolean);
+  const firstName = words.length > 1 ? words[words.length - 1] : words[0];
+  return (firstName?.[0] ?? "?").toUpperCase();
 }
 
 function isNonWorkingDay(day: Date) {
