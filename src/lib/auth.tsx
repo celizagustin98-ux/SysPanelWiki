@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/integrations/api/client";
-import { ingresarConUsuario, registrarCuenta } from "@/lib/cuentas.functions";
 
 export type AppRole = "administrador" | "tecnico" | "consulta";
 
@@ -167,14 +166,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPerms: loadPerms,
     async signIn(username, password) {
       try {
-        const data = await ingresarConUsuario({
-          data: {
-            username: username.trim().toLowerCase(),
-            password,
-          },
+        const { data, error } = await api.auth.signInWithPassword({
+          username: username.trim().toLowerCase(),
+          password,
         });
+        if (error) return { error: traducirError(error.message) };
         if (!data.session?.token) return { error: "Usuario o contraseña incorrectos" };
-        await api.auth.setSession({ access_token: data.session.token });
+        setSession(data.session);
         return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo ingresar" };
@@ -182,14 +180,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async signUp(fullName, username, email, password) {
       try {
-        await registrarCuenta({
-          data: {
-            fullName,
-            username: username.trim().toLowerCase(),
-            email: email.trim().toLowerCase(),
-            password,
-          },
+        const { data, error } = await api.auth.signUp({
+          fullName,
+          username: username.trim().toLowerCase(),
+          email: email.trim().toLowerCase(),
+          password,
         });
+        if (error) return { error: traducirError(error.message) };
+        if (data.session?.token) setSession(data.session);
         return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo crear la cuenta" };
