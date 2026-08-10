@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Building2 } from "lucide-react";
+import { Network } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,8 +63,8 @@ function AuthPage() {
       return;
     }
     form.reset();
-    setTab("login");
-    toast.success("Cuenta creada. Ingresá con tu usuario y contraseña.");
+    toast.success("Cuenta creada. Bienvenido.");
+    navigate({ to: "/dashboard", replace: true });
   };
 
   const handleReset = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -84,7 +84,7 @@ function AuthPage() {
       <div className="w-full max-w-md rise-in">
         <div className="mb-6 flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Building2 className="size-6" />
+            <Network className="size-6" />
           </div>
           <div>
             <h1 className="text-xl font-semibold">SysIntranet | Área Wiki</h1>
