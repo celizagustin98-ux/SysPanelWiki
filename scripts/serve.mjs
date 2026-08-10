@@ -210,6 +210,15 @@ function gitEnvWithToken() {
     : process.env;
 }
 
+function gitEnvWithoutToken() {
+  const env = { ...process.env };
+  delete env.GITHUB_TOKEN;
+  delete env.GIT_CONFIG_COUNT;
+  delete env.GIT_CONFIG_KEY_0;
+  delete env.GIT_CONFIG_VALUE_0;
+  return env;
+}
+
 async function runCommand(command, args, options = {}) {
   const { stdout, stderr } = await execFileAsync(command, args, {
     cwd: process.cwd(),
@@ -218,6 +227,20 @@ async function runCommand(command, args, options = {}) {
     maxBuffer: 1024 * 1024 * 8,
   });
   return `${stdout || ""}${stderr || ""}`.trim();
+}
+
+async function runGitWithAuthFallback(args, options = {}) {
+  const withToken = options.env || gitEnvWithToken();
+  try {
+    return await runCommand("git", args, { ...options, env: withToken });
+  } catch (error) {
+    if (!process.env.GITHUB_TOKEN) throw error;
+    const output = `${error?.stdout || ""}\n${error?.stderr || ""}\n${error?.message || ""}`;
+    if (!/authentication|authorization|bad credentials|could not read username|permission denied|repository not found/i.test(output)) {
+      throw error;
+    }
+    return runCommand("git", args, { ...options, env: gitEnvWithoutToken() });
+  }
 }
 
 function updateError(error, fallback) {
@@ -245,7 +268,11 @@ cd ${shellQuote(process.cwd())}
 {
   echo "== SysIntranet update $(date -Is) =="
   echo "Branch: ${branch}"
-  git fetch origin ${shellQuote(branch)}
+  if ! git fetch origin ${shellQuote(branch)}; then
+    echo "Fetch con credenciales fallo; reintentando sin GITHUB_TOKEN"
+    unset GITHUB_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+    git fetch origin ${shellQuote(branch)}
+  fi
   git reset --hard origin/${shellQuote(branch)}
   rm -rf dist .output .vinxi node_modules/.vite
   npm install --silent
@@ -284,19 +311,32 @@ async function handleUpdates(req, res) {
     await requireAdmin(req);
     const action = new URL(req.url, "http://localhost").pathname.replace("/api/updates/", "");
     const branch = process.env.GITHUB_BRANCH || process.env.REPO_BRANCH || DEFAULT_BRANCH;
-    const env = gitEnvWithToken();
 
     if (action === "check") {
       const settings = await one(`select version_actual from app_settings where singleton = true`);
-      const currentSha = await runCommand("git", ["rev-parse", "HEAD"], { env, timeout: 60_000 });
-      const remoteLine = await runCommand("git", ["ls-remote", "origin", `refs/heads/${branch}`], {
-        env,
+      const currentSha = await runCommand("git", ["rev-parse", "HEAD"], { timeout: 60_000 });
+      const remoteLine = await runGitWithAuthFallback(["ls-remote", "origin", `refs/heads/${branch}`], {
         timeout: 60_000,
       });
       const remoteSha = remoteLine.split(/\s+/)[0] || "";
       if (!remoteSha) {
-        return sendJson(res, 500, { error: "No se pudo verificar actualizaciones." }), true;
+        return sendJson(res, 200, {
+          ok: false,
+          error: "No se pudo verificar la rama de actualización configurada.",
+          repo: "",
+          currentVersion: currentSha.slice(0, 7) || settings?.version_actual || "local",
+          latestVersion: null,
+          latestUrl: null,
+          publishedAt: null,
+          notes: null,
+          hasUpdate: false,
+        }), true;
       }
+
+      await query(
+        `update app_settings set version_actual = $1, ultima_revision = now() where singleton = true`,
+        [currentSha.slice(0, 7) || settings?.version_actual || "local"],
+      );
 
       return (
         sendJson(res, 200, {
@@ -321,8 +361,7 @@ async function handleUpdates(req, res) {
       }
 
       try {
-        await runCommand("git", ["ls-remote", "origin", `refs/heads/${branch}`], {
-          env,
+        await runGitWithAuthFallback(["ls-remote", "origin", `refs/heads/${branch}`], {
           timeout: 60_000,
         });
         await runCommand("npm", ["--version"], { timeout: 30_000 });
@@ -333,6 +372,7 @@ async function handleUpdates(req, res) {
         }), true;
       }
 
+      const env = gitEnvWithToken();
       const logFile = startBackgroundUpdate({ branch, version, env });
       sendJson(res, 202, { ok: true, version, started: true, logFile });
       return true;
