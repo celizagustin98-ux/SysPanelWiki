@@ -8,7 +8,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "db:init": "node scripts/init-db.mjs",
-    "start": "node .output/server/index.mjs",
+    "start": "node scripts/serve.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
