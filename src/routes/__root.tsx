@@ -81,12 +81,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "SysIntranet | Wiki Area" },
+      { title: "SysIntranet | Área Wiki" },
       {
         name: "description",
         content: "Wiki operativa para sistemas: guardias, inventario, tóners y tareas.",
       },
-      { property: "og:title", content: "SysIntranet | Wiki Area" },
+      { property: "og:title", content: "SysIntranet | Área Wiki" },
       {
         property: "og:description",
         content: "Wiki operativa, guardias, inventario, tóners, tareas y credenciales.",

@@ -25,13 +25,13 @@ import { applyUpdate, checkForUpdates, type UpdateInfo } from "@/lib/updates.fun
 export const Route = createFileRoute("/_app/configuracion")({
   head: () => ({
     meta: [
-      { title: "Configuración | SysIntranet | Wiki Area" },
+      { title: "Configuración | SysIntranet | Área Wiki" },
       {
         name: "description",
         content:
-          "Permisos por rol, versión instalada y búsqueda de actualizaciones desde GitHub para SysIntranet | Wiki Area.",
+          "Permisos por rol, versión instalada y búsqueda de actualizaciones desde GitHub para SysIntranet | Área Wiki.",
       },
-      { property: "og:title", content: "Configuración | SysIntranet | Wiki Area" },
+      { property: "og:title", content: "Configuración | SysIntranet | Área Wiki" },
       {
         property: "og:description",
         content: "Matriz de permisos por rol y actualizaciones de la aplicación.",

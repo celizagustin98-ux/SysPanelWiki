@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Terminal } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,12 +12,12 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Acceso | SysIntranet | Wiki Area" },
+      { title: "SysIntranet | Área Wiki" },
       {
         name: "description",
-        content: "Ingreso con usuario y contraseña a SysIntranet | Wiki Area.",
+        content: "Ingreso con usuario y contraseña a SysIntranet | Área Wiki.",
       },
-      { property: "og:title", content: "Acceso | SysIntranet | Wiki Area" },
+      { property: "og:title", content: "SysIntranet | Área Wiki" },
       { property: "og:description", content: "Ingreso seguro a la intranet técnica." },
     ],
   }),
@@ -84,10 +84,10 @@ function AuthPage() {
       <div className="w-full max-w-md rise-in">
         <div className="mb-6 flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Terminal className="size-6" />
+            <Building2 className="size-6" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">SysIntranet | Wiki Area</h1>
+            <h1 className="text-xl font-semibold">SysIntranet | Área Wiki</h1>
             <p className="text-sm text-muted-foreground">Wiki, inventario y operación interna</p>
           </div>
         </div>

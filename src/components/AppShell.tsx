@@ -2,6 +2,7 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import {
   BookOpen,
   Boxes,
+  Building2,
   CalendarClock,
   History,
   KanbanSquare,
@@ -13,7 +14,6 @@ import {
   Settings2,
   ShieldCheck,
   Sun,
-  Terminal,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,10 +52,10 @@ export function AppShell() {
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 md:flex">
         <div className="flex items-center gap-2 px-2 pb-5">
           <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Terminal className="size-5" />
+            <Building2 className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-semibold leading-tight">SysWiki</p>
+            <p className="text-sm font-semibold leading-tight">SysIntranet</p>
             <p className="text-xs text-muted-foreground">Panel operativo</p>
           </div>
         </div>

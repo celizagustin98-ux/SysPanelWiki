@@ -43,7 +43,7 @@ export const checkForUpdates = createServerFn({ method: "POST" })
     const headers = {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token}`,
-      "User-Agent": "SysWiki",
+      "User-Agent": "SysIntranet",
     };
 
     try {

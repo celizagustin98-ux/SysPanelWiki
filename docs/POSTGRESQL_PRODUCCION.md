@@ -1,6 +1,6 @@
-# Instructivo PostgreSQL para SysIntranet | Wiki Area
+# Instructivo PostgreSQL para SysIntranet | Área Wiki
 
-Este instructivo deja una base PostgreSQL propia, controlada por vos, lista para usar con SysIntranet | Wiki Area.
+Este instructivo deja una base PostgreSQL propia, controlada por vos, lista para usar con SysIntranet | Área Wiki.
 
 ## 1. Requisitos
 

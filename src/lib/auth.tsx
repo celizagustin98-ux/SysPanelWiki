@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/integrations/api/client";
+import { ingresarConUsuario, registrarCuenta } from "@/lib/cuentas.functions";
 
 export type AppRole = "administrador" | "tecnico" | "consulta";
 
@@ -166,30 +167,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPerms: loadPerms,
     async signIn(username, password) {
       try {
-        const { error } = await api.auth.signInWithPassword({
-          username: username.trim().toLowerCase(),
-          password,
+        const data = await ingresarConUsuario({
+          data: {
+            username: username.trim().toLowerCase(),
+            password,
+          },
         });
-        return { error: error ? traducirError(error.message) : null };
+        if (!data.session?.token) return { error: "Usuario o contraseña incorrectos" };
+        await api.auth.setSession({ access_token: data.session.token });
+        return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo ingresar" };
       }
     },
     async signUp(fullName, username, email, password) {
       try {
-        const { error } = await api.auth.signUp({ fullName, username, email, password });
-        if (error) return { error: traducirError(error.message) };
+        await registrarCuenta({
+          data: {
+            fullName,
+            username: username.trim().toLowerCase(),
+            email: email.trim().toLowerCase(),
+            password,
+          },
+        });
         return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo crear la cuenta" };
       }
     },
-
     async resetPassword(email) {
       const { error } = await api.auth.resetPasswordForEmail(email.trim().toLowerCase());
       return { error: error ? traducirError(error.message) : null };
     },
-
 
     async signOut() {
       await api.auth.signOut();

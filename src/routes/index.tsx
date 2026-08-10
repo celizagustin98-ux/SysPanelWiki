@@ -6,13 +6,13 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "SysIntranet | Wiki Area" },
+      { title: "SysIntranet | Área Wiki" },
       {
         name: "description",
         content:
           "Wiki operativa integral: guardias, inventario, tóners, tareas y bóveda de credenciales.",
       },
-      { property: "og:title", content: "SysIntranet | Wiki Area" },
+      { property: "og:title", content: "SysIntranet | Área Wiki" },
       {
         property: "og:description",
         content: "Wiki operativa, guardias, inventario, tóners, tareas y credenciales en un solo lugar.",

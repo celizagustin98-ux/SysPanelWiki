@@ -31,13 +31,13 @@ import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/lib/usuarios
 export const Route = createFileRoute("/_app/usuarios")({
   head: () => ({
     meta: [
-      { title: "Usuarios y permisos | SysIntranet | Wiki Area" },
+      { title: "Usuarios y permisos | SysIntranet | Área Wiki" },
       {
         name: "description",
         content:
           "Alta, baja y modificación de usuarios, asignación de roles y permisos.",
       },
-      { property: "og:title", content: "Usuarios y permisos | SysIntranet | Wiki Area" },
+      { property: "og:title", content: "Usuarios y permisos | SysIntranet | Área Wiki" },
       {
         property: "og:description",
         content: "Gestión de usuarios y roles: administrador, técnico y consulta.",

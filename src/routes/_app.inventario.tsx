@@ -27,9 +27,9 @@ export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Inventario | SysIntranet | Wiki Area" },
+      { title: "Inventario | SysIntranet | Área Wiki" },
       { name: "description", content: "Gestión de activos de sistemas: hardware, periféricos y licencias." },
-      { property: "og:title", content: "Inventario | SysIntranet | Wiki Area" },
+      { property: "og:title", content: "Inventario | SysIntranet | Área Wiki" },
       { property: "og:description", content: "Control de estados y asignación de activos." },
     ],
   }),
