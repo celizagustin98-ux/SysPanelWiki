@@ -1,8 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
-import { ingresarConUsuario, registrarCuenta } from "@/lib/cuentas.functions";
-
+import { api } from "@/integrations/api/client";
 
 export type AppRole = "administrador" | "tecnico" | "consulta";
 
@@ -28,6 +25,8 @@ export type PermRow = {
 };
 
 type Profile = { id: string; full_name: string; email: string; username: string | null };
+type User = { id: string; email: string };
+type Session = { token: string; user: User; profile: Profile; role: AppRole };
 
 type AuthCtx = {
   session: Session | null;
@@ -82,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: sub } = api.auth.onAuthStateChange((_e, s) => {
       setSession(s);
       if (!s) {
         setProfile(null);
@@ -90,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setPerms([]);
       }
     });
-    supabase.auth.getSession().then(({ data }) => {
+    api.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
     });
@@ -98,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadPerms = useCallback(async () => {
-    const { data } = await supabase
+    const { data } = await api
       .from("role_permissions")
       .select("id, role, modulo, can_view, can_create, can_edit, can_delete");
     setPerms((data ?? []) as PermRow[]);
@@ -110,13 +109,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     (async () => {
       const [{ data: p }, { data: r }] = await Promise.all([
-        supabase
+        api
           .from("profiles")
           .select("id, full_name, email, username")
           .eq("id", uid)
           .maybeSingle(),
 
-        supabase.from("user_roles").select("role").eq("user_id", uid),
+        api.from("user_roles").select("role").eq("user_id", uid),
       ]);
       if (!active) return;
       setProfile((p as Profile) ?? null);
@@ -167,12 +166,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPerms: loadPerms,
     async signIn(username, password) {
       try {
-        const tokens = await ingresarConUsuario({
-          data: { username: username.trim().toLowerCase(), password },
-        });
-        const { error } = await supabase.auth.setSession({
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
+        const { error } = await api.auth.signInWithPassword({
+          username: username.trim().toLowerCase(),
+          password,
         });
         return { error: error ? traducirError(error.message) : null };
       } catch (e) {
@@ -181,7 +177,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async signUp(fullName, username, email, password) {
       try {
-        await registrarCuenta({ data: { fullName, username, email, password } });
+        const { error } = await api.auth.signUp({ fullName, username, email, password });
+        if (error) return { error: traducirError(error.message) };
         return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo crear la cuenta" };
@@ -189,15 +186,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
 
     async resetPassword(email) {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+      const { error } = await api.auth.resetPasswordForEmail(email.trim().toLowerCase());
       return { error: error ? traducirError(error.message) : null };
     },
 
 
     async signOut() {
-      await supabase.auth.signOut();
+      await api.auth.signOut();
     },
   };
 

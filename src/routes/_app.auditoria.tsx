@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/auditoria")({
@@ -92,7 +92,7 @@ function AuditoriaPage() {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    let q = supabase
+    let q = api
       .from("audit_log")
       .select(
         "id, actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle, created_at",
@@ -120,7 +120,7 @@ function AuditoriaPage() {
   useEffect(() => {
     if (!isAdmin) return;
     void (async () => {
-      const { data } = await supabase.rpc("audit_actores");
+      const { data } = await api.rpc("audit_actores");
       setActores((data ?? []) as Actor[]);
     })();
   }, [isAdmin]);

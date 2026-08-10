@@ -31,7 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -83,7 +83,7 @@ function TareasPage() {
   const { data: tareas = [] } = useQuery({
     queryKey: ["tareas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("tareas").select("*").order("orden");
+      const { data, error } = await api.from("tareas").select("*").order("orden");
       if (error) throw error;
       return data as Tarea[];
     },
@@ -92,7 +92,7 @@ function TareasPage() {
   const { data: perfiles = [] } = useQuery({
     queryKey: ["profiles-directorio"],
     queryFn: async () => {
-      const { data } = await supabase.rpc("directorio_usuarios");
+      const { data } = await api.rpc("directorio_usuarios");
       return (data ?? []) as { id: string; full_name: string }[];
     },
   });
@@ -106,7 +106,7 @@ function TareasPage() {
   );
 
   const mover = async (id: string, estado: string) => {
-    const { error } = await supabase.from("tareas").update({ estado }).eq("id", id);
+    const { error } = await api.from("tareas").update({ estado }).eq("id", id);
     if (error) return toast.error(error.message);
     qc.invalidateQueries({ queryKey: ["tareas"] });
   };
@@ -280,7 +280,7 @@ function DetalleTarea({
     queryKey: ["subtareas", tarea?.id],
     enabled: !!tarea,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("tarea_subtareas")
         .select("*")
         .eq("tarea_id", tarea!.id)
@@ -293,7 +293,7 @@ function DetalleTarea({
     queryKey: ["comentarios", tarea?.id],
     enabled: !!tarea,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("tarea_comentarios")
         .select("*")
         .eq("tarea_id", tarea!.id)
@@ -305,7 +305,7 @@ function DetalleTarea({
   const { data: docs = [] } = useQuery({
     queryKey: ["wiki_docs_min"],
     queryFn: async () => {
-      const { data } = await supabase.from("wiki_docs").select("id, title").order("title");
+      const { data } = await api.from("wiki_docs").select("id, title").order("title");
       return (data ?? []) as { id: string; title: string }[];
     },
   });
@@ -314,7 +314,7 @@ function DetalleTarea({
     queryKey: ["tarea_instructivos", tarea?.id],
     enabled: !!tarea,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("tarea_instructivos")
         .select("doc_id")
         .eq("tarea_id", tarea!.id);
@@ -369,7 +369,7 @@ function DetalleTarea({
                       checked={s.hecha}
                       disabled={!canWrite}
                       onCheckedChange={async (v) => {
-                        await supabase.from("tarea_subtareas").update({ hecha: !!v }).eq("id", s.id);
+                        await api.from("tarea_subtareas").update({ hecha: !!v }).eq("id", s.id);
                         refetch();
                       }}
                     />
@@ -382,7 +382,7 @@ function DetalleTarea({
                         variant="ghost"
                         className="size-7"
                         onClick={async () => {
-                          await supabase.from("tarea_subtareas").delete().eq("id", s.id);
+                          await api.from("tarea_subtareas").delete().eq("id", s.id);
                           refetch();
                         }}
                       >
@@ -398,7 +398,7 @@ function DetalleTarea({
                   onSubmit={async (e) => {
                     e.preventDefault();
                     if (!nuevaSub.trim()) return;
-                    await supabase
+                    await api
                       .from("tarea_subtareas")
                       .insert({ tarea_id: tarea.id, titulo: nuevaSub.trim() });
                     setNuevaSub("");
@@ -440,7 +440,7 @@ function DetalleTarea({
                 onSubmit={async (e) => {
                   e.preventDefault();
                   if (!comentario.trim() || !user) return;
-                  const { error } = await supabase
+                  const { error } = await api
                     .from("tarea_comentarios")
                     .insert({ tarea_id: tarea.id, autor_id: user.id, contenido: comentario.trim() });
                   if (error) return toast.error(error.message);
@@ -468,7 +468,7 @@ function DetalleTarea({
                 value={tarea.estado}
                 disabled={!canWrite}
                 onValueChange={async (v) => {
-                  await supabase.from("tareas").update({ estado: v }).eq("id", tarea.id);
+                  await api.from("tareas").update({ estado: v }).eq("id", tarea.id);
                   refetch();
                 }}
               >
@@ -489,7 +489,7 @@ function DetalleTarea({
                 value={tarea.prioridad}
                 disabled={!canWrite}
                 onValueChange={async (v) => {
-                  await supabase.from("tareas").update({ prioridad: v }).eq("id", tarea.id);
+                  await api.from("tareas").update({ prioridad: v }).eq("id", tarea.id);
                   refetch();
                 }}
               >
@@ -510,7 +510,7 @@ function DetalleTarea({
                 value={tarea.asignado_a ?? "none"}
                 disabled={!canWrite}
                 onValueChange={async (v) => {
-                  await supabase
+                  await api
                     .from("tareas")
                     .update({ asignado_a: v === "none" ? null : v })
                     .eq("id", tarea.id);
@@ -559,7 +559,7 @@ function DetalleTarea({
                           variant="ghost"
                           className="size-7"
                           onClick={async () => {
-                            await supabase
+                            await api
                               .from("tarea_instructivos")
                               .delete()
                               .eq("tarea_id", tarea.id)
@@ -582,7 +582,7 @@ function DetalleTarea({
                   value={docVinculo}
                   onValueChange={async (v) => {
                     setDocVinculo("");
-                    const { error } = await supabase
+                    const { error } = await api
                       .from("tarea_instructivos")
                       .insert({ tarea_id: tarea.id, doc_id: v });
                     if (error) return toast.error("Ya está vinculado");
@@ -610,7 +610,7 @@ function DetalleTarea({
                 variant="outline"
                 className="w-full"
                 onClick={async () => {
-                  await supabase.from("tareas").delete().eq("id", tarea.id);
+                  await api.from("tareas").delete().eq("id", tarea.id);
                   toast.success("Tarea eliminada");
                   onClose();
                   qc.invalidateQueries({ queryKey: ["tareas"] });
@@ -654,7 +654,7 @@ function NuevaTarea({
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { error } = await supabase.from("tareas").insert({
+            const { error } = await api.from("tareas").insert({
               titulo: String(fd.get("titulo")),
               descripcion: String(fd.get("descripcion") || ""),
               prioridad,

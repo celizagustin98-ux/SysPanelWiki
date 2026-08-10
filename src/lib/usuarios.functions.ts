@@ -1,20 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAppAuth } from "@/integrations/api/auth-middleware";
+import { assertAdmin, hashPassword, query } from "@/lib/server/postgres";
 
 type AppRole = "administrador" | "tecnico" | "consulta";
 
 const ROLES: AppRole[] = ["administrador", "tecnico", "consulta"];
 
-async function assertAdmin(context: { supabase: any; userId: string }) {
-  const { data: isAdmin } = await context.supabase.rpc("has_role", {
-    _user_id: context.userId,
-    _role: "administrador",
-  });
-  if (!isAdmin) throw new Error("Solo un administrador puede gestionar usuarios");
-}
-
 export const crearUsuario = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAppAuth])
   .inputValidator(
     (data: { email: string; username: string; password: string; fullName: string; role: AppRole }) => {
     const email = (data?.email ?? "").trim().toLowerCase();
@@ -31,47 +24,38 @@ export const crearUsuario = createServerFn({ method: "POST" })
     return { email, username, password, fullName, role };
   })
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
-      password: data.password,
-      email_confirm: true,
-      user_metadata: { full_name: data.fullName, username: data.username },
-    });
-    if (error || !created.user) throw new Error(error?.message ?? "No se pudo crear el usuario");
-
-    const uid = created.user.id;
-    await supabaseAdmin
-      .from("profiles")
-      .upsert({ id: uid, full_name: data.fullName, email: data.email, username: data.username });
-    await supabaseAdmin.from("user_roles").delete().eq("user_id", uid);
-    const { error: rErr } = await supabaseAdmin
-      .from("user_roles")
-      .insert({ user_id: uid, role: data.role });
-    if (rErr) throw new Error(rErr.message);
+    await assertAdmin(context.userId);
+    const created = await query<{ id: string }>(
+      `insert into app_users (email, password_hash) values ($1, $2) returning id`,
+      [data.email, await hashPassword(data.password)],
+    );
+    const uid = created.rows[0].id;
+    await query(`insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`, [
+      uid,
+      data.fullName,
+      data.email,
+      data.username,
+    ]);
+    await query(`insert into user_roles (user_id, role) values ($1, $2)`, [uid, data.role]);
 
     return { id: uid, email: data.email, full_name: data.fullName, role: data.role };
   });
 
 export const eliminarUsuario = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAppAuth])
   .inputValidator((data: { userId: string }) => {
     if (!data?.userId) throw new Error("Usuario inválido");
     return { userId: data.userId };
   })
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    await assertAdmin(context.userId);
     if (data.userId === context.userId) throw new Error("No podés eliminar tu propio usuario");
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(data.userId);
-    if (error) throw new Error(error.message);
+    await query(`delete from app_users where id = $1`, [data.userId]);
     return { ok: true };
   });
 
 export const actualizarUsuario = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAppAuth])
   .inputValidator((data: { userId: string; fullName?: string; password?: string }) => {
     if (!data?.userId) throw new Error("Usuario inválido");
     const fullName = data.fullName?.trim();
@@ -83,24 +67,16 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
     return { userId: data.userId, fullName, password };
   })
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await assertAdmin(context.userId);
 
     if (data.password) {
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
-        password: data.password,
-      });
-      if (error) throw new Error(error.message);
+      await query(`update app_users set password_hash = $1 where id = $2`, [
+        await hashPassword(data.password),
+        data.userId,
+      ]);
     }
     if (data.fullName) {
-      const { error } = await supabaseAdmin
-        .from("profiles")
-        .update({ full_name: data.fullName })
-        .eq("id", data.userId);
-      if (error) throw new Error(error.message);
-      await supabaseAdmin.auth.admin.updateUserById(data.userId, {
-        user_metadata: { full_name: data.fullName },
-      });
+      await query(`update profiles set full_name = $1 where id = $2`, [data.fullName, data.userId]);
     }
     return { ok: true };
   });

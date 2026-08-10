@@ -22,7 +22,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/toners")({
@@ -58,7 +58,7 @@ function TonersPage() {
   const { data: modelos = [] } = useQuery({
     queryKey: ["toner_modelos"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("toner_modelos").select("*").order("nombre");
+      const { data, error } = await api.from("toner_modelos").select("*").order("nombre");
       if (error) throw error;
       return data as Modelo[];
     },
@@ -67,7 +67,7 @@ function TonersPage() {
   const { data: movimientos = [] } = useQuery({
     queryKey: ["toner_movimientos"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("toner_movimientos")
         .select("*, toner_modelos(nombre)")
         .order("created_at", { ascending: false })
@@ -88,7 +88,7 @@ function TonersPage() {
   const { data: unidades = [] } = useQuery({
     queryKey: ["toner_unidades"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("toner_unidades")
         .select("*, toner_modelos(nombre)")
         .order("created_at", { ascending: false })
@@ -112,7 +112,7 @@ function TonersPage() {
 
   const generar = useMutation({
     mutationFn: async ({ modelo_id, cantidad }: { modelo_id: string; cantidad: number }) => {
-      const { data, error } = await supabase.rpc("generar_codigos_toner", {
+      const { data, error } = await api.rpc("generar_codigos_toner", {
         _modelo_id: modelo_id,
         _cantidad: cantidad,
       });
@@ -399,7 +399,7 @@ function ModeloDialog({ onDone }: { onDone: () => void }) {
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { error } = await supabase.from("toner_modelos").insert({
+            const { error } = await api.from("toner_modelos").insert({
               nombre: String(fd.get("nombre")),
               marca: String(fd.get("marca") || ""),
               prefijo: String(fd.get("prefijo")).toLowerCase(),
@@ -469,7 +469,7 @@ function MovimientoDialog({
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { error } = await supabase.from("toner_movimientos").insert({
+            const { error } = await api.from("toner_movimientos").insert({
               modelo_id: modelo.id,
               tipo,
               cantidad: Number(fd.get("cantidad") || 1),

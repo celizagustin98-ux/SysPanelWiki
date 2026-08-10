@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
 import { applyUpdate, checkForUpdates, type UpdateInfo } from "@/lib/updates.functions";
 
@@ -93,7 +93,7 @@ function ConfiguracionPage() {
   }, [perms]);
 
   const loadSettings = async () => {
-    const { data } = await supabase
+    const { data } = await api
       .from("app_settings")
       .select("version_actual, github_repo, ultima_revision, ultima_actualizacion")
       .maybeSingle();
@@ -116,7 +116,7 @@ function ConfiguracionPage() {
     const next = !row[key];
     setSaving(`${row.id}-${key}`);
     const patch: Partial<Record<(typeof ACCIONES)[number]["key"], boolean>> = { [key]: next };
-    const { error } = await supabase.from("role_permissions").update(patch).eq("id", row.id);
+    const { error } = await api.from("role_permissions").update(patch).eq("id", row.id);
     setSaving(null);
     if (error) {
       toast.error(error.message);
@@ -136,7 +136,7 @@ function ConfiguracionPage() {
       else if (res.hasUpdate) toast.success(`Nueva versión disponible: ${res.latestVersion}`);
       else toast.success("La aplicación está al día");
       if (isAdmin) {
-        await supabase
+        await api
           .from("app_settings")
           .update({ ultima_revision: new Date().toISOString() })
           .eq("singleton", true);
@@ -166,7 +166,7 @@ function ConfiguracionPage() {
   };
 
   const saveRepo = async () => {
-    const { error } = await supabase
+    const { error } = await api
       .from("app_settings")
       .update({ github_repo: repo.trim() })
       .eq("singleton", true);

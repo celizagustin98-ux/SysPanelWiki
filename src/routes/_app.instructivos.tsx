@@ -31,7 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +76,7 @@ function InstructivosPage() {
   const { data: carpetas = [] } = useQuery({
     queryKey: ["wiki_folders"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("wiki_folders").select("*").order("name");
+      const { data, error } = await api.from("wiki_folders").select("*").order("name");
       if (error) throw error;
       return data as Carpeta[];
     },
@@ -85,7 +85,7 @@ function InstructivosPage() {
   const { data: docs = [] } = useQuery({
     queryKey: ["wiki_docs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("wiki_docs")
         .select("*")
         .order("updated_at", { ascending: false });
@@ -100,7 +100,7 @@ function InstructivosPage() {
     queryKey: ["wiki_attachments", selected],
     enabled: !!selected,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("wiki_attachments")
         .select("*")
         .eq("doc_id", selected!);
@@ -114,7 +114,7 @@ function InstructivosPage() {
     setDraft({ title: activo.title, content: activo.content, tags: activo.tags.join(", ") });
     setEditing(false);
     setPdfActivo(null);
-    supabase
+    api
       .from("wiki_docs")
       .update({ views: activo.views + 1 })
       .eq("id", activo.id)
@@ -140,7 +140,7 @@ function InstructivosPage() {
 
   const guardar = async () => {
     if (!activo) return;
-    const { error } = await supabase
+    const { error } = await api
       .from("wiki_docs")
       .update({
         title: draft.title,
@@ -161,9 +161,9 @@ function InstructivosPage() {
     if (!activo) return;
     if (file.type !== "application/pdf") return toast.error("Solo se permiten archivos PDF");
     const path = `${activo.id}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-    const { error } = await supabase.storage.from("instructivos").upload(path, file);
+    const { error } = await api.storage.from("instructivos").upload(path, file);
     if (error) return toast.error(error.message);
-    const { error: e2 } = await supabase
+    const { error: e2 } = await api
       .from("wiki_attachments")
       .insert({ doc_id: activo.id, file_name: file.name, file_path: path });
     if (e2) return toast.error(e2.message);
@@ -172,7 +172,7 @@ function InstructivosPage() {
   };
 
   const verPdf = async (a: Adjunto) => {
-    const { data, error } = await supabase.storage
+    const { data, error } = await api.storage
       .from("instructivos")
       .createSignedUrl(a.file_path, 3600);
     if (error) return toast.error(error.message);
@@ -350,7 +350,7 @@ function InstructivosPage() {
                       size="icon"
                       variant="ghost"
                       onClick={async () => {
-                        const { error } = await supabase.from("wiki_docs").delete().eq("id", activo.id);
+                        const { error } = await api.from("wiki_docs").delete().eq("id", activo.id);
                         if (error) return toast.error(error.message);
                         toast.success("Instructivo eliminado");
                         setSelected(null);
@@ -451,7 +451,7 @@ function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () =>
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { error } = await supabase.from("wiki_folders").insert({
+            const { error } = await api.from("wiki_folders").insert({
               name: String(fd.get("name")),
               parent_id: parent === "root" ? null : parent,
             });
@@ -517,7 +517,7 @@ function NuevoDoc({
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { data, error } = await supabase
+            const { data, error } = await api
               .from("wiki_docs")
               .insert({
                 title: String(fd.get("title")),

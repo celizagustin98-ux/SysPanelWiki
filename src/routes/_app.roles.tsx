@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/roles")({
@@ -93,8 +93,8 @@ function RolesPage() {
   const cargarUsuarios = useCallback(async () => {
     setCargando(true);
     const [{ data: profiles }, { data: roles }] = await Promise.all([
-      supabase.from("profiles").select("id, full_name, email").order("full_name"),
-      supabase.from("user_roles").select("user_id, role"),
+      api.from("profiles").select("id, full_name, email").order("full_name"),
+      api.from("user_roles").select("user_id, role"),
     ]);
     const mapa = new Map<string, AppRole>();
     (roles ?? []).forEach((r) => mapa.set(r.user_id, r.role as AppRole));
@@ -121,7 +121,7 @@ function RolesPage() {
     const next = !row[key];
     setSaving(`${row.id}-${key}`);
     const patch: Partial<Record<AccionKey, boolean>> = { [key]: next };
-    const { error } = await supabase.from("role_permissions").update(patch).eq("id", row.id);
+    const { error } = await api.from("role_permissions").update(patch).eq("id", row.id);
     setSaving(null);
     if (error) return toast.error(error.message);
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, [key]: next } : r)));
@@ -141,7 +141,7 @@ function RolesPage() {
           ? { can_view: true, can_create: true, can_edit: true, can_delete: false }
           : { can_view: false, can_create: false, can_edit: false, can_delete: false };
     setSaving("preset");
-    const { error } = await supabase.from("role_permissions").update(patch).eq("role", rolActivo);
+    const { error } = await api.from("role_permissions").update(patch).eq("role", rolActivo);
     setSaving(null);
     if (error) return toast.error(error.message);
     await refreshPerms();
@@ -150,7 +150,7 @@ function RolesPage() {
 
   const cambiarRol = async (usuarioId: string, nuevo: AppRole) => {
     setCambiando(usuarioId);
-    const { error } = await supabase.rpc("set_user_role", {
+    const { error } = await api.rpc("set_user_role", {
       _user_id: usuarioId,
       _role: nuevo,
     });

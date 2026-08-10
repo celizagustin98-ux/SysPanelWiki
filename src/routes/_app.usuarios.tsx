@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/lib/usuarios.functions";
 
@@ -73,8 +73,8 @@ function UsuariosPage() {
   const load = async () => {
     setLoading(true);
     const [{ data: profiles }, { data: roles }] = await Promise.all([
-      supabase.from("profiles").select("id, full_name, email").order("created_at"),
-      supabase.from("user_roles").select("user_id, role"),
+      api.from("profiles").select("id, full_name, email").order("created_at"),
+      api.from("user_roles").select("user_id, role"),
     ]);
     const map = new Map<string, AppRole>();
     (roles ?? []).forEach((r) => map.set(r.user_id, r.role as AppRole));
@@ -102,7 +102,7 @@ function UsuariosPage() {
   }, [rows, q]);
 
   const changeRole = async (userId: string, role: AppRole) => {
-    const { error } = await supabase.rpc("set_user_role", { _user_id: userId, _role: role });
+    const { error } = await api.rpc("set_user_role", { _user_id: userId, _role: role });
     if (error) {
       toast.error(error.message);
       return;

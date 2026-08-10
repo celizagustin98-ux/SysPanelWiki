@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppShell";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/dashboard")({
@@ -36,24 +36,24 @@ function Dashboard() {
     queryFn: async () => {
       const now = new Date().toISOString();
       const [equipos, tareas, toners, docs, guardia, misTareas, criticos] = await Promise.all([
-        supabase.from("inventario").select("id", { count: "exact", head: true }),
-        supabase.from("tareas").select("id", { count: "exact", head: true }).neq("estado", "hecha"),
-        supabase.from("toner_modelos").select("stock, stock_minimo, nombre"),
-        supabase.from("wiki_docs").select("id, title, views").order("views", { ascending: false }).limit(5),
-        supabase
+        api.from("inventario").select("id", { count: "exact", head: true }),
+        api.from("tareas").select("id", { count: "exact", head: true }).neq("estado", "hecha"),
+        api.from("toner_modelos").select("stock, stock_minimo, nombre"),
+        api.from("wiki_docs").select("id, title, views").order("views", { ascending: false }).limit(5),
+        api
           .from("guardias")
           .select("*")
           .lte("desde", now)
           .gte("hasta", now)
           .order("desde")
           .limit(1),
-        supabase
+        api
           .from("tareas")
           .select("id, titulo, estado, prioridad")
           .eq("asignado_a", user?.id ?? "")
           .neq("estado", "hecha")
           .limit(6),
-        supabase.from("credenciales").select("id", { count: "exact", head: true }),
+        api.from("credenciales").select("id", { count: "exact", head: true }),
       ]);
       const stockTotal = (toners.data ?? []).reduce((a, t) => a + t.stock, 0);
       const stockCritico = (toners.data ?? []).filter((t) => t.stock <= t.stock_minimo);

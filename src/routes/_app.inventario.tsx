@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/inventario")({
@@ -87,8 +87,8 @@ function ItemDialog({
       notas: String(fd.get("notas") || ""),
     };
     const { error } = item
-      ? await supabase.from("inventario").update(payload).eq("id", item.id)
-      : await supabase.from("inventario").insert(payload);
+      ? await api.from("inventario").update(payload).eq("id", item.id)
+      : await api.from("inventario").insert(payload);
     if (error) return toast.error(error.message);
     toast.success(item ? "Activo actualizado" : "Activo creado");
     setOpen(false);
@@ -184,7 +184,7 @@ function InventarioPage() {
   const { data = [] } = useQuery({
     queryKey: ["inventario"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("inventario")
         .select("*")
         .order("created_at", { ascending: false });
@@ -195,7 +195,7 @@ function InventarioPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("inventario").delete().eq("id", id);
+      const { error } = await api.from("inventario").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {

@@ -30,7 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -79,8 +79,8 @@ function GuardiaDialog({
     if (new Date(payload.hasta) <= new Date(payload.desde))
       return toast.error("La fecha de fin debe ser posterior al inicio");
     const { error } = guardia
-      ? await supabase.from("guardias").update(payload).eq("id", guardia.id)
-      : await supabase.from("guardias").insert(payload);
+      ? await api.from("guardias").update(payload).eq("id", guardia.id)
+      : await api.from("guardias").insert(payload);
     if (error) return toast.error(error.message);
     toast.success(guardia ? "Guardia actualizada" : "Guardia cargada");
     setOpen(false);
@@ -130,7 +130,7 @@ function GuardiasPage() {
   const { data = [] } = useQuery({
     queryKey: ["guardias"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("guardias").select("*").order("desde");
+      const { data, error } = await api.from("guardias").select("*").order("desde");
       if (error) throw error;
       return data as Guardia[];
     },
@@ -138,7 +138,7 @@ function GuardiasPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("guardias").delete().eq("id", id);
+      const { error } = await api.from("guardias").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {

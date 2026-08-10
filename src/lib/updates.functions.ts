@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAppAuth } from "@/integrations/api/auth-middleware";
+import { assertAdmin, one, query } from "@/lib/server/postgres";
 
 export type UpdateInfo = {
   ok: boolean;
@@ -14,13 +15,11 @@ export type UpdateInfo = {
 };
 
 export const checkForUpdates = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAppAuth])
   .handler(async ({ context }): Promise<UpdateInfo> => {
-    const { supabase } = context;
-    const { data: settings } = await supabase
-      .from("app_settings")
-      .select("version_actual, github_repo")
-      .maybeSingle();
+    const settings = await one<{ version_actual: string; github_repo: string }>(
+      `select version_actual, github_repo from app_settings where singleton = true`,
+    );
 
     const repo = settings?.github_repo ?? "celizagustin98-ux/SysIntranet";
     const currentVersion = settings?.version_actual ?? "v1.0.0";
@@ -104,26 +103,17 @@ export const checkForUpdates = createServerFn({ method: "POST" })
   });
 
 export const applyUpdate = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAppAuth])
   .inputValidator((data: { version: string }) => {
     if (!data?.version || data.version.length > 120) throw new Error("Versión inválida");
     return data;
   })
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    const { data: isAdmin } = await supabase.rpc("has_role", {
-      _user_id: userId,
-      _role: "administrador",
-    });
-    if (!isAdmin) throw new Error("Solo un administrador puede aplicar actualizaciones");
+    await assertAdmin(context.userId);
 
-    const { error } = await supabase
-      .from("app_settings")
-      .update({
-        version_actual: data.version,
-        ultima_actualizacion: new Date().toISOString(),
-      })
-      .eq("singleton", true);
-    if (error) throw new Error(error.message);
+    await query(
+      `update app_settings set version_actual = $1, ultima_actualizacion = now() where singleton = true`,
+      [data.version],
+    );
     return { ok: true, version: data.version };
   });

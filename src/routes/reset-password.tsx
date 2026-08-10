@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 
 export const Route = createFileRoute("/reset-password")({
   ssr: false,
@@ -56,14 +56,14 @@ function ResetPasswordPage() {
 
       try {
         if (accessToken && refreshToken) {
-          await supabase.auth.setSession({
+          await api.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
         } else if (code) {
-          await supabase.auth.exchangeCodeForSession(code);
+          await api.auth.exchangeCodeForSession(code);
         } else if (tokenHash) {
-          await supabase.auth.verifyOtp({ type: "recovery", token_hash: tokenHash });
+          await api.auth.verifyOtp({ type: "recovery", token_hash: tokenHash });
         }
       } catch {
         /* se valida abajo con getSession */
@@ -72,7 +72,7 @@ function ResetPasswordPage() {
       // Limpia los tokens de la URL.
       window.history.replaceState({}, "", window.location.pathname);
 
-      const { data } = await supabase.auth.getSession();
+      const { data } = await api.auth.getSession();
       if (cancelado) return;
       setEstado(data.session ? "listo" : "invalido");
     })();
@@ -91,7 +91,7 @@ function ResetPasswordPage() {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: pass });
+    const { error } = await api.auth.updateUser({ password: pass });
     if (error) {
       setBusy(false);
       toast.error(
@@ -102,7 +102,7 @@ function ResetPasswordPage() {
       return;
     }
     // Cierra la sesión de recuperación para que ingrese con la contraseña nueva.
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     setBusy(false);
     toast.success("Contraseña actualizada. Ingresá con tu nueva contraseña.");
     navigate({ to: "/auth", replace: true });

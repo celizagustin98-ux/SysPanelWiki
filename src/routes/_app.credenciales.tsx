@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/credenciales")({
@@ -54,7 +54,7 @@ function CredencialesPage() {
   const { data = [], isError } = useQuery({
     queryKey: ["credenciales"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("credenciales").select("*").order("servicio");
+      const { data, error } = await api.from("credenciales").select("*").order("servicio");
       if (error) throw error;
       return data as Cred[];
     },
@@ -138,7 +138,7 @@ function CredencialesPage() {
                         size="icon"
                         variant="ghost"
                         onClick={async () => {
-                          const { error } = await supabase.from("credenciales").delete().eq("id", c.id);
+                          const { error } = await api.from("credenciales").delete().eq("id", c.id);
                           if (error) return toast.error(error.message);
                           toast.success("Credencial eliminada");
                           qc.invalidateQueries({ queryKey: ["credenciales"] });
@@ -183,7 +183,7 @@ function CredDialog({ userId, onDone }: { userId?: string; onDone: () => void })
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { error } = await supabase.from("credenciales").insert({
+            const { error } = await api.from("credenciales").insert({
               servicio: String(fd.get("servicio")),
               categoria: String(fd.get("categoria") || "infraestructura"),
               usuario: String(fd.get("usuario") || ""),
