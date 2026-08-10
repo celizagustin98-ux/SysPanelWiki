@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   addMonths,
+  differenceInCalendarDays,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
@@ -16,9 +17,12 @@ import { es } from "date-fns/locale";
 import {
   CalendarCheck,
   CalendarDays,
+  CalendarRange,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Clock3,
+  ListChecks,
   Plus,
   Radio,
   ShieldCheck,
@@ -134,6 +138,181 @@ function GuardiaDialog({
   );
 }
 
+function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [desde, setDesde] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [hasta, setHasta] = useState(format(addMonths(new Date(), 1), "yyyy-MM-dd"));
+  const [horaInicio, setHoraInicio] = useState("08:00");
+  const [duracionDias, setDuracionDias] = useState(7);
+  const [operarios, setOperarios] = useState("");
+  const [notas, setNotas] = useState("Guardia del período");
+  const [saving, setSaving] = useState(false);
+
+  const preview = useMemo(
+    () => generarTurnosPeriodo({ desde, hasta, horaInicio, duracionDias, operarios, notas }),
+    [desde, hasta, horaInicio, duracionDias, operarios, notas],
+  );
+  const nombres = useMemo(
+    () =>
+      operarios
+        .split(/\r?\n/)
+        .map((nombre) => nombre.trim())
+        .filter(Boolean),
+    [operarios],
+  );
+  const diasPeriodo = useMemo(() => calcularDiasCalendario(desde, hasta), [desde, hasta]);
+
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (preview.error) return toast.error(preview.error);
+    if (preview.turnos.length === 0) return toast.error("No hay turnos para cargar");
+
+    setSaving(true);
+    const { error } = await api.from("guardias").insert(preview.turnos);
+    setSaving(false);
+
+    if (error) return toast.error(error.message);
+    toast.success(`${preview.turnos.length} guardias cargadas para el período`);
+    setOpen(false);
+    onDone();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <CalendarRange className="size-4" /> Cargar período
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Nuevo período de guardias</DialogTitle>
+        </DialogHeader>
+        <form className="grid gap-5" onSubmit={submit}>
+          <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <ClipboardList className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">Planificación del período</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {diasPeriodo > 0
+                      ? `${diasPeriodo} días de cobertura entre ${formatDateInput(desde)} y ${formatDateInput(hasta)}.`
+                      : "Seleccioná el rango de cobertura."}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
+                  <p className="text-lg font-semibold">{diasPeriodo || "-"}</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Días</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
+                  <p className="text-lg font-semibold">{nombres.length || "-"}</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Operarios</p>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
+                  <p className="text-lg font-semibold">{preview.error ? "-" : preview.turnos.length}</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Turnos</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div className="space-y-1.5">
+              <Label>Inicio del período</Label>
+              <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fin del período</Label>
+              <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Hora de relevo</Label>
+              <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Días por turno</Label>
+              <Input
+                type="number"
+                min={1}
+                max={31}
+                value={duracionDias}
+                onChange={(e) => setDuracionDias(Number(e.target.value))}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="space-y-1.5">
+              <Label>Operarios del período</Label>
+              <Textarea
+                className="min-h-52"
+                placeholder={"Agustin Celiz\nMaría Gomez\nCarlos Ruiz"}
+                value={operarios}
+                onChange={(e) => setOperarios(e.target.value)}
+                required
+              />
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {nombres.slice(0, 8).map((nombre) => (
+                  <Badge key={nombre} variant="outline" className="border-primary/25 bg-primary/5 text-primary">
+                    {nombre}
+                  </Badge>
+                ))}
+                {nombres.length > 8 && <Badge variant="outline">+{nombres.length - 8}</Badge>}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+              <div className="flex items-center gap-2">
+                <ListChecks className="size-4 text-primary" />
+                <p className="text-sm font-semibold">Vista previa</p>
+              </div>
+              {preview.error ? (
+                <p className="mt-3 text-sm text-destructive">{preview.error}</p>
+              ) : (
+                <>
+                  <p className="mt-1 text-xs text-muted-foreground">{preview.turnos.length} turnos a crear</p>
+                  <div className="mt-3 max-h-52 space-y-2 overflow-auto pr-1">
+                    {preview.turnos.slice(0, 10).map((g, index) => (
+                      <div key={`${g.operador_nombre}-${g.desde}-${index}`} className="rounded-xl border border-border/50 bg-muted/30 p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-xs font-semibold">{g.operador_nombre}</p>
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                            #{index + 1}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">{formatGuardiaRange(g)}</p>
+                      </div>
+                    ))}
+                    {preview.turnos.length > 10 && (
+                      <p className="text-xs text-muted-foreground">+{preview.turnos.length - 10} turnos más</p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Notas para estos turnos</Label>
+            <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} />
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={saving || !!preview.error}>
+              {saving ? "Cargando período..." : "Guardar período"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function GuardiasPage() {
   const { canWrite } = useAuth();
   const qc = useQueryClient();
@@ -177,11 +356,18 @@ function GuardiasPage() {
     (g) => new Date(g.desde) <= endOfMonth(cursor) && new Date(g.hasta) >= startOfMonth(cursor),
   );
   const operadoresDelMes = new Set(guardiasDelMes.map((g) => g.operador_nombre.trim()).filter(Boolean)).size;
-  const diasCubiertos = days.filter((day) =>
+  const periodoActual = actual ? calcularPeriodoCobertura(actual, sortedGuardias) : null;
+  const diasCubiertosMes = days.filter((day) =>
     isSameMonth(day, cursor)
       ? sortedGuardias.some((g) => new Date(g.desde) <= endOfDay(day) && new Date(g.hasta) >= startOfDay(day))
       : false,
   ).length;
+  const diasCubiertos = periodoActual ? inclusiveCalendarDays(periodoActual.desde, periodoActual.hasta) : diasCubiertosMes;
+  const operadoresPeriodo = periodoActual?.operadores ?? operadoresDelMes;
+  const turnosPeriodo = periodoActual?.turnos ?? guardiasDelMes.length;
+  const detallePeriodo = periodoActual
+    ? `${format(periodoActual.desde, "dd/MM")} -> ${format(periodoActual.hasta, "dd/MM")}`
+    : format(cursor, "MMMM yyyy", { locale: es });
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
   return (
@@ -191,14 +377,17 @@ function GuardiasPage() {
         description="Cobertura operativa del área de Sistemas."
         action={
           canWrite ? (
-            <GuardiaDialog
-              trigger={
-                <Button>
-                  <Plus className="size-4" /> Cargar guardia
-                </Button>
-              }
-              onDone={refresh}
-            />
+            <div className="flex flex-wrap gap-2">
+              <PeriodoGuardiasDialog onDone={refresh} />
+              <GuardiaDialog
+                trigger={
+                  <Button>
+                    <Plus className="size-4" /> Cargar guardia
+                  </Button>
+                }
+                onDone={refresh}
+              />
+            </div>
           ) : null
         }
       />
@@ -239,21 +428,21 @@ function GuardiasPage() {
             <div className="grid gap-3 p-5 sm:grid-cols-3">
               <MetricCard
                 icon={<CalendarCheck className="size-4" />}
-                label="Días cubiertos"
+                label={periodoActual ? "Días del período" : "Días cubiertos"}
                 value={`${diasCubiertos}`}
-                detail={format(cursor, "MMMM yyyy", { locale: es })}
+                detail={detallePeriodo}
               />
               <MetricCard
                 icon={<UsersRound className="size-4" />}
                 label="Operadores"
-                value={`${operadoresDelMes}`}
-                detail="Con guardias este mes"
+                value={`${operadoresPeriodo}`}
+                detail={periodoActual ? "En el período activo" : "Con guardias este mes"}
               />
               <MetricCard
                 icon={<ShieldCheck className="size-4" />}
                 label="Turnos"
-                value={`${guardiasDelMes.length}`}
-                detail="Programados en calendario"
+                value={`${turnosPeriodo}`}
+                detail={periodoActual ? "Del período activo" : "Programados en calendario"}
               />
             </div>
 
@@ -474,4 +663,116 @@ function endOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(23, 59, 59, 999);
   return x;
+}
+
+function inclusiveCalendarDays(desde: Date, hasta: Date) {
+  return Math.max(0, differenceInCalendarDays(startOfDay(hasta), startOfDay(desde)) + 1);
+}
+
+function calcularDiasCalendario(desde: string, hasta: string) {
+  if (!desde || !hasta) return 0;
+  const start = new Date(`${desde}T00:00`);
+  const end = new Date(`${hasta}T00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  return inclusiveCalendarDays(start, end);
+}
+
+function formatDateInput(value: string) {
+  const date = new Date(`${value}T00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return format(date, "dd/MM/yyyy");
+}
+
+function calcularPeriodoCobertura(actual: Guardia, guardias: Guardia[]) {
+  let desde = new Date(actual.desde);
+  let hasta = new Date(actual.hasta);
+  const ids = new Set<string>([actual.id]);
+  const toleranceMs = 60_000;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+
+    for (const guardia of guardias) {
+      const guardiaDesde = new Date(guardia.desde);
+      const guardiaHasta = new Date(guardia.hasta);
+      const connected = guardiaDesde.getTime() <= hasta.getTime() + toleranceMs && guardiaHasta.getTime() >= desde.getTime() - toleranceMs;
+
+      if (!connected) continue;
+
+      if (!ids.has(guardia.id)) {
+        ids.add(guardia.id);
+        changed = true;
+      }
+      if (guardiaDesde < desde) desde = guardiaDesde;
+      if (guardiaHasta > hasta) hasta = guardiaHasta;
+    }
+  }
+
+  const turnos = guardias.filter((guardia) => ids.has(guardia.id));
+  return {
+    desde,
+    hasta,
+    turnos: turnos.length,
+    operadores: new Set(turnos.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean)).size,
+  };
+}
+
+function generarTurnosPeriodo({
+  desde,
+  hasta,
+  horaInicio,
+  duracionDias,
+  operarios,
+  notas,
+}: {
+  desde: string;
+  hasta: string;
+  horaInicio: string;
+  duracionDias: number;
+  operarios: string;
+  notas: string;
+}): { turnos: Omit<Guardia, "id">[]; error: string | null } {
+  const nombres = operarios
+    .split(/\r?\n/)
+    .map((nombre) => nombre.trim())
+    .filter(Boolean);
+
+  if (nombres.length === 0) return { turnos: [], error: "Cargá al menos un operario" };
+  if (!desde || !hasta || !horaInicio) return { turnos: [], error: "Completá las fechas y la hora de inicio" };
+
+  const diasPorTurno = Math.max(1, Math.min(31, Number(duracionDias || 1)));
+  const inicio = buildDateTime(desde, horaInicio);
+  const finPeriodo = buildDateTime(hasta, horaInicio);
+
+  if (Number.isNaN(inicio.getTime()) || Number.isNaN(finPeriodo.getTime())) {
+    return { turnos: [], error: "Revisá las fechas del período" };
+  }
+  if (finPeriodo <= inicio) return { turnos: [], error: "La fecha hasta debe ser posterior a desde" };
+
+  const turnos: Omit<Guardia, "id">[] = [];
+  let cursor = inicio;
+  let index = 0;
+
+  while (cursor < finPeriodo && turnos.length < 400) {
+    const hastaTurno = new Date(cursor);
+    hastaTurno.setDate(hastaTurno.getDate() + diasPorTurno);
+    const final = hastaTurno > finPeriodo ? finPeriodo : hastaTurno;
+
+    turnos.push({
+      operador_nombre: nombres[index % nombres.length],
+      desde: cursor.toISOString(),
+      hasta: final.toISOString(),
+      notas,
+    });
+
+    cursor = final;
+    index += 1;
+  }
+
+  return { turnos, error: null };
+}
+
+function buildDateTime(date: string, time: string) {
+  return new Date(`${date}T${time || "00:00"}`);
 }
