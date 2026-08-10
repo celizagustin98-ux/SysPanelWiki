@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
+  Clock3,
   FileText,
+  Files,
   Folder,
   FolderPlus,
+  MoreHorizontal,
   Paperclip,
   Plus,
   Save,
@@ -17,6 +20,16 @@ import {
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +41,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -72,6 +91,7 @@ function InstructivosPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ title: "", content: "", tags: "" });
   const [pdfActivo, setPdfActivo] = useState<string | null>(null);
+  const [folderToDelete, setFolderToDelete] = useState<Carpeta | null>(null);
 
   const { data: carpetas = [] } = useQuery({
     queryKey: ["wiki_folders"],
@@ -138,6 +158,46 @@ function InstructivosPage() {
     qc.invalidateQueries({ queryKey: ["wiki_folders"] });
   };
 
+  const docsByFolder = useMemo(() => {
+    const map = new Map<string, Doc[]>();
+    for (const doc of docs) {
+      if (!doc.folder_id) continue;
+      map.set(doc.folder_id, [...(map.get(doc.folder_id) ?? []), doc]);
+    }
+    return map;
+  }, [docs]);
+
+  const childFolders = useMemo(() => {
+    const map = new Map<string | null, Carpeta[]>();
+    for (const folder of carpetas) {
+      map.set(folder.parent_id, [...(map.get(folder.parent_id) ?? []), folder]);
+    }
+    return map;
+  }, [carpetas]);
+
+  const getFolderTreeIds = (folderId: string): string[] => {
+    const ids = [folderId];
+    for (const child of childFolders.get(folderId) ?? []) ids.push(...getFolderTreeIds(child.id));
+    return ids;
+  };
+
+  const countDocsInFolder = (folderId: string) =>
+    getFolderTreeIds(folderId).reduce((total, id) => total + (docsByFolder.get(id)?.length ?? 0), 0);
+
+  const eliminarCarpeta = async () => {
+    if (!folderToDelete) return;
+    const ids = getFolderTreeIds(folderToDelete.id);
+    for (const id of ids) {
+      const { error } = await api.from("wiki_docs").update({ folder_id: null }).eq("folder_id", id);
+      if (error) return toast.error(error.message);
+    }
+    const { error } = await api.from("wiki_folders").delete().eq("id", folderToDelete.id);
+    if (error) return toast.error(error.message);
+    toast.success("Carpeta eliminada. Los instructivos quedaron en la raíz.");
+    setFolderToDelete(null);
+    refresh();
+  };
+
   const guardar = async () => {
     if (!activo) return;
     const { error } = await api
@@ -180,59 +240,88 @@ function InstructivosPage() {
   };
 
   const renderTree = (parent: string | null, depth = 0) => (
-    <div className={cn(depth > 0 && "ml-3 border-l border-border/60 pl-2")}>
-      {carpetas
-        .filter((c) => c.parent_id === parent)
-        .map((c) => {
-          const open = expanded[c.id] ?? depth === 0;
-          return (
-            <div key={c.id}>
+    <div className={cn("space-y-1", depth > 0 && "ml-3 border-l border-border/60 pl-2")}>
+      {(childFolders.get(parent) ?? []).map((c) => {
+        const open = expanded[c.id] ?? depth === 0;
+        return (
+          <div key={c.id} className="group/folder">
+            <div className="flex items-center rounded-lg hover:bg-accent/55">
               <button
                 onClick={() => setExpanded((s) => ({ ...s, [c.id]: !open }))}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60"
+                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-sm"
               >
-                {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-                <Folder className="size-4 text-primary" />
-                <span className="truncate">{c.name}</span>
+                {open ? (
+                  <ChevronDown className="size-3.5 shrink-0" />
+                ) : (
+                  <ChevronRight className="size-3.5 shrink-0" />
+                )}
+                <Folder className="size-4 shrink-0 text-primary" />
+                <span className="truncate font-medium">{c.name}</span>
+                <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {countDocsInFolder(c.id)}
+                </span>
               </button>
-              {open && (
-                <>
-                  {renderTree(c.id, depth + 1)}
-                  <div className={cn("ml-3 border-l border-border/60 pl-2")}>
-                    {docs
-                      .filter((d) => d.folder_id === c.id)
-                      .map((d) => (
-                        <button
-                          key={d.id}
-                          onClick={() => {
-                            setSelected(d.id);
-                            navigate({ to: "/instructivos", search: { doc: d.id } });
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/60",
-                            selected === d.id && "bg-accent text-accent-foreground",
-                          )}
-                        >
-                          <FileText className="size-3.5 shrink-0" />
-                          <span className="truncate">{d.title}</span>
-                        </button>
-                      ))}
-                  </div>
-                </>
+              {isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="mr-1 size-7 opacity-0 transition-opacity group-hover/folder:opacity-100"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => setFolderToDelete(c)}
+                    >
+                      <Trash2 className="size-4" /> Eliminar carpeta
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
-          );
-        })}
+            {open && (
+              <>
+                {renderTree(c.id, depth + 1)}
+                <div className="ml-3 space-y-1 border-l border-border/60 pl-2">
+                  {(docsByFolder.get(c.id) ?? []).map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => {
+                        setSelected(d.id);
+                        navigate({ to: "/instructivos", search: { doc: d.id } });
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                        selected === d.id && "bg-primary/15 text-primary ring-1 ring-primary/20",
+                      )}
+                    >
+                      <FileText className="size-3.5 shrink-0" />
+                      <span className="truncate">{d.title}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
       {depth === 0 &&
         docs
           .filter((d) => !d.folder_id)
           .map((d) => (
             <button
               key={d.id}
-              onClick={() => setSelected(d.id)}
+              onClick={() => {
+                setSelected(d.id);
+                navigate({ to: "/instructivos", search: { doc: d.id } });
+              }}
               className={cn(
-                "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/60",
-                selected === d.id && "bg-accent text-accent-foreground",
+                "flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                selected === d.id && "bg-primary/15 text-primary ring-1 ring-primary/20",
               )}
             >
               <FileText className="size-3.5 shrink-0" />
@@ -264,31 +353,52 @@ function InstructivosPage() {
         }
       />
 
-      <div className="mb-4 relative">
-        <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Buscador global: título, contenido o etiquetas…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto_auto]">
+        <div className="relative">
+          <Search className="absolute left-3 top-3.5 size-4 text-muted-foreground" />
+          <Input
+            className="h-11 rounded-xl pl-9"
+            placeholder="Buscar por título, contenido o etiquetas..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+          <Folder className="size-4 text-primary" />
+          <span>{carpetas.length} carpetas</span>
+        </div>
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+          <Files className="size-4 text-primary" />
+          <span>{docs.length} instructivos</span>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <Card className="panel h-fit">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Árbol de contenidos</CardTitle>
+      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+        <Card className="panel h-fit overflow-hidden">
+          <CardHeader className="border-b border-border/70 bg-muted/25 pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Folder className="size-4 text-primary" /> Biblioteca
+            </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[70vh] overflow-y-auto">
+          <CardContent className="max-h-[70vh] overflow-y-auto p-3">
             {resultados ? (
               <div className="space-y-1">
+                <p className="px-2 pb-2 text-xs font-medium uppercase text-muted-foreground">
+                  Resultados
+                </p>
                 {resultados.map((d) => (
                   <button
                     key={d.id}
-                    onClick={() => setSelected(d.id)}
-                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/60"
+                    onClick={() => {
+                      setSelected(d.id);
+                      navigate({ to: "/instructivos", search: { doc: d.id } });
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-accent/60",
+                      selected === d.id && "bg-primary/15 text-primary ring-1 ring-primary/20",
+                    )}
                   >
-                    <FileText className="size-3.5" />
+                    <FileText className="size-4 shrink-0" />
                     <span className="truncate">{d.title}</span>
                   </button>
                 ))}
@@ -302,31 +412,47 @@ function InstructivosPage() {
           </CardContent>
         </Card>
 
-        <Card className="panel min-h-[60vh]">
+        <Card className="panel min-h-[60vh] overflow-hidden">
           {!activo ? (
-            <CardContent className="grid h-full place-items-center py-24 text-sm text-muted-foreground">
-              Seleccioná un instructivo del árbol.
+            <CardContent className="grid min-h-[52vh] place-items-center py-24 text-center">
+              <div className="max-w-sm space-y-3">
+                <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-primary/15 text-primary">
+                  <FileText className="size-6" />
+                </div>
+                <div>
+                  <p className="font-medium">Seleccioná un instructivo</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Usá el árbol o el buscador para abrir documentación operativa.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           ) : (
             <>
-              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 border-b border-border/70 bg-muted/20">
                 <div className="min-w-0">
                   {editing ? (
                     <Input
                       value={draft.title}
                       onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                      className="text-lg font-semibold"
+                      className="h-11 text-lg font-semibold"
                     />
                   ) : (
-                    <CardTitle className="text-xl">{activo.title}</CardTitle>
+                    <CardTitle className="text-2xl">{activo.title}</CardTitle>
                   )}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     {activo.tags.map((t) => (
                       <Badge key={t} variant="secondary">
                         #{t}
                       </Badge>
                     ))}
-                    <span className="text-xs text-muted-foreground">{activo.views} vistas</span>
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Files className="size-3.5" /> {activo.views} vistas
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock3 className="size-3.5" /> Actualizado{" "}
+                      {new Date(activo.updated_at).toLocaleDateString("es-AR")}
+                    </span>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -384,7 +510,7 @@ function InstructivosPage() {
                   />
                 )}
 
-                <div className="rounded-xl border border-border p-4">
+                <div className="rounded-xl border border-border bg-muted/10 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <p className="flex items-center gap-2 text-sm font-medium">
                       <Paperclip className="size-4" /> Archivos PDF adjuntos
@@ -428,6 +554,26 @@ function InstructivosPage() {
           )}
         </Card>
       </div>
+      <AlertDialog open={!!folderToDelete} onOpenChange={(open) => !open && setFolderToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar carpeta</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará la carpeta "{folderToDelete?.name}" y sus subcarpetas. Los instructivos no se borran:
+              quedarán movidos a la raíz para que no pierdas contenido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={eliminarCarpeta}
+            >
+              Eliminar carpeta
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
