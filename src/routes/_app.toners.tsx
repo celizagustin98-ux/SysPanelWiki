@@ -258,80 +258,77 @@ function TonersPage() {
         </TabsList>
 
         <TabsContent value="stock" className="mt-4">
-          <div className="overflow-hidden rounded-md border border-emerald-900/45 bg-card/95 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-900/35 bg-muted/10 px-3 py-2">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <PackageCheck className="size-4 text-primary" />
-                Hoja stock
+          <Card className="panel overflow-hidden">
+            <CardHeader className="border-b border-border/70 px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <PackageCheck className="size-4 text-primary" />
+                    Stock de tóners
+                  </CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Control operativo por modelo, cantidad disponible y último movimiento registrado.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary" className="h-7 rounded-md px-2.5 text-xs">
+                    {modelos.length} modelos
+                  </Badge>
+                  <Badge
+                    variant={criticos.length > 0 ? "destructive" : "secondary"}
+                    className="h-7 rounded-md px-2.5 text-xs"
+                  >
+                    <PackageX className="size-3" /> {criticos.length} críticos
+                  </Badge>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary" className="h-6 rounded-sm px-2 text-xs">
-                  {modelos.length} modelos
-                </Badge>
-                <Badge
-                  variant={criticos.length > 0 ? "destructive" : "secondary"}
-                  className="h-6 rounded-sm px-2 text-xs"
-                >
-                  <PackageX className="size-3" /> {criticos.length} críticos
-                </Badge>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <Table className="min-w-[980px] border-separate border-spacing-0">
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table className="min-w-[980px]">
                   <TableHeader>
-                    <TableRow className="border-0 bg-emerald-800 hover:bg-emerald-800">
-                      <TableHead className="h-8 w-10 border-r border-emerald-600 bg-emerald-100 px-2 text-center text-xs font-bold text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
-                        1
-                      </TableHead>
-                      <TableHead className="h-8 min-w-[330px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
-                        <div className="flex items-center justify-between gap-3">
+                    <TableRow className="border-b border-border/70 bg-muted/45 hover:bg-muted/45">
+                      <TableHead className="h-11 min-w-[330px] px-5 text-xs font-semibold uppercase text-muted-foreground">
+                        <div className="flex items-center gap-2">
                           Toner marcas
-                          <ListFilter className="size-3.5 text-white/80" />
+                          <ListFilter className="size-3.5" />
                         </div>
                       </TableHead>
-                      <TableHead className="h-8 w-[180px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
-                        <div className="flex items-center justify-between gap-3">
-                          Cantidad actual
-                          <ListFilter className="size-3.5 text-white/80" />
-                        </div>
+                      <TableHead className="h-11 w-[180px] px-4 text-xs font-semibold uppercase text-muted-foreground">
+                        Cantidad actual
                       </TableHead>
-                      <TableHead className="h-8 w-[180px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
-                        <div className="flex items-center justify-between gap-3">
-                          Cantidad mínima
-                          <ListFilter className="size-3.5 text-white/80" />
-                        </div>
+                      <TableHead className="h-11 w-[170px] px-4 text-xs font-semibold uppercase text-muted-foreground">
+                        Cantidad mínima
                       </TableHead>
-                      <TableHead className="h-8 min-w-[220px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
-                        <div className="flex items-center justify-between gap-3">
-                          Ultimo control
-                          <ListFilter className="size-3.5 text-white/80" />
-                        </div>
+                      <TableHead className="h-11 min-w-[250px] px-4 text-xs font-semibold uppercase text-muted-foreground">
+                        Último control
                       </TableHead>
                       {canWrite && (
-                        <TableHead className="h-8 w-[210px] px-3 text-right text-xs font-bold uppercase tracking-normal text-white">
+                        <TableHead className="h-11 w-[210px] px-5 text-right text-xs font-semibold uppercase text-muted-foreground">
                           Acciones
                         </TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {modelos.map((m, index) => {
+                    {modelos.map((m) => {
                       const ultimo = ultimoControlPorModelo.get(m.id);
                       const bajoStock = m.stock <= m.stock_minimo;
+                      const stockPct =
+                        m.stock_minimo > 0 ? Math.min(100, Math.round((m.stock / m.stock_minimo) * 100)) : 100;
                       return (
-                        <TableRow key={m.id} className="group border-0 hover:bg-emerald-950/15">
-                          <TableCell className="h-10 border-r border-t border-border/60 bg-muted/30 px-2 text-center text-xs text-muted-foreground">
-                            {index + 2}
-                          </TableCell>
-                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span
+                        <TableRow key={m.id} className="border-b border-border/60 hover:bg-muted/25">
+                          <TableCell className="px-5 py-4">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div
                                 className={
                                   bajoStock
-                                    ? "h-2.5 w-2.5 shrink-0 rounded-full bg-destructive"
-                                    : "h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400"
+                                    ? "flex size-9 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive"
+                                    : "flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"
                                 }
-                              />
+                              >
+                                {bajoStock ? <AlertTriangle className="size-4" /> : <PackageCheck className="size-4" />}
+                              </div>
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-foreground">{m.nombre}</p>
                                 <p className="truncate text-xs text-muted-foreground">
@@ -341,41 +338,54 @@ function TonersPage() {
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-base font-bold tabular-nums">{m.stock}</span>
-                              <Badge variant={bajoStock ? "destructive" : "secondary"} className="rounded-sm">
-                                {bajoStock ? "Crítico" : "OK"}
-                              </Badge>
+                          <TableCell className="px-4 py-4">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xl font-bold tabular-nums text-foreground">
+                                  {m.stock}
+                                </span>
+                                <Badge variant={bajoStock ? "destructive" : "secondary"} className="rounded-md">
+                                  {bajoStock ? "Crítico" : "OK"}
+                                </Badge>
+                              </div>
+                              <div className="h-1.5 w-28 overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={bajoStock ? "h-full bg-destructive" : "h-full bg-primary"}
+                                  style={{ width: `${stockPct}%` }}
+                                />
+                              </div>
                             </div>
                           </TableCell>
-                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2 font-mono text-base font-semibold tabular-nums">
-                            {m.stock_minimo}
+                          <TableCell className="px-4 py-4">
+                            <span className="font-mono text-base font-semibold tabular-nums text-foreground">
+                              {m.stock_minimo}
+                            </span>
+                            <span className="ml-1 text-xs text-muted-foreground">unidades</span>
                           </TableCell>
-                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2">
+                          <TableCell className="px-4 py-4">
                             {ultimo ? (
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                                <span className="font-medium">
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium text-foreground">
                                   {new Date(ultimo.created_at).toLocaleDateString("es-AR")}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {ultimo.tipo} · {ultimo.cantidad}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {ultimo.tipo === "entrada" ? "Entrada" : "Salida"} de {ultimo.cantidad} u.
                                   {ultimo.responsable ? ` · ${ultimo.responsable}` : ""}
-                                </span>
+                                </p>
                               </div>
                             ) : (
                               <span className="text-sm text-muted-foreground">Sin control registrado</span>
                             )}
                           </TableCell>
                           {canWrite && (
-                            <TableCell className="h-10 border-t border-border/60 px-3 py-2">
+                            <TableCell className="px-5 py-4">
                               <div className="flex justify-end gap-2">
                                 <MovimientoDialog
                                   modelo={m}
                                   tipo="entrada"
                                   onDone={refresh}
                                   trigger={
-                                    <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-sm px-2">
+                                    <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-md px-3">
                                       <ArrowDownLeft className="size-4" /> Entrada
                                     </Button>
                                   }
@@ -385,7 +395,7 @@ function TonersPage() {
                                   tipo="salida"
                                   onDone={refresh}
                                   trigger={
-                                    <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-sm px-2">
+                                    <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-md px-3">
                                       <ArrowUpRight className="size-4" /> Salida
                                     </Button>
                                   }
@@ -398,21 +408,23 @@ function TonersPage() {
                     })}
                     {modelos.length === 0 && (
                       <TableRow>
-                        <TableCell className="border-r border-t border-border/60 bg-muted/30 px-2 text-center text-xs text-muted-foreground">
-                          2
-                        </TableCell>
                         <TableCell
                           colSpan={canWrite ? 5 : 4}
-                          className="border-t border-border/60 py-10 text-center text-sm text-muted-foreground"
+                          className="px-5 py-14 text-center text-sm text-muted-foreground"
                         >
-                          Cargá un modelo de tóner para comenzar a controlar el stock.
+                          <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
+                            <PackageCheck className="size-8 text-muted-foreground/60" />
+                            <p className="font-medium text-foreground">Todavía no hay modelos cargados</p>
+                            <p>Cargá un modelo de tóner para comenzar a controlar el stock.</p>
+                          </div>
                         </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
-            </div>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="movimientos" className="mt-4">
