@@ -84,41 +84,65 @@ export function AppShell() {
           <Badge variant="secondary" className="mt-1 capitalize">
             {role ?? "—"}
           </Badge>
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" variant="ghost" className="flex-1" onClick={toggle}>
+          <div className="mt-3 grid gap-2">
+            <Button size="sm" variant="ghost" className="justify-start" onClick={toggle}>
               {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              <span className="ml-2">{theme === "dark" ? "Modo claro" : "Modo oscuro"}</span>
             </Button>
             <Button
               size="sm"
-              variant="ghost"
-              className="flex-1"
+              variant="outline"
+              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={async () => {
                 await signOut();
                 navigate({ to: "/auth", replace: true });
               }}
             >
               <LogOut className="size-4" />
+              <span className="ml-2">Cerrar sesión</span>
             </Button>
           </div>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 overflow-x-auto border-b border-border px-3 py-2 md:hidden">
-          {nav.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={cn(
-                "whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium",
-                pathname.startsWith(item.to)
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground",
-              )}
+        <header className="border-b border-border md:hidden">
+          <div className="flex items-center justify-between gap-3 px-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">SysIntranet</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {profile?.full_name || user?.email}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={async () => {
+                await signOut();
+                navigate({ to: "/auth", replace: true });
+              }}
             >
-              {item.label}
-            </Link>
-          ))}
+              <LogOut className="size-4" />
+              <span className="ml-2">Cerrar sesión</span>
+            </Button>
+          </div>
+          <nav className="flex items-center gap-2 overflow-x-auto px-3 pb-2">
+            {nav.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  "whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium",
+                  pathname.startsWith(item.to)
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
         </header>
         <main className="min-w-0 flex-1 p-4 md:p-8">
           <Outlet />
