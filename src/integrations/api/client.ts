@@ -2,11 +2,7 @@ import {
   apiMutate,
   apiRpc,
   apiSelect,
-  authGetSession,
   authResetPassword,
-  authSignIn,
-  authSignOut,
-  authSignUp,
   authUpdatePassword,
   storageSignedUrl,
   storageUpload,
@@ -30,6 +26,23 @@ function setToken(value: string | null) {
 
 function responseError(error: unknown) {
   return { data: null, error: error instanceof Error ? error : new Error("Error de servidor") };
+}
+
+async function postAuth<T>(path: string, body: unknown): Promise<{ data: T; error: null } | { data: null; error: Error }> {
+  try {
+    const response = await fetch(`/api/auth/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      return { data: null, error: new Error(payload?.error || "Error de servidor") };
+    }
+    return { data: payload as T, error: null };
+  } catch (error) {
+    return responseError(error);
+  }
 }
 
 class QueryBuilder {
@@ -157,20 +170,21 @@ export const api = {
       return { data: { subscription: { unsubscribe() {} } } };
     },
     async getSession() {
-      const data = await authGetSession({ data: { token: token() } });
-      return { data, error: null };
+      return postAuth<{ session: any }>("session", { token: token() });
     },
     async setSession(tokens: { access_token: string }) {
       setToken(tokens.access_token);
-      return { data: await authGetSession({ data: { token: tokens.access_token } }), error: null };
+      return postAuth<{ session: any }>("session", { token: tokens.access_token });
     },
     async signInWithPassword(input: { username: string; password: string }) {
-      const data = await authSignIn({ data: input });
-      setToken(data.session?.token ?? null);
-      return { data, error: null };
+      const result = await postAuth<{ session: any }>("signin", input);
+      if (!result.error) setToken(result.data.session?.token ?? null);
+      return result;
     },
     async signUp(input: { fullName: string; username: string; email: string; password: string }) {
-      return { data: await authSignUp({ data: input }), error: null };
+      const result = await postAuth<{ session: any }>("signup", input);
+      if (!result.error) setToken(result.data.session?.token ?? null);
+      return result;
     },
     async resetPasswordForEmail(email: string) {
       try {
@@ -193,7 +207,7 @@ export const api = {
       }
     },
     async signOut() {
-      await authSignOut({ data: { token: token() } });
+      await postAuth("signout", { token: token() });
       setToken(null);
     },
   },
