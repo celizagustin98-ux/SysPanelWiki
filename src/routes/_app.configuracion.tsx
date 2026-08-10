@@ -131,7 +131,10 @@ function ConfiguracionPage() {
       if (isAdmin) {
         await api
           .from("app_settings")
-          .update({ ultima_revision: new Date().toISOString() })
+          .update({
+            version_actual: res.currentVersion,
+            ultima_revision: new Date().toISOString(),
+          })
           .eq("singleton", true);
         await loadSettings();
       }
