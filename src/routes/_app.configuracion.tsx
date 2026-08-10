@@ -157,19 +157,27 @@ function ConfiguracionPage() {
     if (!selectedInfo?.latestVersion) return;
     setApplying(true);
     try {
-      await api.updates.apply<{ ok: true; version: string }>(selectedInfo.latestVersion);
+      const result = await api.updates.apply<{ ok: true; version: string; started?: boolean }>(
+        selectedInfo.latestVersion,
+      );
       await loadSettings();
       setInfo({
         ...selectedInfo,
         currentVersion: selectedInfo.latestVersion,
         hasUpdate: false,
       });
+      if (result.started) {
+        toast.success("Actualización iniciada. La página se recargará cuando termine.");
+        setTimeout(() => window.location.reload(), 45_000);
+        return;
+      }
       toast.success("Actualización instalada. Recargando...");
-      setTimeout(() => window.location.reload(), 1200);
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo aplicar la actualización");
-    } finally {
       setApplying(false);
+    } finally {
+      if (!selectedInfo?.latestVersion) setApplying(false);
     }
   };
 

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
@@ -231,6 +231,52 @@ function updateError(error, fallback) {
   return fallback;
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function startBackgroundUpdate({ branch, version, env }) {
+  const serviceName = process.env.SERVICE_NAME || process.env.SYSTEMD_SERVICE || "syswiki";
+  const logFile = process.env.UPDATE_LOG_FILE || "/tmp/syswiki-update.log";
+  const nodePath = process.execPath;
+  const script = `
+set -euo pipefail
+cd ${shellQuote(process.cwd())}
+{
+  echo "== SysIntranet update $(date -Is) =="
+  echo "Branch: ${branch}"
+  git fetch origin ${shellQuote(branch)}
+  git reset --hard origin/${shellQuote(branch)}
+  rm -rf dist .output .vinxi node_modules/.vite
+  npm install --silent
+  npm run build
+  ${shellQuote(nodePath)} - <<'NODE'
+import pg from "pg";
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+});
+await pool.query(
+  "update app_settings set version_actual = $1, ultima_actualizacion = now() where singleton = true",
+  [process.env.UPDATE_VERSION || "actualizado"],
+);
+await pool.end();
+NODE
+  systemctl restart ${shellQuote(serviceName)}
+  echo "OK $(date -Is)"
+} >> ${shellQuote(logFile)} 2>&1
+`;
+
+  const child = spawn("/bin/bash", ["-lc", script], {
+    cwd: process.cwd(),
+    env: { ...env, UPDATE_VERSION: version },
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  return logFile;
+}
+
 async function handleUpdates(req, res) {
   if (req.method !== "POST" || !req.url?.startsWith("/api/updates/")) return false;
 
@@ -275,30 +321,20 @@ async function handleUpdates(req, res) {
       }
 
       try {
-        await runCommand("git", ["fetch", "origin", branch], { env, timeout: 120_000 });
-        await runCommand("git", ["reset", "--hard", `origin/${branch}`], { env, timeout: 120_000 });
-        await runCommand("npm", ["install", "--silent"], { timeout: 300_000 });
-        await runCommand("npm", ["run", "build"], { timeout: 300_000 });
+        await runCommand("git", ["ls-remote", "origin", `refs/heads/${branch}`], {
+          env,
+          timeout: 60_000,
+        });
+        await runCommand("npm", ["--version"], { timeout: 30_000 });
       } catch (error) {
         console.error(error);
         return sendJson(res, 500, {
-          error: updateError(error, "No se pudo instalar la actualización. Revisá los logs del servidor."),
+          error: updateError(error, "No se pudo iniciar la actualización. Revisá los logs del servidor."),
         }), true;
       }
 
-      await query(
-        `update app_settings set version_actual = $1, ultima_actualizacion = now() where singleton = true`,
-        [version],
-      );
-
-      sendJson(res, 200, { ok: true, version });
-
-      const serviceName = process.env.SERVICE_NAME || process.env.SYSTEMD_SERVICE || "syswiki";
-      setTimeout(() => {
-        execFile("systemctl", ["restart", serviceName], { timeout: 30_000 }, (error) => {
-          if (error) console.error(error);
-        });
-      }, 500);
+      const logFile = startBackgroundUpdate({ branch, version, env });
+      sendJson(res, 202, { ok: true, version, started: true, logFile });
       return true;
     }
 
