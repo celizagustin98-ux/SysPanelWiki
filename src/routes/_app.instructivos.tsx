@@ -9,6 +9,7 @@ import {
   Files,
   Folder,
   FolderPlus,
+  Maximize2,
   MoreHorizontal,
   Paperclip,
   Plus,
@@ -90,7 +91,7 @@ function InstructivosPage() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ title: "", content: "", tags: "" });
-  const [pdfActivo, setPdfActivo] = useState<string | null>(null);
+  const [pdfActivo, setPdfActivo] = useState<{ id: string; name: string; url: string } | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<Carpeta | null>(null);
 
   const { data: carpetas = [] } = useQuery({
@@ -236,8 +237,18 @@ function InstructivosPage() {
       .from("instructivos")
       .createSignedUrl(a.file_path, 3600);
     if (error) return toast.error(error.message);
-    setPdfActivo(data.signedUrl);
+    setPdfActivo({ id: a.id, name: a.file_name, url: data.signedUrl });
   };
+
+  useEffect(() => {
+    if (!activo || adjuntos.length === 0 || pdfActivo?.id) return;
+    verPdf(adjuntos[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activo?.id, adjuntos.length]);
+
+  const pdfViewerSrc = pdfActivo
+    ? `${pdfActivo.url}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`
+    : "";
 
   const renderTree = (parent: string | null, depth = 0) => (
     <div className={cn("space-y-1", depth > 0 && "ml-3 border-l border-border/60 pl-2")}>
@@ -510,13 +521,18 @@ function InstructivosPage() {
                   />
                 )}
 
-                <div className="rounded-xl border border-border bg-muted/10 p-4">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="flex items-center gap-2 text-sm font-medium">
-                      <Paperclip className="size-4" /> Archivos PDF adjuntos
-                    </p>
+                <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-3">
+                    <div>
+                      <p className="flex items-center gap-2 text-sm font-semibold">
+                        <Paperclip className="size-4 text-primary" /> Biblioteca PDF
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Visualización directa para consultar instructivos sin imprimir.
+                      </p>
+                    </div>
                     {canWrite && (
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground">
+                      <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80">
                         <Upload className="size-3.5" /> Subir PDF
                         <input
                           type="file"
@@ -531,22 +547,81 @@ function InstructivosPage() {
                       </label>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {adjuntos.map((a) => (
-                      <Button key={a.id} size="sm" variant="outline" onClick={() => verPdf(a)}>
-                        <FileText className="size-4" /> {a.file_name}
-                      </Button>
-                    ))}
-                    {adjuntos.length === 0 && (
-                      <p className="text-sm text-muted-foreground">Sin adjuntos.</p>
-                    )}
-                  </div>
-                  {pdfActivo && (
-                    <iframe
-                      title="Visor de PDF"
-                      src={pdfActivo}
-                      className="mt-4 h-[70vh] w-full rounded-lg border border-border bg-background"
-                    />
+
+                  {adjuntos.length > 0 ? (
+                    <div className="grid min-h-[640px] gap-0 xl:grid-cols-[260px_1fr]">
+                      <aside className="border-b border-border/70 bg-muted/10 p-3 xl:border-b-0 xl:border-r">
+                        <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          PDFs disponibles
+                        </p>
+                        <div className="space-y-1">
+                          {adjuntos.map((a) => (
+                            <button
+                              key={a.id}
+                              onClick={() => verPdf(a)}
+                              className={cn(
+                                "flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent/70",
+                                pdfActivo?.id === a.id && "bg-primary/15 text-primary ring-1 ring-primary/20",
+                              )}
+                            >
+                              <FileText className="mt-0.5 size-4 shrink-0" />
+                              <span className="min-w-0">
+                                <span className="line-clamp-2 font-medium leading-snug">{a.file_name}</span>
+                                <span className="mt-1 block text-[11px] text-muted-foreground">
+                                  Click para visualizar
+                                </span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </aside>
+
+                      <section className="flex min-h-[640px] flex-col bg-background">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">
+                              {pdfActivo?.name ?? "Seleccioná un PDF"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Vista optimizada para lectura en pantalla.
+                            </p>
+                          </div>
+                          {pdfActivo && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => window.open(pdfViewerSrc, "_blank", "noopener,noreferrer")}
+                            >
+                              <Maximize2 className="size-4" /> Pantalla completa
+                            </Button>
+                          )}
+                        </div>
+                        {pdfActivo ? (
+                          <iframe
+                            title={`Vista PDF: ${pdfActivo.name}`}
+                            src={pdfViewerSrc}
+                            className="h-[72vh] min-h-[640px] w-full bg-white"
+                          />
+                        ) : (
+                          <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
+                            Seleccioná un PDF para visualizarlo.
+                          </div>
+                        )}
+                      </section>
+                    </div>
+                  ) : (
+                    <div className="grid min-h-[240px] place-items-center p-8 text-center">
+                      <div className="max-w-sm space-y-2">
+                        <div className="mx-auto grid size-11 place-items-center rounded-xl bg-primary/15 text-primary">
+                          <FileText className="size-5" />
+                        </div>
+                        <p className="font-medium">Sin PDF cargado</p>
+                        <p className="text-sm text-muted-foreground">
+                          Subí un instructivo en PDF para que quede disponible como documento de consulta.
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </CardContent>
