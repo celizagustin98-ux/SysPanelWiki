@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import {
   CheckCircle2,
   Loader2,
@@ -16,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/integrations/api/client";
 import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
-import { applyUpdate, checkForUpdates, type UpdateInfo } from "@/lib/updates.functions";
+import type { UpdateInfo } from "@/lib/updates.functions";
 
 export const Route = createFileRoute("/_app/configuracion")({
   head: () => ({
@@ -82,9 +81,6 @@ function ConfiguracionPage() {
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
 
-  const check = useServerFn(checkForUpdates);
-  const apply = useServerFn(applyUpdate);
-
   useEffect(() => {
     setRows(perms);
   }, [perms]);
@@ -126,7 +122,7 @@ function ConfiguracionPage() {
   const onCheck = async () => {
     setChecking(true);
     try {
-      const res = await check({});
+      const res = await api.updates.check<UpdateInfo>();
       setInfo(res);
       if (isAdmin) {
         await api
@@ -161,7 +157,7 @@ function ConfiguracionPage() {
     if (!selectedInfo?.latestVersion) return;
     setApplying(true);
     try {
-      await apply({ data: { version: selectedInfo.latestVersion } });
+      await api.updates.apply<{ ok: true; version: string }>(selectedInfo.latestVersion);
       await loadSettings();
       setInfo({
         ...selectedInfo,

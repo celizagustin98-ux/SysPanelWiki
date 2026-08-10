@@ -46,6 +46,22 @@ async function postAuth<T>(path: string, body: unknown): Promise<{ data: T; erro
   }
 }
 
+async function postApp<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token() ?? ""}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || "Error de servidor");
+  }
+  return payload as T;
+}
+
 class QueryBuilder {
   private filters: Filter[] = [];
   private orders: Order[] = [];
@@ -221,6 +237,14 @@ export const api = {
     } catch (error) {
       return responseError(error);
     }
+  },
+  updates: {
+    check<T>() {
+      return postApp<T>("/api/updates/check", {});
+    },
+    apply<T>(version: string) {
+      return postApp<T>("/api/updates/apply", { version });
+    },
   },
   storage: {
     from(bucket: string) {

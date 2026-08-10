@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
@@ -12,10 +13,12 @@ const clientDir = resolve("dist/client");
 const app = await import("../dist/server/server.js").then((module) => module.default);
 const { Pool } = pg;
 const scrypt = promisify(scryptCb);
+const execFileAsync = promisify(execFile);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
 });
+const DEFAULT_BRANCH = "main";
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -103,6 +106,10 @@ async function one(text, values = []) {
   return result.rows[0] || null;
 }
 
+async function query(text, values = []) {
+  return pool.query(text, values);
+}
+
 async function createSession(userId) {
   const token = randomBytes(32).toString("base64url");
   await pool.query(
@@ -140,6 +147,140 @@ async function getSession(token) {
     },
     role: session.role || "consulta",
   };
+}
+
+function bearerToken(req) {
+  const auth = req.headers.authorization;
+  return auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+}
+
+async function requireAdmin(req) {
+  const session = await getSession(bearerToken(req));
+  if (!session) {
+    const error = new Error("No autorizado");
+    error.statusCode = 401;
+    throw error;
+  }
+  if (session.role !== "administrador") {
+    const error = new Error("Solo administradores pueden instalar actualizaciones");
+    error.statusCode = 403;
+    throw error;
+  }
+  return session;
+}
+
+function gitEnvWithToken() {
+  const token = process.env.GITHUB_TOKEN;
+  return token
+    ? {
+        ...process.env,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+        GIT_CONFIG_VALUE_0: `AUTHORIZATION: bearer ${token}`,
+      }
+    : process.env;
+}
+
+async function runCommand(command, args, options = {}) {
+  const { stdout, stderr } = await execFileAsync(command, args, {
+    cwd: process.cwd(),
+    env: options.env || process.env,
+    timeout: options.timeout || 180_000,
+    maxBuffer: 1024 * 1024 * 8,
+  });
+  return `${stdout || ""}${stderr || ""}`.trim();
+}
+
+function updateError(error, fallback) {
+  const output = `${error?.stdout || ""}\n${error?.stderr || ""}\n${error?.message || ""}`.trim();
+  if (/authentication|could not read username|permission denied|not found/i.test(output)) {
+    return "No se pudo acceder al repositorio. Revisá que GITHUB_TOKEN esté configurado en el servidor.";
+  }
+  if (/local changes|untracked working tree|would be overwritten/i.test(output)) {
+    return "No se pudo instalar porque hay archivos locales sin guardar en el servidor.";
+  }
+  return fallback;
+}
+
+async function handleUpdates(req, res) {
+  if (req.method !== "POST" || !req.url?.startsWith("/api/updates/")) return false;
+
+  try {
+    await requireAdmin(req);
+    const action = new URL(req.url, "http://localhost").pathname.replace("/api/updates/", "");
+    const branch = process.env.GITHUB_BRANCH || process.env.REPO_BRANCH || DEFAULT_BRANCH;
+    const env = gitEnvWithToken();
+
+    if (action === "check") {
+      const settings = await one(`select version_actual from app_settings where singleton = true`);
+      const currentSha = await runCommand("git", ["rev-parse", "HEAD"], { env, timeout: 60_000 });
+      const remoteLine = await runCommand("git", ["ls-remote", "origin", `refs/heads/${branch}`], {
+        env,
+        timeout: 60_000,
+      });
+      const remoteSha = remoteLine.split(/\s+/)[0] || "";
+      if (!remoteSha) {
+        return sendJson(res, 500, { error: "No se pudo verificar actualizaciones." }), true;
+      }
+
+      return (
+        sendJson(res, 200, {
+          ok: true,
+          repo: "",
+          currentVersion: currentSha.slice(0, 7) || settings?.version_actual || "local",
+          latestVersion: remoteSha.slice(0, 7),
+          latestUrl: null,
+          publishedAt: null,
+          notes: null,
+          hasUpdate: remoteSha !== currentSha,
+        }),
+        true
+      );
+    }
+
+    if (action === "apply") {
+      const body = await readJson(req);
+      const version = String(body.version || "").trim();
+      if (!version || version.length > 120) {
+        return sendJson(res, 400, { error: "Versión inválida" }), true;
+      }
+
+      try {
+        await runCommand("git", ["fetch", "origin", branch], { env, timeout: 120_000 });
+        await runCommand("git", ["reset", "--hard", `origin/${branch}`], { env, timeout: 120_000 });
+        await runCommand("npm", ["install", "--silent"], { timeout: 300_000 });
+        await runCommand("npm", ["run", "build"], { timeout: 300_000 });
+      } catch (error) {
+        console.error(error);
+        return sendJson(res, 500, {
+          error: updateError(error, "No se pudo instalar la actualización. Revisá los logs del servidor."),
+        }), true;
+      }
+
+      await query(
+        `update app_settings set version_actual = $1, ultima_actualizacion = now() where singleton = true`,
+        [version],
+      );
+
+      sendJson(res, 200, { ok: true, version });
+
+      const serviceName = process.env.SERVICE_NAME || process.env.SYSTEMD_SERVICE || "syswiki";
+      setTimeout(() => {
+        execFile("systemctl", ["restart", serviceName], { timeout: 30_000 }, (error) => {
+          if (error) console.error(error);
+        });
+      }, 500);
+      return true;
+    }
+
+    return sendJson(res, 404, { error: "Ruta de actualización inexistente" }), true;
+  } catch (error) {
+    console.error(error);
+    sendJson(res, error.statusCode || 500, {
+      error: error instanceof Error ? error.message : "Error de servidor",
+    });
+    return true;
+  }
 }
 
 async function handleAuth(req, res) {
@@ -280,6 +421,7 @@ async function sendWebResponse(res, response) {
 
 const server = createServer(async (req, res) => {
   try {
+    if (await handleUpdates(req, res)) return;
     if (await handleAuth(req, res)) return;
     if (trySendStatic(req, res)) return;
 
