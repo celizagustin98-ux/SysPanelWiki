@@ -1,6 +1,42 @@
 import { createServerFn } from "@tanstack/react-start";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { requireAppAuth } from "@/integrations/api/auth-middleware";
 import { assertAdmin, one, query } from "@/lib/server/postgres";
+
+const execFileAsync = promisify(execFile);
+const DEFAULT_BRANCH = "main";
+
+async function runUpdateCommand(command: string, args: string[], env: NodeJS.ProcessEnv = process.env) {
+  await execFileAsync(command, args, {
+    cwd: process.cwd(),
+    env,
+    timeout: 180_000,
+    maxBuffer: 1024 * 1024 * 4,
+  });
+}
+
+async function readCommand(command: string, args: string[], env: NodeJS.ProcessEnv = process.env) {
+  const { stdout } = await execFileAsync(command, args, {
+    cwd: process.cwd(),
+    env,
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024,
+  });
+  return stdout.trim();
+}
+
+function gitEnvWithToken() {
+  const token = process.env["GITHUB_TOKEN"];
+  return token
+    ? {
+        ...process.env,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+        GIT_CONFIG_VALUE_0: `AUTHORIZATION: bearer ${token}`,
+      }
+    : process.env;
+}
 
 export type UpdateInfo = {
   ok: boolean;
@@ -16,18 +52,17 @@ export type UpdateInfo = {
 
 export const checkForUpdates = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
-  .handler(async ({ context }): Promise<UpdateInfo> => {
-    const settings = await one<{ version_actual: string; github_repo: string }>(
-      `select version_actual, github_repo from app_settings where singleton = true`,
+  .handler(async (): Promise<UpdateInfo> => {
+    const settings = await one<{ version_actual: string }>(
+      `select version_actual from app_settings where singleton = true`,
     );
 
-    const repo = settings?.github_repo ?? process.env.GITHUB_REPO ?? "celizagustin98-ux/SysPanelWiki";
+    const branch = process.env.GITHUB_BRANCH ?? process.env.REPO_BRANCH ?? DEFAULT_BRANCH;
     const currentVersion = settings?.version_actual ?? "v1.0.0";
-    const token = process.env["GITHUB_TOKEN"];
 
     const base: UpdateInfo = {
       ok: false,
-      repo,
+      repo: "",
       currentVersion,
       latestVersion: null,
       latestUrl: null,
@@ -36,69 +71,31 @@ export const checkForUpdates = createServerFn({ method: "POST" })
       hasUpdate: false,
     };
 
-    if (!token) {
-      return { ...base, error: "Falta configurar el token de GitHub para leer el repositorio privado." };
-    }
-
-    const headers = {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "SysIntranet",
-    };
-
     try {
-      const rel = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers });
-      if (rel.ok) {
-        const r = (await rel.json()) as {
-          tag_name: string;
-          html_url: string;
-          published_at: string;
-          body: string | null;
-        };
-        return {
-          ...base,
-          ok: true,
-          latestVersion: r.tag_name,
-          latestUrl: r.html_url,
-          publishedAt: r.published_at,
-          notes: r.body ?? null,
-          hasUpdate: r.tag_name !== currentVersion,
-        };
+      const env = gitEnvWithToken();
+      const currentSha = await readCommand("git", ["rev-parse", "HEAD"], env);
+      const currentShort = currentSha.slice(0, 7);
+      const remoteLine = await readCommand("git", ["ls-remote", "origin", `refs/heads/${branch}`], env);
+      const remoteSha = remoteLine.split(/\s+/)[0] ?? "";
+
+      if (!remoteSha) {
+        return { ...base, currentVersion: currentShort, error: "No se pudo verificar actualizaciones." };
       }
 
-      // Sin releases: usar el último commit de la rama por defecto
-      const commits = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=1`, { headers });
-      if (!commits.ok) {
-        const body = await commits.text();
-        console.error(`GitHub error [${commits.status}]: ${body}`);
-        return {
-          ...base,
-          error:
-            commits.status === 404
-              ? "No se encontró el repositorio (o el token no tiene acceso)."
-              : `GitHub respondió ${commits.status}.`,
-        };
-      }
-      const list = (await commits.json()) as Array<{
-        sha: string;
-        html_url: string;
-        commit: { message: string; author: { date: string } };
-      }>;
-      const c = list[0];
-      if (!c) return { ...base, ok: true, error: "El repositorio no tiene commits." };
-      const short = c.sha.slice(0, 7);
+      const remoteShort = remoteSha.slice(0, 7);
       return {
         ...base,
+        currentVersion: currentShort,
         ok: true,
-        latestVersion: short,
-        latestUrl: c.html_url,
-        publishedAt: c.commit.author.date,
-        notes: c.commit.message,
-        hasUpdate: short !== currentVersion,
+        latestVersion: remoteShort,
+        latestUrl: null,
+        publishedAt: null,
+        notes: null,
+        hasUpdate: remoteSha !== currentSha,
       };
     } catch (e) {
       console.error(e);
-      return { ...base, error: "No se pudo contactar a GitHub." };
+      return { ...base, error: "No se pudo verificar actualizaciones." };
     }
   });
 
@@ -111,9 +108,28 @@ export const applyUpdate = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
 
+    const branch = process.env.GITHUB_BRANCH ?? process.env.REPO_BRANCH ?? DEFAULT_BRANCH;
+    const serviceName = process.env.SERVICE_NAME ?? process.env.SYSTEMD_SERVICE ?? "syswiki";
+    const gitEnv = gitEnvWithToken();
+
+    try {
+      await runUpdateCommand("git", ["fetch", "origin", branch], gitEnv);
+      await runUpdateCommand("git", ["reset", "--hard", `origin/${branch}`]);
+      await runUpdateCommand("npm", ["install", "--silent"]);
+      await runUpdateCommand("npm", ["run", "build"]);
+    } catch (error) {
+      console.error(error);
+      throw new Error("No se pudo instalar la actualización. Revisá los logs del servidor.");
+    }
+
     await query(
       `update app_settings set version_actual = $1, ultima_actualizacion = now() where singleton = true`,
       [data.version],
     );
+
+    void execFile("systemctl", ["restart", serviceName], { timeout: 30_000 }, (error) => {
+      if (error) console.error(error);
+    });
+
     return { ok: true, version: data.version };
   });
