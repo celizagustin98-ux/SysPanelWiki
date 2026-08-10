@@ -149,6 +149,14 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
   const [operarios, setOperarios] = useState("");
   const [notas, setNotas] = useState("Guardia del período");
   const [saving, setSaving] = useState(false);
+  const nombres = useMemo(
+    () =>
+      operarios
+        .split(/\r?\n/)
+        .map((nombre) => nombre.trim())
+        .filter(Boolean),
+    [operarios],
+  );
 
   const preview = useMemo(
     () => generarTurnosPeriodo({ desde, hasta, horaInicio, duracionDias, operarios, notas }),
@@ -162,14 +170,6 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
         operatorNames: nombres,
       }),
     [desde, hasta, nombres, preview.turnos],
-  );
-  const nombres = useMemo(
-    () =>
-      operarios
-        .split(/\r?\n/)
-        .map((nombre) => nombre.trim())
-        .filter(Boolean),
-    [operarios],
   );
   const diasPeriodo = useMemo(() => calcularDiasCalendario(desde, hasta), [desde, hasta]);
 
@@ -192,12 +192,12 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button>
-          <CalendarRange className="size-4" /> Cargar período
+          <CalendarRange className="size-4" /> Nuevo período
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Nuevo período de guardias</DialogTitle>
+          <DialogTitle>Carga masiva de guardias</DialogTitle>
         </DialogHeader>
         <form className="grid gap-5" onSubmit={submit}>
           <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
@@ -210,7 +210,7 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
                   <p className="text-sm font-semibold">Planificación del período</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {diasPeriodo > 0
-                      ? `${diasPeriodo} días de liquidación entre ${formatDateInput(desde)} y ${formatDateInput(hasta)}. Relevo semanal: lunes 20:00 a lunes 08:00.`
+                      ? `${diasPeriodo} días de liquidación entre ${formatDateInput(desde)} y ${formatDateInput(hasta)}. Cada línea asigna un relevo semanal de lunes 20:00 a lunes 08:00.`
                       : "Seleccioná el rango de cobertura."}
                   </p>
                 </div>
@@ -258,16 +258,19 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
             <div className="space-y-1.5">
-              <Label>Operarios del período</Label>
+              <Label>Operarios que hacen guardia</Label>
               <Textarea
-                className="min-h-52"
+                className="min-h-56"
                 placeholder={"Agustin Celiz\nSilvia Perez\nKarina Gomez\nJorge Ruiz"}
                 value={operarios}
                 onChange={(e) => setOperarios(e.target.value)}
                 required
               />
+              <p className="text-xs text-muted-foreground">
+                Escribí un operario por línea, en el orden en que toman la guardia. La planilla genera el inicio y fin de cada tramo.
+              </p>
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {nombres.slice(0, 8).map((nombre) => (
                   <Badge key={nombre} variant="outline" className="border-primary/25 bg-primary/5 text-primary">
@@ -280,27 +283,38 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
             <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
               <div className="flex items-center gap-2">
                 <ListChecks className="size-4 text-primary" />
-                <p className="text-sm font-semibold">Vista previa</p>
+                <p className="text-sm font-semibold">Tramos a cargar</p>
               </div>
               {preview.error ? (
                 <p className="mt-3 text-sm text-destructive">{preview.error}</p>
               ) : (
                 <>
                   <p className="mt-1 text-xs text-muted-foreground">{preview.turnos.length} turnos a crear</p>
-                  <div className="mt-3 max-h-52 space-y-2 overflow-auto pr-1">
-                    {preview.turnos.slice(0, 10).map((g, index) => (
-                      <div key={`${g.operador_nombre}-${g.desde}-${index}`} className="rounded-xl border border-border/50 bg-muted/30 p-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-xs font-semibold">{g.operador_nombre}</p>
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                            #{index + 1}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground">{formatGuardiaRange(g)}</p>
-                      </div>
-                    ))}
-                    {preview.turnos.length > 10 && (
-                      <p className="text-xs text-muted-foreground">+{preview.turnos.length - 10} turnos más</p>
+                  <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-border/60">
+                    <Table className="text-xs">
+                      <TableHeader>
+                        <TableRow className="bg-muted/50 hover:bg-muted/50">
+                          <TableHead className="w-10">#</TableHead>
+                          <TableHead>Operario</TableHead>
+                          <TableHead>Comienza</TableHead>
+                          <TableHead>Termina</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {preview.turnos.slice(0, 12).map((g, index) => (
+                          <TableRow key={`${g.operador_nombre}-${g.desde}-${index}`}>
+                            <TableCell className="font-semibold text-muted-foreground">{index + 1}</TableCell>
+                            <TableCell className="font-medium">{g.operador_nombre}</TableCell>
+                            <TableCell>{format(new Date(g.desde), "dd/MM HH:mm")}</TableCell>
+                            <TableCell>{format(new Date(g.hasta), "dd/MM HH:mm")}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {preview.turnos.length > 12 && (
+                      <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                        +{preview.turnos.length - 12} turnos más
+                      </p>
                     )}
                   </div>
                 </>
@@ -409,7 +423,7 @@ function GuardiasPage() {
           return desde <= endOfDay(periodoLiquidacion.hastaDate) && hasta >= startOfDay(periodoLiquidacion.desdeDate);
         })
       : guardiasDelMes;
-    return source.length > 0 ? buildGuardiaSheet(source, { ...bounds, operatorNames: operadoresArea }) : buildGuardiaSheet(source, bounds);
+    return buildGuardiaSheet(source, { ...bounds, operatorNames: operadoresArea });
   }, [guardiasDelMes, perfiles, periodoActual, periodoLiquidacion, sortedGuardias]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
@@ -425,7 +439,7 @@ function GuardiasPage() {
               <GuardiaDialog
                 trigger={
                   <Button>
-                    <Plus className="size-4" /> Cargar guardia
+                    <Plus className="size-4" /> Cargar guardia individual
                   </Button>
                 }
                 onDone={refresh}
@@ -696,7 +710,6 @@ type GuardiaSheet = {
     codigo: string;
     colorClass: string;
     normales: number;
-    nocturnos: number;
     feriados: number;
   }[];
   cells: Record<string, Record<string, "guardia" | "feriado" | null>>;
@@ -733,7 +746,7 @@ function GuardiaSheetView({
         </div>
       </CardHeader>
       <CardContent className={cn("space-y-4", compact ? "p-4" : "p-5")}>
-        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]">
           <div className="overflow-hidden rounded-xl border border-border/70 bg-background/40">
             <div className="overflow-x-auto">
               <Table className="min-w-[920px] text-xs">
@@ -819,9 +832,9 @@ function GuardiaSheetView({
             <div className="rounded-xl border border-border/70 bg-background">
               <div className="border-b border-border/60 bg-primary/10 px-3 py-2.5">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Liquidación guardia</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Resumen por operario, sin desplazamiento lateral.</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Normales y feriados por operario.</p>
               </div>
-              <div className="grid gap-2 p-3 sm:grid-cols-2 2xl:grid-cols-1">
+              <div className="grid gap-2 p-3">
                 {sheet.operadores.map((operador) => (
                   <div key={operador.nombre} className="rounded-lg border border-border/60 bg-muted/20 p-3">
                     <div className="flex items-center gap-2">
@@ -830,9 +843,8 @@ function GuardiaSheetView({
                       </span>
                       <p className="min-w-0 flex-1 truncate text-xs font-semibold">{operador.nombre}</p>
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-center">
                       <LiquidacionStat label="Normales" value={operador.normales} />
-                      <LiquidacionStat label="Nocturnos" value={operador.nocturnos} />
                       <LiquidacionStat label="Feriados" value={operador.feriados} highlight />
                     </div>
                   </div>
@@ -1108,14 +1120,11 @@ function buildGuardiaSheet(
 
   const operadores = names.map((name, index) => {
     const values = Object.values(cells[name]);
-    const guardiasOperador = sorted.filter((guardia) => guardia.operador_nombre.trim() === name);
-    const nocturnos = guardiasOperador.reduce((total, guardia) => total + countNocturnosEnPeriodo(guardia, start, end), 0);
     return {
       nombre: name,
       codigo: codes.get(name) ?? initialsCode(name),
       colorClass: palette[index % palette.length],
       normales: values.filter((value) => value === "guardia").length,
-      nocturnos,
       feriados: values.filter((value) => value === "feriado").length,
     };
   });
