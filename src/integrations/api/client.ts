@@ -4,6 +4,7 @@ import {
   apiSelect,
   authResetPassword,
   authUpdatePassword,
+  storageRemove,
   storageSignedUrl,
   storageUpload,
 } from "@/lib/server/data";
@@ -236,6 +237,18 @@ export const api = {
         async createSignedUrl(path: string) {
           try {
             return await storageSignedUrl({ data: { token: token(), bucket, path } });
+          } catch (error) {
+            return responseError(error);
+          }
+        },
+        async remove(paths: string | string[]) {
+          try {
+            const items = Array.isArray(paths) ? paths : [paths];
+            for (const path of items) {
+              const { error } = await storageRemove({ data: { token: token(), bucket, path } });
+              if (error) return { data: null, error };
+            }
+            return { data: null, error: null };
           } catch (error) {
             return responseError(error);
           }

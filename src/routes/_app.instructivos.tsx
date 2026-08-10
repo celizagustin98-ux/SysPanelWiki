@@ -9,10 +9,13 @@ import {
   Files,
   Folder,
   FolderPlus,
+  LibraryBig,
+  Loader2,
   Maximize2,
   MoreHorizontal,
   Paperclip,
   Plus,
+  RefreshCw,
   Save,
   Search,
   Trash2,
@@ -93,6 +96,9 @@ function InstructivosPage() {
   const [draft, setDraft] = useState({ title: "", content: "", tags: "" });
   const [pdfActivo, setPdfActivo] = useState<{ id: string; name: string; url: string } | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<Carpeta | null>(null);
+  const [pdfToDelete, setPdfToDelete] = useState<Adjunto | null>(null);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [savingDoc, setSavingDoc] = useState(false);
 
   const { data: carpetas = [] } = useQuery({
     queryKey: ["wiki_folders"],
@@ -154,9 +160,16 @@ function InstructivosPage() {
     );
   }, [q, docs]);
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["wiki_docs"] });
-    qc.invalidateQueries({ queryKey: ["wiki_folders"] });
+  const refresh = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["wiki_docs"] }),
+      qc.invalidateQueries({ queryKey: ["wiki_folders"] }),
+    ]);
+  };
+
+  const refreshAttachments = async (docId = activo?.id) => {
+    if (!docId) return;
+    await qc.invalidateQueries({ queryKey: ["wiki_attachments", docId] });
   };
 
   const docsByFolder = useMemo(() => {
@@ -201,6 +214,7 @@ function InstructivosPage() {
 
   const guardar = async () => {
     if (!activo) return;
+    setSavingDoc(true);
     const { error } = await api
       .from("wiki_docs")
       .update({
@@ -212,6 +226,7 @@ function InstructivosPage() {
           .filter(Boolean),
       })
       .eq("id", activo.id);
+    setSavingDoc(false);
     if (error) return toast.error(error.message);
     toast.success("Instructivo guardado");
     setEditing(false);
@@ -221,15 +236,56 @@ function InstructivosPage() {
   const subirPdf = async (file: File) => {
     if (!activo) return;
     if (file.type !== "application/pdf") return toast.error("Solo se permiten archivos PDF");
+    setUploadingPdf(true);
     const path = `${activo.id}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
     const { error } = await api.storage.from("instructivos").upload(path, file);
-    if (error) return toast.error(error.message);
+    if (error) {
+      setUploadingPdf(false);
+      return toast.error(error.message);
+    }
     const { error: e2 } = await api
       .from("wiki_attachments")
       .insert({ doc_id: activo.id, file_name: file.name, file_path: path });
+    setUploadingPdf(false);
     if (e2) return toast.error(e2.message);
-    toast.success("PDF adjuntado");
-    qc.invalidateQueries({ queryKey: ["wiki_attachments", activo.id] });
+    toast.success("PDF disponible para lectura");
+    await refreshAttachments(activo.id);
+  };
+
+  const reemplazarPdf = async (actual: Adjunto, file: File) => {
+    if (!activo) return;
+    if (file.type !== "application/pdf") return toast.error("Solo se permiten archivos PDF");
+    setUploadingPdf(true);
+    const path = `${activo.id}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+    const upload = await api.storage.from("instructivos").upload(path, file);
+    if (upload.error) {
+      setUploadingPdf(false);
+      return toast.error(upload.error.message);
+    }
+    const update = await api
+      .from("wiki_attachments")
+      .update({ file_name: file.name, file_path: path })
+      .eq("id", actual.id);
+    if (update.error) {
+      setUploadingPdf(false);
+      return toast.error(update.error.message);
+    }
+    await api.storage.from("instructivos").remove(actual.file_path);
+    setUploadingPdf(false);
+    setPdfActivo(null);
+    toast.success("PDF reemplazado");
+    await refreshAttachments(activo.id);
+  };
+
+  const eliminarPdf = async () => {
+    if (!pdfToDelete || !activo) return;
+    const deleteRow = await api.from("wiki_attachments").delete().eq("id", pdfToDelete.id);
+    if (deleteRow.error) return toast.error(deleteRow.error.message);
+    await api.storage.from("instructivos").remove(pdfToDelete.file_path);
+    if (pdfActivo?.id === pdfToDelete.id) setPdfActivo(null);
+    setPdfToDelete(null);
+    toast.success("PDF eliminado");
+    await refreshAttachments(activo.id);
   };
 
   const verPdf = async (a: Adjunto) => {
@@ -346,7 +402,7 @@ function InstructivosPage() {
     <div>
       <PageHeader
         title="Instructivos"
-        description="Wiki operativa jerárquica con editor visual y PDFs embebidos."
+        description="Base de instructivos con carpetas, lectura PDF en pantalla y búsqueda rápida."
         action={
           canWrite ? (
             <div className="flex gap-2">
@@ -388,7 +444,7 @@ function InstructivosPage() {
         <Card className="panel h-fit overflow-hidden">
           <CardHeader className="border-b border-border/70 bg-muted/25 pb-3">
             <CardTitle className="flex items-center gap-2 text-sm">
-              <Folder className="size-4 text-primary" /> Biblioteca
+                <LibraryBig className="size-4 text-primary" /> Biblioteca
             </CardTitle>
           </CardHeader>
           <CardContent className="max-h-[70vh] overflow-y-auto p-3">
@@ -473,8 +529,9 @@ function InstructivosPage() {
                         <Button variant="ghost" onClick={() => setEditing(false)}>
                           Cancelar
                         </Button>
-                        <Button onClick={guardar}>
-                          <Save className="size-4" /> Guardar
+                        <Button onClick={guardar} disabled={savingDoc}>
+                          {savingDoc ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                          Guardar
                         </Button>
                       </>
                     ) : (
@@ -521,19 +578,25 @@ function InstructivosPage() {
                   />
                 )}
 
-                <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-3">
+                <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-gradient-to-r from-primary/10 via-card to-card px-4 py-3">
                     <div>
                       <p className="flex items-center gap-2 text-sm font-semibold">
-                        <Paperclip className="size-4 text-primary" /> Biblioteca PDF
+                        <Paperclip className="size-4 text-primary" /> Documentos PDF
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        Visualización directa para consultar instructivos sin imprimir.
+                        Lectura directa, reemplazo de versiones y limpieza de archivos antiguos.
                       </p>
                     </div>
                     {canWrite && (
-                      <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80">
-                        <Upload className="size-3.5" /> Subir PDF
+                      <label
+                        className={cn(
+                          "inline-flex h-9 cursor-pointer items-center gap-2 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                          uploadingPdf && "pointer-events-none opacity-70",
+                        )}
+                      >
+                        {uploadingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                        {uploadingPdf ? "Procesando..." : "Subir PDF"}
                         <input
                           type="file"
                           accept="application/pdf"
@@ -549,35 +612,81 @@ function InstructivosPage() {
                   </div>
 
                   {adjuntos.length > 0 ? (
-                    <div className="grid min-h-[640px] gap-0 xl:grid-cols-[260px_1fr]">
+                    <div className="grid min-h-[640px] gap-0 xl:grid-cols-[300px_1fr]">
                       <aside className="border-b border-border/70 bg-muted/10 p-3 xl:border-b-0 xl:border-r">
-                        <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          PDFs disponibles
-                        </p>
+                        <div className="mb-3 flex items-center justify-between px-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            PDFs disponibles
+                          </p>
+                          <Badge variant="secondary">{adjuntos.length}</Badge>
+                        </div>
                         <div className="space-y-1">
                           {adjuntos.map((a) => (
-                            <button
+                            <div
                               key={a.id}
-                              onClick={() => verPdf(a)}
                               className={cn(
-                                "flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent/70",
+                                "group/pdf flex items-start gap-2 rounded-xl border border-transparent px-2 py-2 text-sm transition-colors hover:border-border hover:bg-accent/70",
                                 pdfActivo?.id === a.id && "bg-primary/15 text-primary ring-1 ring-primary/20",
                               )}
                             >
-                              <FileText className="mt-0.5 size-4 shrink-0" />
-                              <span className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => verPdf(a)}
+                                className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                              >
+                                <FileText className="mt-0.5 size-4 shrink-0" />
+                                <span className="min-w-0">
                                 <span className="line-clamp-2 font-medium leading-snug">{a.file_name}</span>
                                 <span className="mt-1 block text-[11px] text-muted-foreground">
                                   Click para visualizar
                                 </span>
-                              </span>
-                            </button>
+                                </span>
+                              </button>
+                              {canWrite && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="ghost"
+                                      className="size-7 shrink-0 opacity-100 xl:opacity-0 xl:group-hover/pdf:opacity-100"
+                                    >
+                                      <MoreHorizontal className="size-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem asChild>
+                                      <label className="flex cursor-pointer items-center gap-2">
+                                        <RefreshCw className="size-4" />
+                                        Reemplazar PDF
+                                        <input
+                                          type="file"
+                                          accept="application/pdf"
+                                          className="hidden"
+                                          onChange={(e) => {
+                                            const f = e.target.files?.[0];
+                                            if (f) reemplazarPdf(a, f);
+                                            e.currentTarget.value = "";
+                                          }}
+                                        />
+                                      </label>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => setPdfToDelete(a)}
+                                    >
+                                      <Trash2 className="size-4" /> Eliminar PDF
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
+                            </div>
                           ))}
                         </div>
                       </aside>
 
                       <section className="flex min-h-[640px] flex-col bg-background">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-card/70 px-4 py-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold">
                               {pdfActivo?.name ?? "Seleccioná un PDF"}
@@ -587,14 +696,29 @@ function InstructivosPage() {
                             </p>
                           </div>
                           {pdfActivo && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => window.open(pdfViewerSrc, "_blank", "noopener,noreferrer")}
-                            >
-                              <Maximize2 className="size-4" /> Pantalla completa
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => window.open(pdfViewerSrc, "_blank", "noopener,noreferrer")}
+                              >
+                                <Maximize2 className="size-4" /> Pantalla completa
+                              </Button>
+                              {canWrite && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    const current = adjuntos.find((a) => a.id === pdfActivo.id);
+                                    if (current) setPdfToDelete(current);
+                                  }}
+                                >
+                                  <Trash2 className="size-4 text-destructive" /> Eliminar
+                                </Button>
+                              )}
+                            </div>
                           )}
                         </div>
                         {pdfActivo ? (
@@ -605,7 +729,11 @@ function InstructivosPage() {
                           />
                         ) : (
                           <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
-                            Seleccioná un PDF para visualizarlo.
+                            <div className="max-w-sm space-y-2">
+                              <FileText className="mx-auto size-8 text-primary" />
+                              <p className="font-medium text-foreground">Elegí un PDF de la lista</p>
+                              <p>El documento se abre acá para lectura sin salir del instructivo.</p>
+                            </div>
                           </div>
                         )}
                       </section>
@@ -649,13 +777,34 @@ function InstructivosPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={!!pdfToDelete} onOpenChange={(open) => !open && setPdfToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar PDF</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará "{pdfToDelete?.file_name}" del instructivo. Esta acción sirve para quitar versiones
+              viejas o archivos cargados por error.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={eliminarPdf}
+            >
+              Eliminar PDF
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () => void }) {
+function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () => void | Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [parent, setParent] = useState("root");
+  const [creating, setCreating] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -672,14 +821,19 @@ function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () =>
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
+            const name = String(fd.get("name") ?? "").trim();
+            if (!name) return toast.error("Ingresá un nombre de carpeta");
+            setCreating(true);
             const { error } = await api.from("wiki_folders").insert({
-              name: String(fd.get("name")),
+              name,
               parent_id: parent === "root" ? null : parent,
             });
+            setCreating(false);
             if (error) return toast.error(error.message);
             toast.success("Carpeta creada");
             setOpen(false);
-            onDone();
+            e.currentTarget.reset();
+            await onDone();
           }}
         >
           <div className="space-y-1.5">
@@ -703,7 +857,10 @@ function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () =>
             </Select>
           </div>
           <DialogFooter>
-            <Button type="submit">Crear</Button>
+            <Button type="submit" disabled={creating}>
+              {creating ? <Loader2 className="size-4 animate-spin" /> : <FolderPlus className="size-4" />}
+              {creating ? "Creando..." : "Crear carpeta"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -722,6 +879,7 @@ function NuevoDoc({
 }) {
   const [open, setOpen] = useState(false);
   const [folder, setFolder] = useState("root");
+  const [creating, setCreating] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -738,20 +896,23 @@ function NuevoDoc({
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { data, error } = await api
-              .from("wiki_docs")
-              .insert({
-                title: String(fd.get("title")),
-                folder_id: folder === "root" ? null : folder,
-                content: "<p>Escribí el contenido del instructivo…</p>",
-                created_by: userId ?? null,
-              })
-              .select("id")
-              .single();
+            const title = String(fd.get("title") ?? "").trim();
+            if (!title) return toast.error("Ingresá un título");
+            setCreating(true);
+            const { data, error } = await api.from("wiki_docs").insert({
+              title,
+              folder_id: folder === "root" ? null : folder,
+              content: "<p>Escribí el contenido del instructivo...</p>",
+              created_by: userId ?? null,
+            });
+            setCreating(false);
             if (error) return toast.error(error.message);
+            const created = Array.isArray(data) ? data[0] : data;
+            if (!created?.id) return toast.error("No se pudo abrir el instructivo creado");
             toast.success("Instructivo creado");
             setOpen(false);
-            onDone(data.id);
+            e.currentTarget.reset();
+            onDone(created.id);
           }}
         >
           <div className="space-y-1.5">
@@ -775,7 +936,10 @@ function NuevoDoc({
             </Select>
           </div>
           <DialogFooter>
-            <Button type="submit">Crear</Button>
+            <Button type="submit" disabled={creating}>
+              {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              {creating ? "Creando..." : "Crear instructivo"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

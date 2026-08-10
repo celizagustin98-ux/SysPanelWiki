@@ -10,6 +10,7 @@ import {
   one,
   query,
   readFileAsDataUrl,
+  removeFile,
   requireSession,
   saveFile,
   verifyPassword,
@@ -317,7 +318,8 @@ export const authSignUp = createServerFn({ method: "POST" })
       userId,
       Number(first?.count ?? 0) <= 1 ? "administrador" : "consulta",
     ]);
-    return { ok: true };
+    const token = await createSession(userId);
+    return { session: await getSession(token) };
   });
 
 export const authSignOut = createServerFn({ method: "POST" })
@@ -359,4 +361,13 @@ export const storageSignedUrl = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireSession(data.token);
     return { data: { signedUrl: await readFileAsDataUrl(data.bucket, data.path) }, error: null };
+  });
+
+export const storageRemove = createServerFn({ method: "POST" })
+  .inputValidator((data: { token?: string | null; bucket: string; path: string }) => data)
+  .handler(async ({ data }) => {
+    const session = await requireSession(data.token);
+    await assertCanWrite(session.user.id);
+    await removeFile(data.bucket, data.path);
+    return { data: null, error: null };
   });

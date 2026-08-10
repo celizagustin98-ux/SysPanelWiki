@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { dirname, join, normalize } from "node:path";
 import { promisify } from "node:util";
@@ -151,6 +151,13 @@ export async function saveFile(bucket: string, path: string, base64: string) {
   const file = storagePath(bucket, path);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, Buffer.from(base64, "base64"));
+}
+
+export async function removeFile(bucket: string, path: string) {
+  const file = storagePath(bucket, path);
+  await unlink(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
 }
 
 export async function readFileAsDataUrl(bucket: string, path: string, mime = "application/pdf") {
