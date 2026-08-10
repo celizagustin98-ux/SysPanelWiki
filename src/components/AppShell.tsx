@@ -46,6 +46,10 @@ export function AppShell() {
       (!item.adminOnly || isAdmin) && (!item.modulo || can(item.modulo as Modulo, "view")),
   );
 
+  const handleSignOut = async () => {
+    await signOut();
+    await navigate({ to: "/auth", replace: true });
+  };
 
   return (
     <div className="flex min-h-screen w-full">
@@ -93,10 +97,7 @@ export function AppShell() {
               size="sm"
               variant="outline"
               className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={async () => {
-                await signOut();
-                navigate({ to: "/auth", replace: true });
-              }}
+              onClick={handleSignOut}
             >
               <LogOut className="size-4" />
               <span className="ml-2">Cerrar sesión</span>
@@ -118,10 +119,7 @@ export function AppShell() {
               size="sm"
               variant="outline"
               className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={async () => {
-                await signOut();
-                navigate({ to: "/auth", replace: true });
-              }}
+              onClick={handleSignOut}
             >
               <LogOut className="size-4" />
               <span className="ml-2">Cerrar sesión</span>
