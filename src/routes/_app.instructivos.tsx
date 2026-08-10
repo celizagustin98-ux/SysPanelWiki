@@ -9,9 +9,9 @@ import {
   Files,
   Folder,
   FolderPlus,
+  Eye,
   LibraryBig,
   Loader2,
-  Maximize2,
   MoreHorizontal,
   Paperclip,
   Plus,
@@ -302,9 +302,7 @@ function InstructivosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activo?.id, adjuntos.length]);
 
-  const pdfViewerSrc = pdfActivo
-    ? `${pdfActivo.url}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`
-    : "";
+  const pdfViewerSrc = pdfActivo?.url ?? "";
 
   const renderTree = (parent: string | null, depth = 0) => (
     <div className={cn("space-y-1", depth > 0 && "ml-3 border-l border-border/60 pl-2")}>
@@ -638,7 +636,7 @@ function InstructivosPage() {
                                 <span className="min-w-0">
                                 <span className="line-clamp-2 font-medium leading-snug">{a.file_name}</span>
                                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                                  Click para visualizar
+                                  Ver en el visor
                                 </span>
                                 </span>
                               </button>
@@ -698,12 +696,14 @@ function InstructivosPage() {
                           {pdfActivo && (
                             <div className="flex gap-2">
                               <Button
+                                asChild
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => window.open(pdfViewerSrc, "_blank", "noopener,noreferrer")}
                               >
-                                <Maximize2 className="size-4" /> Pantalla completa
+                                <a href={pdfActivo.url} target="_blank" rel="noreferrer">
+                                  <Eye className="size-4" /> Ver PDF
+                                </a>
                               </Button>
                               {canWrite && (
                                 <Button
@@ -722,11 +722,13 @@ function InstructivosPage() {
                           )}
                         </div>
                         {pdfActivo ? (
-                          <iframe
-                            title={`Vista PDF: ${pdfActivo.name}`}
-                            src={pdfViewerSrc}
-                            className="h-[72vh] min-h-[640px] w-full bg-white"
-                          />
+                          <div className="flex h-[72vh] min-h-[640px] flex-col bg-slate-950">
+                            <iframe
+                              title={`Vista PDF: ${pdfActivo.name}`}
+                              src={pdfViewerSrc}
+                              className="min-h-0 flex-1 border-0 bg-white"
+                            />
+                          </div>
                         ) : (
                           <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
                             <div className="max-w-sm space-y-2">
