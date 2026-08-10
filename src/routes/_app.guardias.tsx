@@ -159,8 +159,9 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
       buildGuardiaSheet(preview.turnos.map((turno, index) => ({ ...turno, id: `preview-${index}` })), {
         periodStart: desde,
         periodEnd: hasta,
+        operatorNames: nombres,
       }),
-    [desde, hasta, preview.turnos],
+    [desde, hasta, nombres, preview.turnos],
   );
   const nombres = useMemo(
     () =>
@@ -345,6 +346,14 @@ function GuardiasPage() {
       return data as Guardia[];
     },
   });
+  const { data: perfiles = [] } = useQuery({
+    queryKey: ["guardias-perfiles"],
+    queryFn: async () => {
+      const { data, error } = await api.from("profiles").select("full_name").order("full_name");
+      if (error) throw error;
+      return (data ?? []) as { full_name: string | null }[];
+    },
+  });
 
   const del = useMutation({
     mutationFn: async (id: string) => {
@@ -389,6 +398,7 @@ function GuardiasPage() {
     ? `${format(periodoLiquidacion?.desdeDate ?? periodoActual.desde, "dd/MM")} -> ${format(periodoLiquidacion?.hastaDate ?? periodoActual.hasta, "dd/MM")}`
     : format(cursor, "MMMM yyyy", { locale: es });
   const planillaGuardias = useMemo(() => {
+    const operadoresArea = perfiles.map((perfil) => perfil.full_name?.trim()).filter(Boolean) as string[];
     const bounds = periodoLiquidacion
       ? { periodStart: periodoLiquidacion.desde, periodEnd: periodoLiquidacion.hasta }
       : undefined;
@@ -399,8 +409,8 @@ function GuardiasPage() {
           return desde <= endOfDay(periodoLiquidacion.hastaDate) && hasta >= startOfDay(periodoLiquidacion.desdeDate);
         })
       : guardiasDelMes;
-    return buildGuardiaSheet(source, bounds);
-  }, [guardiasDelMes, periodoActual, periodoLiquidacion, sortedGuardias]);
+    return source.length > 0 ? buildGuardiaSheet(source, { ...bounds, operatorNames: operadoresArea }) : buildGuardiaSheet(source, bounds);
+  }, [guardiasDelMes, perfiles, periodoActual, periodoLiquidacion, sortedGuardias]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
   return (
@@ -723,7 +733,7 @@ function GuardiaSheetView({
         </div>
       </CardHeader>
       <CardContent className={cn("space-y-4", compact ? "p-4" : "p-5")}>
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="overflow-hidden rounded-xl border border-border/70 bg-background/40">
             <div className="overflow-x-auto">
               <Table className="min-w-[920px] text-xs">
@@ -806,28 +816,27 @@ function GuardiaSheetView({
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
-              <div className="border-b border-border/60 bg-primary/10 px-3 py-2">
+            <div className="rounded-xl border border-border/70 bg-background">
+              <div className="border-b border-border/60 bg-primary/10 px-3 py-2.5">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Liquidación guardia</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Resumen por operario, sin desplazamiento lateral.</p>
               </div>
-              <div className="overflow-x-auto">
-                <Table className="min-w-[360px] text-xs">
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="w-36 bg-muted/50">Concepto</TableHead>
-                      {sheet.operadores.map((operador) => (
-                        <TableHead key={operador.codigo} className={cn("text-center text-white", operador.colorClass)}>
-                          {operador.codigo}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <LiquidacionRow label="Normales" values={sheet.operadores.map((operador) => operador.normales)} />
-                    <LiquidacionRow label="Nocturnos" values={sheet.operadores.map((operador) => operador.nocturnos)} />
-                    <LiquidacionRow label="Feriados" values={sheet.operadores.map((operador) => operador.feriados)} />
-                  </TableBody>
-                </Table>
+              <div className="grid gap-2 p-3 sm:grid-cols-2 2xl:grid-cols-1">
+                {sheet.operadores.map((operador) => (
+                  <div key={operador.nombre} className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("grid size-7 place-items-center rounded-md text-xs font-bold text-white", operador.colorClass)}>
+                        {operador.codigo}
+                      </span>
+                      <p className="min-w-0 flex-1 truncate text-xs font-semibold">{operador.nombre}</p>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                      <LiquidacionStat label="Normales" value={operador.normales} />
+                      <LiquidacionStat label="Nocturnos" value={operador.nocturnos} />
+                      <LiquidacionStat label="Feriados" value={operador.feriados} highlight />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -837,16 +846,12 @@ function GuardiaSheetView({
   );
 }
 
-function LiquidacionRow({ label, values }: { label: string; values: number[] }) {
+function LiquidacionStat({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
   return (
-    <TableRow>
-      <TableCell className="bg-muted/30 text-xs font-semibold uppercase tracking-[0.08em]">{label}</TableCell>
-      {values.map((value, index) => (
-        <TableCell key={`${label}-${index}`} className="text-center font-semibold">
-          {value}
-        </TableCell>
-      ))}
-    </TableRow>
+    <div className={cn("rounded-md border border-border/50 bg-background/60 px-2 py-2", highlight && "border-rose-500/25 bg-rose-500/10")}>
+      <p className="text-sm font-semibold leading-none">{value}</p>
+      <p className="mt-1 truncate text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+    </div>
   );
 }
 
@@ -1037,29 +1042,43 @@ function buildGuardiaSheet(
   bounds?: {
     periodStart?: string;
     periodEnd?: string;
+    operatorNames?: string[];
   },
 ): GuardiaSheet {
-  if (guardias.length === 0) {
+  const requestedNames = bounds?.operatorNames?.map((name) => name.trim()).filter(Boolean) ?? [];
+
+  if (guardias.length === 0 && requestedNames.length === 0) {
     return { days: [], operadores: [], cells: {}, periodLabel: "Sin período" };
   }
 
   const sorted = [...guardias].sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime());
-  const detectedStart = startOfDay(
-    sorted.reduce((min, guardia) => {
-      const desde = new Date(guardia.desde);
-      return desde < min ? desde : min;
-    }, new Date(sorted[0].desde)),
-  );
-  const detectedEnd = startOfDay(
-    sorted.reduce((max, guardia) => {
-      const hasta = new Date(guardia.hasta);
-      return hasta > max ? hasta : max;
-    }, new Date(sorted[0].hasta)),
-  );
+  const detectedStart =
+    sorted.length > 0
+      ? startOfDay(
+          sorted.reduce((min, guardia) => {
+            const desde = new Date(guardia.desde);
+            return desde < min ? desde : min;
+          }, new Date(sorted[0].desde)),
+        )
+      : buildDateTime(bounds?.periodStart ?? format(new Date(), "yyyy-MM-dd"), "00:00");
+  const detectedEnd =
+    sorted.length > 0
+      ? startOfDay(
+          sorted.reduce((max, guardia) => {
+            const hasta = new Date(guardia.hasta);
+            return hasta > max ? hasta : max;
+          }, new Date(sorted[0].hasta)),
+        )
+      : buildDateTime(bounds?.periodEnd ?? bounds?.periodStart ?? format(new Date(), "yyyy-MM-dd"), "00:00");
   const start = bounds?.periodStart ? buildDateTime(bounds.periodStart, "00:00") : detectedStart;
   const end = bounds?.periodEnd ? buildDateTime(bounds.periodEnd, "00:00") : detectedEnd;
   const days = eachDayOfInterval({ start, end });
-  const names = [...new Set(sorted.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean))];
+  const names = [
+    ...new Set([
+      ...requestedNames,
+      ...sorted.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean),
+    ]),
+  ];
   const codes = buildOperatorCodes(names);
   const cells: GuardiaSheet["cells"] = {};
   const palette = [
@@ -1110,22 +1129,10 @@ function buildGuardiaSheet(
 }
 
 function buildOperatorCodes(names: string[]) {
-  const used = new Set<string>();
   const result = new Map<string, string>();
 
   for (const name of names) {
-    const base = initialsCode(name);
-    let code = base;
-    if (!code) {
-      code = "?";
-    }
-    let suffix = 2;
-    while (used.has(code)) {
-      code = `${base}${suffix}`;
-      suffix += 1;
-    }
-    used.add(code);
-    result.set(name, code);
+    result.set(name, initialsCode(name));
   }
 
   return result;
