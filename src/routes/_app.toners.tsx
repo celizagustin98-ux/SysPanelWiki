@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
-  CalendarCheck,
   Copy,
   ListFilter,
   PackageCheck,
@@ -29,7 +28,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -260,129 +258,124 @@ function TonersPage() {
         </TabsList>
 
         <TabsContent value="stock" className="mt-4">
-          <Card className="panel overflow-hidden border-border/70 bg-card/95">
-            <CardHeader className="border-b border-border/70 bg-muted/20 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <PackageCheck className="size-5 text-primary" />
-                    Hoja de stock de tóners
-                  </CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Control rápido por marca, cantidad actual, cantidad mínima y último movimiento.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="gap-1.5">
-                    <PackageCheck className="size-3.5" /> {modelos.length} modelos
-                  </Badge>
-                  <Badge variant={criticos.length > 0 ? "destructive" : "secondary"} className="gap-1.5">
-                    <PackageX className="size-3.5" /> {criticos.length} críticos
-                  </Badge>
-                </div>
+          <div className="overflow-hidden rounded-md border border-emerald-900/45 bg-card/95 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-900/35 bg-muted/10 px-3 py-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <PackageCheck className="size-4 text-primary" />
+                Hoja stock
               </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table className="min-w-[860px]">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary" className="h-6 rounded-sm px-2 text-xs">
+                  {modelos.length} modelos
+                </Badge>
+                <Badge
+                  variant={criticos.length > 0 ? "destructive" : "secondary"}
+                  className="h-6 rounded-sm px-2 text-xs"
+                >
+                  <PackageX className="size-3" /> {criticos.length} críticos
+                </Badge>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <Table className="min-w-[980px] border-separate border-spacing-0">
                   <TableHeader>
-                    <TableRow className="border-emerald-900/30 bg-emerald-700 hover:bg-emerald-700">
-                      <TableHead className="h-9 min-w-[300px] px-3 text-xs font-bold uppercase text-white">
+                    <TableRow className="border-0 bg-emerald-800 hover:bg-emerald-800">
+                      <TableHead className="h-8 w-10 border-r border-emerald-600 bg-emerald-100 px-2 text-center text-xs font-bold text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100">
+                        1
+                      </TableHead>
+                      <TableHead className="h-8 min-w-[330px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
                         <div className="flex items-center justify-between gap-3">
                           Toner marcas
                           <ListFilter className="size-3.5 text-white/80" />
                         </div>
                       </TableHead>
-                      <TableHead className="h-9 w-[170px] px-3 text-xs font-bold uppercase text-white">
+                      <TableHead className="h-8 w-[180px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
                         <div className="flex items-center justify-between gap-3">
                           Cantidad actual
                           <ListFilter className="size-3.5 text-white/80" />
                         </div>
                       </TableHead>
-                      <TableHead className="h-9 w-[170px] px-3 text-xs font-bold uppercase text-white">
+                      <TableHead className="h-8 w-[180px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
                         <div className="flex items-center justify-between gap-3">
                           Cantidad mínima
                           <ListFilter className="size-3.5 text-white/80" />
                         </div>
                       </TableHead>
-                      <TableHead className="h-9 min-w-[210px] px-3 text-xs font-bold uppercase text-white">
+                      <TableHead className="h-8 min-w-[220px] border-r border-emerald-600 px-3 text-xs font-bold uppercase tracking-normal text-white">
                         <div className="flex items-center justify-between gap-3">
-                          Último control
+                          Ultimo control
                           <ListFilter className="size-3.5 text-white/80" />
                         </div>
                       </TableHead>
                       {canWrite && (
-                        <TableHead className="h-9 w-[190px] px-3 text-right text-xs font-bold uppercase text-white">
+                        <TableHead className="h-8 w-[210px] px-3 text-right text-xs font-bold uppercase tracking-normal text-white">
                           Acciones
                         </TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {modelos.map((m) => {
+                    {modelos.map((m, index) => {
                       const ultimo = ultimoControlPorModelo.get(m.id);
                       const bajoStock = m.stock <= m.stock_minimo;
                       return (
-                        <TableRow key={m.id} className="border-border/60 hover:bg-muted/40">
-                          <TableCell className="px-3 py-3">
-                            <div className="flex items-center gap-3">
-                              <div
+                        <TableRow key={m.id} className="group border-0 hover:bg-emerald-950/15">
+                          <TableCell className="h-10 border-r border-t border-border/60 bg-muted/30 px-2 text-center text-xs text-muted-foreground">
+                            {index + 2}
+                          </TableCell>
+                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
                                 className={
                                   bajoStock
-                                    ? "flex size-9 shrink-0 items-center justify-center rounded-md bg-destructive/15 text-destructive"
-                                    : "flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary"
+                                    ? "h-2.5 w-2.5 shrink-0 rounded-full bg-destructive"
+                                    : "h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400"
                                 }
-                              >
-                                {bajoStock ? (
-                                  <AlertTriangle className="size-4" />
-                                ) : (
-                                  <PackageCheck className="size-4" />
-                                )}
-                              </div>
+                              />
                               <div className="min-w-0">
-                                <p className="truncate font-semibold text-foreground">{m.nombre}</p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                <p className="truncate text-sm font-semibold text-foreground">{m.nombre}</p>
+                                <p className="truncate text-xs text-muted-foreground">
                                   {m.marca || "Sin marca"} · prefijo{" "}
                                   <span className="font-mono">{m.prefijo}</span>
                                 </p>
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="px-3 py-3">
-                            <div className="flex items-center gap-3">
-                              <Badge variant={bajoStock ? "destructive" : "secondary"}>{m.stock} u.</Badge>
-                              <Progress
-                                value={Math.min(100, (m.stock / Math.max(1, m.stock_minimo * 3)) * 100)}
-                                className="h-2 w-20"
-                              />
+                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-base font-bold tabular-nums">{m.stock}</span>
+                              <Badge variant={bajoStock ? "destructive" : "secondary"} className="rounded-sm">
+                                {bajoStock ? "Crítico" : "OK"}
+                              </Badge>
                             </div>
                           </TableCell>
-                          <TableCell className="px-3 py-3 font-medium">{m.stock_minimo} u.</TableCell>
-                          <TableCell className="px-3 py-3">
+                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2 font-mono text-base font-semibold tabular-nums">
+                            {m.stock_minimo}
+                          </TableCell>
+                          <TableCell className="h-10 border-r border-t border-border/60 px-3 py-2">
                             {ultimo ? (
-                              <div className="text-sm">
-                                <p className="flex items-center gap-1.5 font-medium">
-                                  <CalendarCheck className="size-3.5 text-primary" />
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                                <span className="font-medium">
                                   {new Date(ultimo.created_at).toLocaleDateString("es-AR")}
-                                </p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
-                                  {ultimo.tipo} · {ultimo.cantidad} u.
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {ultimo.tipo} · {ultimo.cantidad}
                                   {ultimo.responsable ? ` · ${ultimo.responsable}` : ""}
-                                </p>
+                                </span>
                               </div>
                             ) : (
                               <span className="text-sm text-muted-foreground">Sin control registrado</span>
                             )}
                           </TableCell>
                           {canWrite && (
-                            <TableCell className="px-3 py-3">
+                            <TableCell className="h-10 border-t border-border/60 px-3 py-2">
                               <div className="flex justify-end gap-2">
                                 <MovimientoDialog
                                   modelo={m}
                                   tipo="entrada"
                                   onDone={refresh}
                                   trigger={
-                                    <Button size="sm" variant="secondary" className="gap-1.5">
+                                    <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-sm px-2">
                                       <ArrowDownLeft className="size-4" /> Entrada
                                     </Button>
                                   }
@@ -392,7 +385,7 @@ function TonersPage() {
                                   tipo="salida"
                                   onDone={refresh}
                                   trigger={
-                                    <Button size="sm" variant="outline" className="gap-1.5">
+                                    <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-sm px-2">
                                       <ArrowUpRight className="size-4" /> Salida
                                     </Button>
                                   }
@@ -405,9 +398,12 @@ function TonersPage() {
                     })}
                     {modelos.length === 0 && (
                       <TableRow>
+                        <TableCell className="border-r border-t border-border/60 bg-muted/30 px-2 text-center text-xs text-muted-foreground">
+                          2
+                        </TableCell>
                         <TableCell
                           colSpan={canWrite ? 5 : 4}
-                          className="py-12 text-center text-sm text-muted-foreground"
+                          className="border-t border-border/60 py-10 text-center text-sm text-muted-foreground"
                         >
                           Cargá un modelo de tóner para comenzar a controlar el stock.
                         </TableCell>
@@ -415,9 +411,8 @@ function TonersPage() {
                     )}
                   </TableBody>
                 </Table>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="movimientos" className="mt-4">
