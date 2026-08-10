@@ -6,14 +6,27 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Copy,
+  Edit3,
   ListFilter,
   PackageCheck,
   PackageX,
   Plus,
+  Save,
+  Trash2,
   Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -380,12 +393,14 @@ function TonersPage() {
                           {canWrite && (
                             <TableCell className="px-5 py-4">
                               <div className="flex justify-end gap-2">
+                                <ModeloDialog modelo={m} onDone={refresh} />
+                                <EliminarModeloDialog modelo={m} onDone={refresh} />
                                 <MovimientoDialog
                                   modelo={m}
                                   tipo="entrada"
                                   onDone={refresh}
                                   trigger={
-                                    <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-md px-3">
+                                    <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-md px-2.5">
                                       <ArrowDownLeft className="size-4" /> Entrada
                                     </Button>
                                   }
@@ -395,7 +410,7 @@ function TonersPage() {
                                   tipo="salida"
                                   onDone={refresh}
                                   trigger={
-                                    <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-md px-3">
+                                    <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-md px-2.5">
                                       <ArrowUpRight className="size-4" /> Salida
                                     </Button>
                                   }
@@ -519,65 +534,152 @@ function TonersPage() {
   );
 }
 
-function ModeloDialog({ onDone }: { onDone: () => void }) {
+function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const isEditing = !!modelo;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="secondary">
-          <Plus className="size-4" /> Modelo
-        </Button>
+        {isEditing ? (
+          <Button size="icon" variant="ghost" className="size-8" title="Editar modelo">
+            <Edit3 className="size-4" />
+          </Button>
+        ) : (
+          <Button variant="secondary">
+            <Plus className="size-4" /> Modelo
+          </Button>
+        )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Nuevo modelo de tóner</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar modelo de tóner" : "Nuevo modelo de tóner"}</DialogTitle>
+          <DialogDescription>
+            Cargá los datos tal como se van a ver en la hoja de stock.
+          </DialogDescription>
         </DialogHeader>
         <form
-          className="grid gap-3"
+          className="grid gap-4"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (saving) return;
             const fd = new FormData(e.currentTarget);
-            const { error } = await api.from("toner_modelos").insert({
-              nombre: String(fd.get("nombre")),
-              marca: String(fd.get("marca") || ""),
-              prefijo: String(fd.get("prefijo")).toLowerCase(),
-              stock: Number(fd.get("stock") || 0),
-              stock_minimo: Number(fd.get("stock_minimo") || 2),
-            });
+            const nombre = String(fd.get("nombre") || "").trim();
+            const marca = String(fd.get("marca") || "").trim();
+            const prefijo = String(fd.get("prefijo") || "")
+              .trim()
+              .toLowerCase();
+            const stock = Number(fd.get("stock") || 0);
+            const stockMinimo = Number(fd.get("stock_minimo") || 0);
+
+            if (nombre.length < 2) return toast.error("Ingresá el nombre del modelo");
+            if (!/^[a-z0-9_-]{2,16}$/.test(prefijo)) {
+              return toast.error("El prefijo debe tener 2 a 16 letras, números, guiones o guiones bajos");
+            }
+            if (!Number.isFinite(stock) || stock < 0) return toast.error("La cantidad actual no es válida");
+            if (!Number.isFinite(stockMinimo) || stockMinimo < 0) return toast.error("La cantidad mínima no es válida");
+
+            setSaving(true);
+            const payload = {
+              nombre,
+              marca,
+              prefijo,
+              stock,
+              stock_minimo: stockMinimo,
+            };
+            const { error } = isEditing
+              ? await api.from("toner_modelos").update(payload).eq("id", modelo.id)
+              : await api.from("toner_modelos").insert(payload);
+            setSaving(false);
             if (error) return toast.error(error.message);
-            toast.success("Modelo creado");
+            toast.success(isEditing ? "Modelo actualizado" : "Modelo creado");
             setOpen(false);
             onDone();
           }}
         >
-          <div className="space-y-1.5">
-            <Label>Nombre</Label>
-            <Input name="nombre" required placeholder="HP 26A Universal" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Marca</Label>
-              <Input name="marca" placeholder="HP" />
+          <div className="rounded-lg border border-border/70 bg-muted/20">
+            <div className="grid grid-cols-1 border-b border-border/70 bg-muted/50 text-xs font-semibold uppercase text-muted-foreground md:grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_0.7fr]">
+              <div className="px-3 py-2">Toner marcas</div>
+              <div className="px-3 py-2">Marca</div>
+              <div className="px-3 py-2">Prefijo</div>
+              <div className="px-3 py-2">Cantidad actual</div>
+              <div className="px-3 py-2">Cantidad mínima</div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Prefijo</Label>
-              <Input name="prefijo" required placeholder="hpuni" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Stock inicial</Label>
-              <Input type="number" name="stock" defaultValue={0} min={0} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Stock mínimo</Label>
-              <Input type="number" name="stock_minimo" defaultValue={2} min={0} />
+            <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_0.7fr]">
+              <div className="space-y-1.5">
+                <Label className="md:hidden">Toner marcas</Label>
+                <Input name="nombre" required defaultValue={modelo?.nombre ?? ""} placeholder="HP 26A Universal" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="md:hidden">Marca</Label>
+                <Input name="marca" defaultValue={modelo?.marca ?? ""} placeholder="HP" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="md:hidden">Prefijo</Label>
+                <Input name="prefijo" required defaultValue={modelo?.prefijo ?? ""} placeholder="hp26a" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="md:hidden">Cantidad actual</Label>
+                <Input type="number" name="stock" defaultValue={modelo?.stock ?? 0} min={0} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="md:hidden">Cantidad mínima</Label>
+                <Input type="number" name="stock_minimo" defaultValue={modelo?.stock_minimo ?? 2} min={0} />
+              </div>
             </div>
           </div>
           <DialogFooter>
-            <Button type="submit">Guardar</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              <Save className="size-4" />
+              {saving ? "Guardando..." : "Guardar"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EliminarModeloDialog({ modelo, onDone }: { modelo: Modelo; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Button size="icon" variant="ghost" className="size-8 text-destructive" title="Eliminar modelo" onClick={() => setOpen(true)}>
+        <Trash2 className="size-4" />
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Eliminar modelo de tóner</AlertDialogTitle>
+          <AlertDialogDescription>
+            Se eliminará "{modelo.nombre}" junto con sus movimientos y códigos seriados. Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={deleting}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={async (event) => {
+              event.preventDefault();
+              setDeleting(true);
+              const { error } = await api.from("toner_modelos").delete().eq("id", modelo.id);
+              setDeleting(false);
+              if (error) return toast.error(error.message);
+              toast.success("Modelo eliminado");
+              setOpen(false);
+              onDone();
+            }}
+          >
+            {deleting ? "Eliminando..." : "Eliminar"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
