@@ -1,12 +1,21 @@
 import { createServer } from "node:http";
+import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { Readable } from "node:stream";
+import { promisify } from "node:util";
+import pg from "pg";
 
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const clientDir = resolve("dist/client");
 const app = await import("../dist/server/server.js").then((module) => module.default);
+const { Pool } = pg;
+const scrypt = promisify(scryptCb);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+});
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -58,6 +67,174 @@ function trySendStatic(req, res) {
   return true;
 }
 
+function sendJson(res, status, payload) {
+  res.statusCode = status;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(payload));
+}
+
+async function readJson(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : {};
+}
+
+function hashToken(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function hashPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  const key = await scrypt(password, salt, 64);
+  return `scrypt:${salt}:${key.toString("hex")}`;
+}
+
+async function verifyPassword(password, stored) {
+  const [scheme, salt, hash] = String(stored || "").split(":");
+  if (scheme !== "scrypt" || !salt || !hash) return false;
+  const key = await scrypt(password, salt, 64);
+  const storedKey = Buffer.from(hash, "hex");
+  return storedKey.length === key.length && timingSafeEqual(storedKey, key);
+}
+
+async function one(text, values = []) {
+  const result = await pool.query(text, values);
+  return result.rows[0] || null;
+}
+
+async function createSession(userId) {
+  const token = randomBytes(32).toString("base64url");
+  await pool.query(
+    `insert into app_sessions (token_hash, user_id, expires_at)
+     values ($1, $2, now() + interval '30 days')`,
+    [hashToken(token), userId],
+  );
+  return token;
+}
+
+async function getSession(token) {
+  if (!token) return null;
+  const session = await one(
+    `select s.user_id, u.email, p.full_name, p.username, ur.role
+       from app_sessions s
+       join app_users u on u.id = s.user_id
+       join profiles p on p.id = u.id
+       left join lateral (
+         select role from user_roles where user_id = u.id
+         order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end
+         limit 1
+       ) ur on true
+      where s.token_hash = $1 and s.expires_at > now()`,
+    [hashToken(token)],
+  );
+  if (!session) return null;
+  return {
+    token,
+    user: { id: session.user_id, email: session.email },
+    profile: {
+      id: session.user_id,
+      full_name: session.full_name,
+      email: session.email,
+      username: session.username,
+    },
+    role: session.role || "consulta",
+  };
+}
+
+async function handleAuth(req, res) {
+  if (req.method !== "POST" || !req.url?.startsWith("/api/auth/")) return false;
+
+  try {
+    const data = await readJson(req);
+    const action = new URL(req.url, "http://localhost").pathname.replace("/api/auth/", "");
+
+    if (action === "session") {
+      return sendJson(res, 200, { session: await getSession(data.token) }), true;
+    }
+
+    if (action === "signout") {
+      if (data.token) await pool.query(`delete from app_sessions where token_hash = $1`, [hashToken(data.token)]);
+      return sendJson(res, 200, { ok: true }), true;
+    }
+
+    if (action === "signin") {
+      const username = String(data.username || "").trim().toLowerCase();
+      const user = await one(
+        `select u.id, u.password_hash
+           from app_users u
+           join profiles p on p.id = u.id
+          where p.username = $1 or u.email = $1`,
+        [username],
+      );
+      if (!user || !(await verifyPassword(String(data.password || ""), user.password_hash))) {
+        return sendJson(res, 401, { error: "Usuario o contraseña incorrectos" }), true;
+      }
+      const token = await createSession(user.id);
+      return sendJson(res, 200, { session: await getSession(token) }), true;
+    }
+
+    if (action === "signup") {
+      const fullName = String(data.fullName || "").trim();
+      const username = String(data.username || "").trim().toLowerCase();
+      const email = String(data.email || "").trim().toLowerCase();
+      const password = String(data.password || "");
+      if (fullName.length < 2) return sendJson(res, 400, { error: "Ingresa tu nombre y apellido" }), true;
+      if (!/^[a-z0-9._-]{3,32}$/.test(username)) return sendJson(res, 400, { error: "Usuario invalido" }), true;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: "Correo invalido" }), true;
+      if (password.length < 8) {
+        return sendJson(res, 400, { error: "La contrasena debe tener al menos 8 caracteres" }), true;
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        const exists = await client.query(
+          `select id from app_users where email = $1
+           union
+           select id from profiles where username = $2`,
+          [email, username],
+        );
+        if (exists.rowCount) {
+          await client.query("rollback");
+          return sendJson(res, 409, { error: "Ese usuario o correo ya esta registrado" }), true;
+        }
+
+        const created = await client.query(
+          `insert into app_users (email, password_hash) values ($1, $2) returning id`,
+          [email, await hashPassword(password)],
+        );
+        const userId = created.rows[0].id;
+        await client.query(`insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`, [
+          userId,
+          fullName,
+          email,
+          username,
+        ]);
+        const count = await client.query(`select count(*)::int as count from app_users`);
+        await client.query(`insert into user_roles (user_id, role) values ($1, $2)`, [
+          userId,
+          Number(count.rows[0]?.count || 0) <= 1 ? "administrador" : "consulta",
+        ]);
+        await client.query("commit");
+        const token = await createSession(userId);
+        return sendJson(res, 200, { session: await getSession(token) }), true;
+      } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    return sendJson(res, 404, { error: "Ruta de auth inexistente" }), true;
+  } catch (error) {
+    console.error(error);
+    sendJson(res, 500, { error: error instanceof Error ? error.message : "Error de servidor" });
+    return true;
+  }
+}
+
 function createWebRequest(req) {
   const protocol = req.headers["x-forwarded-proto"] || "http";
   const forwardedHost = req.headers["x-forwarded-host"];
@@ -103,6 +280,7 @@ async function sendWebResponse(res, response) {
 
 const server = createServer(async (req, res) => {
   try {
+    if (await handleAuth(req, res)) return;
     if (trySendStatic(req, res)) return;
 
     const response = await app.fetch(createWebRequest(req), process.env, {});
