@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
@@ -151,6 +152,10 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
   const preview = useMemo(
     () => generarTurnosPeriodo({ desde, hasta, horaInicio, duracionDias, operarios, notas }),
     [desde, hasta, horaInicio, duracionDias, operarios, notas],
+  );
+  const sheetPreview = useMemo(
+    () => buildGuardiaSheet(preview.turnos.map((turno, index) => ({ ...turno, id: `preview-${index}` }))),
+    [preview.turnos],
   );
   const nombres = useMemo(
     () =>
@@ -297,6 +302,15 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
             </div>
           </div>
 
+          {!preview.error && preview.turnos.length > 0 && (
+            <GuardiaSheetView
+              title="Planilla previa"
+              description="Sábados, domingos y feriados nacionales se marcan como F para liquidación."
+              sheet={sheetPreview}
+              compact
+            />
+          )}
+
           <div className="space-y-1.5">
             <Label>Notas para estos turnos</Label>
             <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} />
@@ -368,6 +382,16 @@ function GuardiasPage() {
   const detallePeriodo = periodoActual
     ? `${format(periodoActual.desde, "dd/MM")} -> ${format(periodoActual.hasta, "dd/MM")}`
     : format(cursor, "MMMM yyyy", { locale: es });
+  const planillaGuardias = useMemo(() => {
+    const source = periodoActual
+      ? sortedGuardias.filter((guardia) => {
+          const desde = new Date(guardia.desde);
+          const hasta = new Date(guardia.hasta);
+          return desde <= periodoActual.hasta && hasta >= periodoActual.desde;
+        })
+      : guardiasDelMes;
+    return buildGuardiaSheet(source);
+  }, [guardiasDelMes, periodoActual, sortedGuardias]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
   return (
@@ -491,6 +515,14 @@ function GuardiasPage() {
           </CardContent>
         </Card>
       </section>
+
+      {planillaGuardias.days.length > 0 && (
+        <GuardiaSheetView
+          title="Planilla del período"
+          description="Matriz diaria de guardias. F incluye feriados nacionales de Argentina y fines de semana."
+          sheet={planillaGuardias}
+        />
+      )}
 
       <Card className="panel">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/60">
@@ -638,6 +670,162 @@ function MetricCard({
   );
 }
 
+type GuardiaSheet = {
+  days: Date[];
+  operadores: {
+    nombre: string;
+    codigo: string;
+    colorClass: string;
+    normales: number;
+    feriados: number;
+  }[];
+  cells: Record<string, Record<string, "guardia" | "feriado" | null>>;
+  periodLabel: string;
+};
+
+function GuardiaSheetView({
+  title,
+  description,
+  sheet,
+  compact,
+}: {
+  title: string;
+  description: string;
+  sheet: GuardiaSheet;
+  compact?: boolean;
+}) {
+  if (sheet.days.length === 0) return null;
+
+  return (
+    <Card className="panel overflow-hidden">
+      <CardHeader className="border-b border-border/60 pb-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarRange className="size-4 text-primary" />
+              {title}
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          </div>
+          <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary">
+            {sheet.periodLabel}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className={cn("space-y-4", compact ? "p-4" : "p-5")}>
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="overflow-hidden rounded-xl border border-border/70 bg-background/40">
+            <div className="overflow-x-auto">
+              <Table className="min-w-[920px] text-xs">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="sticky left-0 z-20 w-44 bg-muted/80 text-foreground">Empleado</TableHead>
+                    {sheet.days.map((day) => {
+                      const feriado = isNonWorkingDay(day);
+                      return (
+                        <TableHead
+                          key={day.toISOString()}
+                          className={cn(
+                            "min-w-10 border-l border-border/50 px-1 text-center",
+                            feriado ? "bg-rose-500/15 text-rose-300" : "bg-muted/60",
+                          )}
+                          title={feriado ? getHolidayName(day) || "Fin de semana" : undefined}
+                        >
+                          <div className="font-semibold capitalize">{format(day, "EEEEE", { locale: es })}</div>
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">{format(day, "d/M")}</div>
+                        </TableHead>
+                      );
+                    })}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sheet.operadores.map((operador) => (
+                    <TableRow key={operador.nombre} className="hover:bg-primary/5">
+                      <TableCell className="sticky left-0 z-10 w-44 bg-background font-semibold">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "grid size-7 shrink-0 place-items-center rounded-md text-xs font-bold text-white",
+                              operador.colorClass,
+                            )}
+                          >
+                            {operador.codigo}
+                          </span>
+                          <span className="truncate">{operador.nombre}</span>
+                        </div>
+                      </TableCell>
+                      {sheet.days.map((day) => {
+                        const key = dateKey(day);
+                        const cell = sheet.cells[operador.nombre]?.[key] ?? null;
+                        return (
+                          <TableCell
+                            key={key}
+                            className={cn(
+                              "border-l border-border/50 px-1 text-center font-semibold",
+                              cell === "feriado" && "bg-rose-500/15 text-rose-300",
+                              cell === "guardia" && "bg-primary/10 text-primary",
+                            )}
+                          >
+                            {cell === "feriado" ? "F" : cell === "guardia" ? operador.codigo : ""}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Referencia</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {sheet.operadores.map((operador) => (
+                  <div key={operador.nombre} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/50 p-2">
+                    <span className={cn("grid size-7 place-items-center rounded-md text-xs font-bold text-white", operador.colorClass)}>
+                      {operador.codigo}
+                    </span>
+                    <span className="truncate text-xs font-medium">{operador.nombre}</span>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 rounded-lg border border-rose-500/25 bg-rose-500/10 p-2 text-rose-200">
+                  <span className="grid size-7 place-items-center rounded-md bg-rose-400/80 text-xs font-bold text-rose-950">F</span>
+                  <span className="text-xs font-medium">Feriado / finde</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Liquidación</p>
+              <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
+                <Table className="text-xs">
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead>Cod.</TableHead>
+                      <TableHead className="text-center">Normales</TableHead>
+                      <TableHead className="text-center">Feriados</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sheet.operadores.map((operador) => (
+                      <TableRow key={operador.codigo}>
+                        <TableCell className="font-semibold">{operador.codigo}</TableCell>
+                        <TableCell className="text-center">{operador.normales}</TableCell>
+                        <TableCell className="text-center">{operador.feriados}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function formatGuardiaRange(g: Guardia) {
   return `${format(new Date(g.desde), "dd/MM/yyyy HH:mm")} -> ${format(new Date(g.hasta), "dd/MM/yyyy HH:mm")}`;
 }
@@ -771,6 +959,198 @@ function generarTurnosPeriodo({
   }
 
   return { turnos, error: null };
+}
+
+function buildGuardiaSheet(guardias: Guardia[]): GuardiaSheet {
+  if (guardias.length === 0) {
+    return { days: [], operadores: [], cells: {}, periodLabel: "Sin período" };
+  }
+
+  const sorted = [...guardias].sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime());
+  const start = startOfDay(
+    sorted.reduce((min, guardia) => {
+      const desde = new Date(guardia.desde);
+      return desde < min ? desde : min;
+    }, new Date(sorted[0].desde)),
+  );
+  const end = startOfDay(
+    sorted.reduce((max, guardia) => {
+      const hasta = new Date(guardia.hasta);
+      return hasta > max ? hasta : max;
+    }, new Date(sorted[0].hasta)),
+  );
+  const days = eachDayOfInterval({ start, end });
+  const names = [...new Set(sorted.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean))];
+  const codes = buildOperatorCodes(names);
+  const cells: GuardiaSheet["cells"] = {};
+  const palette = [
+    "bg-teal-500",
+    "bg-sky-500",
+    "bg-violet-500",
+    "bg-blue-800",
+    "bg-emerald-500",
+    "bg-amber-500",
+    "bg-fuchsia-500",
+    "bg-slate-600",
+  ];
+
+  for (const name of names) {
+    cells[name] = {};
+    for (const day of days) {
+      const key = dateKey(day);
+      const worksThatDay = sorted.some(
+        (guardia) =>
+          guardia.operador_nombre.trim() === name &&
+          new Date(guardia.desde) <= endOfDay(day) &&
+          new Date(guardia.hasta) >= startOfDay(day),
+      );
+      cells[name][key] = worksThatDay ? (isNonWorkingDay(day) ? "feriado" : "guardia") : null;
+    }
+  }
+
+  const operadores = names.map((name, index) => {
+    const values = Object.values(cells[name]);
+    return {
+      nombre: name,
+      codigo: codes.get(name) ?? initialsCode(name),
+      colorClass: palette[index % palette.length],
+      normales: values.filter((value) => value === "guardia").length,
+      feriados: values.filter((value) => value === "feriado").length,
+    };
+  });
+
+  return {
+    days,
+    operadores,
+    cells,
+    periodLabel: `${format(start, "dd/MM/yyyy")} al ${format(end, "dd/MM/yyyy")}`,
+  };
+}
+
+function buildOperatorCodes(names: string[]) {
+  const used = new Set<string>();
+  const result = new Map<string, string>();
+
+  for (const name of names) {
+    const parts = name
+      .split(/\s+/)
+      .map((part) => part.replace(/[^a-zA-ZÁÉÍÓÚÜÑáéíóúüñ]/g, ""))
+      .filter(Boolean);
+    const candidates = [...parts.slice().reverse(), ...parts].map((part) => part[0]?.toUpperCase()).filter(Boolean);
+    let code = candidates.find((candidate) => !used.has(candidate));
+    if (!code) {
+      const base = initialsCode(name);
+      code = base;
+      let suffix = 2;
+      while (used.has(code)) {
+        code = `${base}${suffix}`;
+        suffix += 1;
+      }
+    }
+    used.add(code);
+    result.set(name, code);
+  }
+
+  return result;
+}
+
+function initialsCode(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (parts.at(-1)?.[0] ?? parts[0]?.[0] ?? "?").toUpperCase();
+}
+
+function isNonWorkingDay(day: Date) {
+  const weekDay = day.getDay();
+  return weekDay === 0 || weekDay === 6 || Boolean(getHolidayName(day));
+}
+
+function getHolidayName(day: Date) {
+  const year = day.getFullYear();
+  const key = `${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+  const fixed: Record<string, string> = {
+    "01-01": "Año Nuevo",
+    "03-24": "Día Nacional de la Memoria",
+    "04-02": "Día del Veterano y de los Caídos en Malvinas",
+    "05-01": "Día del Trabajador",
+    "05-25": "Día de la Revolución de Mayo",
+    "06-20": "Paso a la Inmortalidad de Manuel Belgrano",
+    "07-09": "Día de la Independencia",
+    "12-08": "Inmaculada Concepción de María",
+    "12-25": "Navidad",
+  };
+  if (fixed[key]) return fixed[key];
+
+  const easter = calculateEasterSunday(year);
+  const variable = new Map<string, string>([
+    [dateKey(addDays(easter, -48)), "Carnaval"],
+    [dateKey(addDays(easter, -47)), "Carnaval"],
+    [dateKey(addDays(easter, -2)), "Viernes Santo"],
+    [dateKey(nearestMonday(new Date(year, 5, 17))), "Paso a la Inmortalidad de Martín Miguel de Güemes"],
+    [dateKey(thirdMonday(new Date(year, 7, 1))), "Paso a la Inmortalidad de José de San Martín"],
+    [dateKey(secondMonday(new Date(year, 9, 1))), "Día del Respeto a la Diversidad Cultural"],
+    [dateKey(fourthMonday(new Date(year, 10, 1))), "Día de la Soberanía Nacional"],
+  ]);
+
+  return variable.get(dateKey(day)) ?? null;
+}
+
+function calculateEasterSunday(year: number) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month, day);
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function nearestMonday(date: Date) {
+  const monday = new Date(date);
+  while (monday.getDay() !== 1) monday.setDate(monday.getDate() + 1);
+  return monday;
+}
+
+function secondMonday(monthStart: Date) {
+  return nthMonday(monthStart, 2);
+}
+
+function thirdMonday(monthStart: Date) {
+  return nthMonday(monthStart, 3);
+}
+
+function fourthMonday(monthStart: Date) {
+  return nthMonday(monthStart, 4);
+}
+
+function nthMonday(monthStart: Date, nth: number) {
+  const date = new Date(monthStart);
+  let count = 0;
+  while (date.getMonth() === monthStart.getMonth()) {
+    if (date.getDay() === 1) {
+      count += 1;
+      if (count === nth) return date;
+    }
+    date.setDate(date.getDate() + 1);
+  }
+  return date;
+}
+
+function dateKey(date: Date) {
+  return format(date, "yyyy-MM-dd");
 }
 
 function buildDateTime(date: string, time: string) {
