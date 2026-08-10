@@ -52,6 +52,8 @@ npm run db:init
 
 El script `db:init` usa `DATABASE_URL` y aplica `db/schema.sql`; no requiere tener `psql` instalado.
 
+Guia completa de instalacion, seguridad, backups y restauracion: `docs/POSTGRESQL_PRODUCCION.md`.
+
 ## Desarrollo
 
 ```bash
