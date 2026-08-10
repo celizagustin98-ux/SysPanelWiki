@@ -141,9 +141,10 @@ function GuardiaDialog({
 
 function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
   const [open, setOpen] = useState(false);
-  const [desde, setDesde] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [hasta, setHasta] = useState(format(addMonths(new Date(), 1), "yyyy-MM-dd"));
-  const [horaInicio, setHoraInicio] = useState("08:00");
+  const periodoSugerido = useMemo(() => getCurrentGuardiaPeriod(), []);
+  const [desde, setDesde] = useState(periodoSugerido.desde);
+  const [hasta, setHasta] = useState(periodoSugerido.hasta);
+  const [horaInicio, setHoraInicio] = useState("20:00");
   const [duracionDias, setDuracionDias] = useState(7);
   const [operarios, setOperarios] = useState("");
   const [notas, setNotas] = useState("Guardia del período");
@@ -154,8 +155,12 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
     [desde, hasta, horaInicio, duracionDias, operarios, notas],
   );
   const sheetPreview = useMemo(
-    () => buildGuardiaSheet(preview.turnos.map((turno, index) => ({ ...turno, id: `preview-${index}` }))),
-    [preview.turnos],
+    () =>
+      buildGuardiaSheet(preview.turnos.map((turno, index) => ({ ...turno, id: `preview-${index}` })), {
+        periodStart: desde,
+        periodEnd: hasta,
+      }),
+    [desde, hasta, preview.turnos],
   );
   const nombres = useMemo(
     () =>
@@ -204,7 +209,7 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
                   <p className="text-sm font-semibold">Planificación del período</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {diasPeriodo > 0
-                      ? `${diasPeriodo} días de cobertura entre ${formatDateInput(desde)} y ${formatDateInput(hasta)}.`
+                      ? `${diasPeriodo} días de liquidación entre ${formatDateInput(desde)} y ${formatDateInput(hasta)}. Relevo semanal: lunes 20:00 a lunes 08:00.`
                       : "Seleccioná el rango de cobertura."}
                   </p>
                 </div>
@@ -236,7 +241,7 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
               <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
-              <Label>Hora de relevo</Label>
+              <Label>Hora de inicio</Label>
               <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
@@ -257,7 +262,7 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
               <Label>Operarios del período</Label>
               <Textarea
                 className="min-h-52"
-                placeholder={"Agustin Celiz\nMaría Gomez\nCarlos Ruiz"}
+                placeholder={"Agustin Celiz\nSilvia Perez\nKarina Gomez\nJorge Ruiz"}
                 value={operarios}
                 onChange={(e) => setOperarios(e.target.value)}
                 required
@@ -379,19 +384,23 @@ function GuardiasPage() {
   const diasCubiertos = periodoActual ? inclusiveCalendarDays(periodoActual.desde, periodoActual.hasta) : diasCubiertosMes;
   const operadoresPeriodo = periodoActual?.operadores ?? operadoresDelMes;
   const turnosPeriodo = periodoActual?.turnos ?? guardiasDelMes.length;
+  const periodoLiquidacion = actual ? getGuardiaPeriodForDate(now) : null;
   const detallePeriodo = periodoActual
-    ? `${format(periodoActual.desde, "dd/MM")} -> ${format(periodoActual.hasta, "dd/MM")}`
+    ? `${format(periodoLiquidacion?.desdeDate ?? periodoActual.desde, "dd/MM")} -> ${format(periodoLiquidacion?.hastaDate ?? periodoActual.hasta, "dd/MM")}`
     : format(cursor, "MMMM yyyy", { locale: es });
   const planillaGuardias = useMemo(() => {
-    const source = periodoActual
+    const bounds = periodoLiquidacion
+      ? { periodStart: periodoLiquidacion.desde, periodEnd: periodoLiquidacion.hasta }
+      : undefined;
+    const source = periodoActual && periodoLiquidacion
       ? sortedGuardias.filter((guardia) => {
           const desde = new Date(guardia.desde);
           const hasta = new Date(guardia.hasta);
-          return desde <= periodoActual.hasta && hasta >= periodoActual.desde;
+          return desde <= endOfDay(periodoLiquidacion.hastaDate) && hasta >= startOfDay(periodoLiquidacion.desdeDate);
         })
       : guardiasDelMes;
-    return buildGuardiaSheet(source);
-  }, [guardiasDelMes, periodoActual, sortedGuardias]);
+    return buildGuardiaSheet(source, bounds);
+  }, [guardiasDelMes, periodoActual, periodoLiquidacion, sortedGuardias]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
   return (
@@ -677,6 +686,7 @@ type GuardiaSheet = {
     codigo: string;
     colorClass: string;
     normales: number;
+    nocturnos: number;
     feriados: number;
   }[];
   cells: Record<string, Record<string, "guardia" | "feriado" | null>>;
@@ -796,25 +806,26 @@ function GuardiaSheetView({
               </div>
             </div>
 
-            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Liquidación</p>
-              <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
-                <Table className="text-xs">
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
+              <div className="border-b border-border/60 bg-primary/10 px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Liquidación guardia</p>
+              </div>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[360px] text-xs">
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead>Cod.</TableHead>
-                      <TableHead className="text-center">Normales</TableHead>
-                      <TableHead className="text-center">Feriados</TableHead>
+                      <TableHead className="w-36 bg-muted/50">Concepto</TableHead>
+                      {sheet.operadores.map((operador) => (
+                        <TableHead key={operador.codigo} className={cn("text-center text-white", operador.colorClass)}>
+                          {operador.codigo}
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sheet.operadores.map((operador) => (
-                      <TableRow key={operador.codigo}>
-                        <TableCell className="font-semibold">{operador.codigo}</TableCell>
-                        <TableCell className="text-center">{operador.normales}</TableCell>
-                        <TableCell className="text-center">{operador.feriados}</TableCell>
-                      </TableRow>
-                    ))}
+                    <LiquidacionRow label="Normales" values={sheet.operadores.map((operador) => operador.normales)} />
+                    <LiquidacionRow label="Nocturnos" values={sheet.operadores.map((operador) => operador.nocturnos)} />
+                    <LiquidacionRow label="Feriados" values={sheet.operadores.map((operador) => operador.feriados)} />
                   </TableBody>
                 </Table>
               </div>
@@ -823,6 +834,19 @@ function GuardiaSheetView({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function LiquidacionRow({ label, values }: { label: string; values: number[] }) {
+  return (
+    <TableRow>
+      <TableCell className="bg-muted/30 text-xs font-semibold uppercase tracking-[0.08em]">{label}</TableCell>
+      {values.map((value, index) => (
+        <TableCell key={`${label}-${index}`} className="text-center font-semibold">
+          {value}
+        </TableCell>
+      ))}
+    </TableRow>
   );
 }
 
@@ -930,55 +954,110 @@ function generarTurnosPeriodo({
   if (!desde || !hasta || !horaInicio) return { turnos: [], error: "Completá las fechas y la hora de inicio" };
 
   const diasPorTurno = Math.max(1, Math.min(31, Number(duracionDias || 1)));
-  const inicio = buildDateTime(desde, horaInicio);
-  const finPeriodo = buildDateTime(hasta, horaInicio);
+  const inicioPeriodo = buildDateTime(desde, "00:00");
+  const finPeriodo = endOfDay(buildDateTime(hasta, "00:00"));
+  const inicio = mondayOnOrBefore(inicioPeriodo, horaInicio);
 
-  if (Number.isNaN(inicio.getTime()) || Number.isNaN(finPeriodo.getTime())) {
+  if (Number.isNaN(inicio.getTime()) || Number.isNaN(finPeriodo.getTime()) || Number.isNaN(inicioPeriodo.getTime())) {
     return { turnos: [], error: "Revisá las fechas del período" };
   }
-  if (finPeriodo <= inicio) return { turnos: [], error: "La fecha hasta debe ser posterior a desde" };
+  if (finPeriodo <= inicioPeriodo) return { turnos: [], error: "La fecha hasta debe ser posterior a desde" };
 
   const turnos: Omit<Guardia, "id">[] = [];
   let cursor = inicio;
   let index = 0;
 
-  while (cursor < finPeriodo && turnos.length < 400) {
+  while (cursor <= finPeriodo && turnos.length < 400) {
     const hastaTurno = new Date(cursor);
     hastaTurno.setDate(hastaTurno.getDate() + diasPorTurno);
-    const final = hastaTurno > finPeriodo ? finPeriodo : hastaTurno;
+    hastaTurno.setHours(8, 0, 0, 0);
 
-    turnos.push({
-      operador_nombre: nombres[index % nombres.length],
-      desde: cursor.toISOString(),
-      hasta: final.toISOString(),
-      notas,
-    });
+    if (hastaTurno >= inicioPeriodo && cursor <= finPeriodo) {
+      turnos.push({
+        operador_nombre: nombres[index % nombres.length],
+        desde: cursor.toISOString(),
+        hasta: hastaTurno.toISOString(),
+        notas,
+      });
+    }
 
-    cursor = final;
+    cursor = new Date(cursor);
+    cursor.setDate(cursor.getDate() + diasPorTurno);
+    cursor.setHours(Number(horaInicio.split(":")[0] ?? 20), Number(horaInicio.split(":")[1] ?? 0), 0, 0);
     index += 1;
   }
 
   return { turnos, error: null };
 }
 
-function buildGuardiaSheet(guardias: Guardia[]): GuardiaSheet {
+function getCurrentGuardiaPeriod() {
+  return getGuardiaPeriodForDate(new Date());
+}
+
+function getGuardiaPeriodForDate(date: Date) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const currentDay = date.getDate();
+  const desdeDate = currentDay >= 21 ? new Date(year, month, 21) : new Date(year, month - 1, 21);
+  const hastaDate = currentDay >= 21 ? new Date(year, month + 1, 20) : new Date(year, month, 20);
+
+  return {
+    desde: format(desdeDate, "yyyy-MM-dd"),
+    hasta: format(hastaDate, "yyyy-MM-dd"),
+    desdeDate,
+    hastaDate,
+  };
+}
+
+function mondayOnOrBefore(date: Date, time: string) {
+  const [hours = "20", minutes = "00"] = time.split(":");
+  const result = new Date(date);
+  const day = result.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  result.setDate(result.getDate() - diff);
+  result.setHours(Number(hours), Number(minutes), 0, 0);
+  return result;
+}
+
+function countNocturnosEnPeriodo(guardia: Guardia, periodStart: Date, periodEnd: Date) {
+  const desde = new Date(guardia.desde);
+  const hasta = new Date(guardia.hasta);
+  return eachDayOfInterval({ start: periodStart, end: periodEnd }).filter((day) => {
+    if (isNonWorkingDay(day)) return false;
+    const nightStart = new Date(day);
+    nightStart.setHours(20, 0, 0, 0);
+    const nightEnd = addDays(nightStart, 1);
+    nightEnd.setHours(8, 0, 0, 0);
+    return desde <= nightEnd && hasta >= nightStart;
+  }).length;
+}
+
+function buildGuardiaSheet(
+  guardias: Guardia[],
+  bounds?: {
+    periodStart?: string;
+    periodEnd?: string;
+  },
+): GuardiaSheet {
   if (guardias.length === 0) {
     return { days: [], operadores: [], cells: {}, periodLabel: "Sin período" };
   }
 
   const sorted = [...guardias].sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime());
-  const start = startOfDay(
+  const detectedStart = startOfDay(
     sorted.reduce((min, guardia) => {
       const desde = new Date(guardia.desde);
       return desde < min ? desde : min;
     }, new Date(sorted[0].desde)),
   );
-  const end = startOfDay(
+  const detectedEnd = startOfDay(
     sorted.reduce((max, guardia) => {
       const hasta = new Date(guardia.hasta);
       return hasta > max ? hasta : max;
     }, new Date(sorted[0].hasta)),
   );
+  const start = bounds?.periodStart ? buildDateTime(bounds.periodStart, "00:00") : detectedStart;
+  const end = bounds?.periodEnd ? buildDateTime(bounds.periodEnd, "00:00") : detectedEnd;
   const days = eachDayOfInterval({ start, end });
   const names = [...new Set(sorted.map((guardia) => guardia.operador_nombre.trim()).filter(Boolean))];
   const codes = buildOperatorCodes(names);
@@ -1010,11 +1089,14 @@ function buildGuardiaSheet(guardias: Guardia[]): GuardiaSheet {
 
   const operadores = names.map((name, index) => {
     const values = Object.values(cells[name]);
+    const guardiasOperador = sorted.filter((guardia) => guardia.operador_nombre.trim() === name);
+    const nocturnos = guardiasOperador.reduce((total, guardia) => total + countNocturnosEnPeriodo(guardia, start, end), 0);
     return {
       nombre: name,
       codigo: codes.get(name) ?? initialsCode(name),
       colorClass: palette[index % palette.length],
       normales: values.filter((value) => value === "guardia").length,
+      nocturnos,
       feriados: values.filter((value) => value === "feriado").length,
     };
   });
@@ -1032,20 +1114,15 @@ function buildOperatorCodes(names: string[]) {
   const result = new Map<string, string>();
 
   for (const name of names) {
-    const parts = name
-      .split(/\s+/)
-      .map((part) => part.replace(/[^a-zA-ZÁÉÍÓÚÜÑáéíóúüñ]/g, ""))
-      .filter(Boolean);
-    const candidates = [...parts.slice().reverse(), ...parts].map((part) => part[0]?.toUpperCase()).filter(Boolean);
-    let code = candidates.find((candidate) => !used.has(candidate));
+    const base = initialsCode(name);
+    let code = base;
     if (!code) {
-      const base = initialsCode(name);
-      code = base;
-      let suffix = 2;
-      while (used.has(code)) {
-        code = `${base}${suffix}`;
-        suffix += 1;
-      }
+      code = "?";
+    }
+    let suffix = 2;
+    while (used.has(code)) {
+      code = `${base}${suffix}`;
+      suffix += 1;
     }
     used.add(code);
     result.set(name, code);
@@ -1055,8 +1132,11 @@ function buildOperatorCodes(names: string[]) {
 }
 
 function initialsCode(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return (parts.at(-1)?.[0] ?? parts[0]?.[0] ?? "?").toUpperCase();
+  const firstWord = name
+    .trim()
+    .split(/\s+/)
+    .find(Boolean);
+  return (firstWord?.[0] ?? "?").toUpperCase();
 }
 
 function isNonWorkingDay(day: Date) {
