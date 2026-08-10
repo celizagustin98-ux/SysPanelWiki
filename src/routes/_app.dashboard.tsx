@@ -19,10 +19,10 @@ export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Dashboard | Intranet Área de Sistemas" },
+      { title: "Dashboard | SysWiki Panel" },
       { name: "description", content: "Estadísticas en tiempo real, guardia del día y tareas asignadas." },
-      { property: "og:title", content: "Dashboard | Intranet Área de Sistemas" },
-      { property: "og:description", content: "Panel operativo del Área de Sistemas." },
+      { property: "og:title", content: "Dashboard | SysWiki Panel" },
+      { property: "og:description", content: "Panel operativo para sistemas." },
     ],
   }),
   component: Dashboard,
@@ -81,7 +81,7 @@ function Dashboard() {
     <div>
       <PageHeader
         title={`Hola, ${profile?.full_name?.split(" ")[0] || "equipo"}`}
-        description="Estado operativo del Área de Sistemas en tiempo real."
+        description="Estado operativo en tiempo real."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

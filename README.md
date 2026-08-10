@@ -1,55 +1,56 @@
-# SysPanelWiki
+# SysWiki Panel
 
-Panel web de intranet para el Area de Sistemas. Incluye wiki tecnica, guardias, inventario, toners, tareas, credenciales, usuarios, roles, auditoria y configuracion.
+Wiki operativa con modulos de gestion para sistemas internos. Es una aplicacion propia con backend server-side, autenticacion propia y base PostgreSQL.
 
-Stack de produccion:
+## Modulos
 
-- React 19 + TanStack Start
-- Tailwind CSS + componentes Radix
-- PostgreSQL propio
-- Autenticacion de usuarios propia con sesiones persistidas en PostgreSQL
-- Almacenamiento local configurable para adjuntos PDF
+- Dashboard
+- Instructivos/wiki con carpetas, editor y adjuntos PDF
+- Guardias
+- Inventario
+- Toners con stock, movimientos y codigos correlativos
+- Tareas con tablero, subtareas, comentarios e instructivos vinculados
+- Credenciales
+- Usuarios, roles y permisos
+- Auditoria
+- Configuracion y revision de versiones desde GitHub
 
-## Requisitos
+## Stack
 
-- Node.js 22.12 o superior
-- PostgreSQL 15 o superior
-- `psql` disponible para inicializar el esquema
+- React 19
+- TanStack Start
+- Tailwind CSS
+- PostgreSQL 15+
+- Sesiones y roles persistidos en PostgreSQL
+- Almacenamiento local configurable para adjuntos
 
-## Variables de entorno
+## Configuracion
 
-Crear `.env` en la raiz del proyecto:
+Copiar `.env.example` a `.env` y ajustar valores:
 
 ```env
-DATABASE_URL=postgresql://sysintranet:CAMBIA_ESTA_CLAVE@127.0.0.1:5432/SysIntranet
+DATABASE_URL=postgresql://syswiki:CAMBIA_ESTA_CLAVE@127.0.0.1:5432/syswiki
 DATABASE_SSL=false
-FILE_STORAGE_DIR=/var/lib/syspanelwiki/storage
-GITHUB_TOKEN=ghp_xxxxx
+FILE_STORAGE_DIR=./storage
+GITHUB_REPO=celizagustin98-ux/SysPanelWiki
 ```
 
-`GITHUB_TOKEN` solo se usa para revisar releases/commits desde el modulo Configuracion. No es necesario para iniciar la aplicacion.
+## PostgreSQL local
 
-## Base de datos
-
-Crear base y usuario:
+Con Docker:
 
 ```bash
-sudo -u postgres psql
+docker compose up -d postgres
+npm run db:init
 ```
 
-```sql
-create database "SysIntranet";
-create user sysintranet with encrypted password 'CAMBIA_ESTA_CLAVE';
-grant all privileges on database "SysIntranet" to sysintranet;
-```
-
-Aplicar el esquema:
+Sin Docker, crear una base PostgreSQL y luego ejecutar:
 
 ```bash
 npm run db:init
 ```
 
-El archivo [`db/schema.sql`](db/schema.sql) crea tablas, indices, permisos iniciales, sesiones, roles, configuracion y triggers necesarios para los modulos.
+El script `db:init` usa `DATABASE_URL` y aplica `db/schema.sql`; no requiere tener `psql` instalado.
 
 ## Desarrollo
 
@@ -68,53 +69,8 @@ npm run build
 npm run start
 ```
 
-Por defecto el servidor escucha en el puerto que configure TanStack/Nitro. Para mantenerlo vivo se recomienda PM2 o systemd.
+El primer usuario registrado obtiene rol `administrador`. Los siguientes usuarios quedan como `consulta` hasta que un administrador les asigne otro rol.
 
-Ejemplo con PM2:
+## Archivos persistentes
 
-```bash
-sudo npm install -g pm2
-pm2 start "npm run start" --name syspanelwiki
-pm2 save
-pm2 startup systemd
-```
-
-Ejemplo de Nginx:
-
-```nginx
-server {
-    listen 80;
-    server_name intranet.tuempresa.local;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    client_max_body_size 50M;
-}
-```
-
-## Primer usuario
-
-Registrate desde la pantalla de acceso. El primer usuario creado queda como `administrador`; los siguientes quedan como `consulta` hasta que un administrador cambie su rol.
-
-## Modulos incluidos
-
-- Dashboard
-- Instructivos con carpetas, editor y PDFs
-- Guardias
-- Inventario
-- Toners con stock, movimientos y codigos correlativos
-- Tareas con kanban, subtareas, comentarios e instructivos vinculados
-- Credenciales
-- Usuarios y roles
-- Auditoria
-- Configuracion y revision de versiones en GitHub
+Los adjuntos PDF se guardan en `FILE_STORAGE_DIR`. En produccion usar un directorio persistente y respaldado, por ejemplo `/var/lib/syswiki/storage`.

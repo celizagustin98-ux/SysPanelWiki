@@ -21,7 +21,7 @@ export const checkForUpdates = createServerFn({ method: "POST" })
       `select version_actual, github_repo from app_settings where singleton = true`,
     );
 
-    const repo = settings?.github_repo ?? "celizagustin98-ux/SysIntranet";
+    const repo = settings?.github_repo ?? process.env.GITHUB_REPO ?? "celizagustin98-ux/SysPanelWiki";
     const currentVersion = settings?.version_actual ?? "v1.0.0";
     const token = process.env["GITHUB_TOKEN"];
 
@@ -43,7 +43,7 @@ export const checkForUpdates = createServerFn({ method: "POST" })
     const headers = {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token}`,
-      "User-Agent": "SysIntranet",
+      "User-Agent": "SysWiki",
     };
 
     try {

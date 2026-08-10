@@ -26,7 +26,7 @@ export const Route = createFileRoute("/_app/credenciales")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Credenciales | Bóveda del Área de Sistemas" },
+      { title: "Credenciales | Bóveda segura" },
       { name: "description", content: "Bóveda protegida de accesos, IPs y servicios de infraestructura." },
       { property: "og:title", content: "Credenciales | Bóveda segura" },
       { property: "og:description", content: "Accesos de infraestructura organizados y restringidos por rol." },

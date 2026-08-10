@@ -12,7 +12,7 @@ import {
   storageUpload,
 } from "@/lib/server/data";
 
-const TOKEN_KEY = "syspanelwiki.session";
+const TOKEN_KEY = "syswiki.session";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
 type Order = { column: string; ascending?: boolean };

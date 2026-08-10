@@ -10,12 +10,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Intranet integral del Área de Sistemas: wiki técnica, guardias, inventario, tóners, tareas y bóveda de credenciales.",
+          "Wiki operativa integral: guardias, inventario, tóners, tareas y bóveda de credenciales.",
       },
       { property: "og:title", content: "Intranet Sistemas" },
       {
         property: "og:description",
-        content: "Wiki técnica, guardias, inventario, tóners, tareas y credenciales en un solo lugar.",
+        content: "Wiki operativa, guardias, inventario, tóners, tareas y credenciales en un solo lugar.",
       },
     ],
   }),

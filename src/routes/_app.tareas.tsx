@@ -39,9 +39,9 @@ export const Route = createFileRoute("/_app/tareas")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Tareas | Gestión Kanban del Área de Sistemas" },
+      { title: "Tareas | Gestión Kanban" },
       { name: "description", content: "Tablero Kanban y listado de tareas con subtareas, comentarios e instructivos vinculados." },
-      { property: "og:title", content: "Tareas | Tablero del Área de Sistemas" },
+      { property: "og:title", content: "Tareas | Tablero operativo" },
       { property: "og:description", content: "Seguimiento de trabajo con checklists, chat interno y prioridades." },
     ],
   }),

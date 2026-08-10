@@ -14,8 +14,8 @@ type ErrorEvents = {
 
 declare global {
   interface Window {
-    __SysPanelWikiEvents?: ErrorEvents;
-    __SysPanelWikiReportRuntimeError?: (payload: {
+    __SysWikiEvents?: ErrorEvents;
+    __SysWikiReportRuntimeError?: (payload: {
       message: string;
       stack?: string;
       filename?: string;
@@ -23,9 +23,9 @@ declare global {
   }
 }
 
-export function reportSysPanelWikiError(error: unknown, context: Record<string, unknown> = {}) {
+export function reportSysWikiError(error: unknown, context: Record<string, unknown> = {}) {
   if (typeof window === "undefined") return;
-  window.__SysPanelWikiEvents?.captureException?.(
+  window.__SysWikiEvents?.captureException?.(
     error,
     {
       source: "react_error_boundary",
@@ -46,7 +46,7 @@ export function reportSysPanelWikiError(error: unknown, context: Record<string, 
         ? error.message
         : String(error);
 
-  window.__SysPanelWikiReportRuntimeError?.({
+  window.__SysWikiReportRuntimeError?.({
     message,
     stack: error instanceof Error ? error.stack : undefined,
     filename: window.location.pathname,

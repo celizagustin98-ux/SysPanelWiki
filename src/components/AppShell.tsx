@@ -55,8 +55,8 @@ export function AppShell() {
             <Terminal className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-semibold leading-tight">Área de Sistemas</p>
-            <p className="text-xs text-muted-foreground">Intranet &amp; Wiki</p>
+            <p className="text-sm font-semibold leading-tight">SysWiki</p>
+            <p className="text-xs text-muted-foreground">Panel operativo</p>
           </div>
         </div>
         <nav className="flex flex-1 flex-col gap-1">

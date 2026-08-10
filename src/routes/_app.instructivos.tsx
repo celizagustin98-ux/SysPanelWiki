@@ -40,9 +40,9 @@ export const Route = createFileRoute("/_app/instructivos")({
   validateSearch: (s: Record<string, unknown>) => ({ doc: (s.doc as string) || undefined }),
   head: () => ({
     meta: [
-      { title: "Instructivos | Wiki técnica del Área de Sistemas" },
-      { name: "description", content: "Wiki técnica con carpetas, editor visual, adjuntos PDF y buscador global." },
-      { property: "og:title", content: "Instructivos | Wiki técnica" },
+      { title: "Instructivos | Wiki operativa" },
+      { name: "description", content: "Wiki operativa con carpetas, editor visual, adjuntos PDF y buscador global." },
+      { property: "og:title", content: "Instructivos | Wiki operativa" },
       { property: "og:description", content: "Documentación técnica organizada en árbol con visor de PDF." },
     ],
   }),
@@ -246,7 +246,7 @@ function InstructivosPage() {
     <div>
       <PageHeader
         title="Instructivos"
-        description="Wiki técnica jerárquica con editor visual y PDFs embebidos."
+        description="Wiki operativa jerárquica con editor visual y PDFs embebidos."
         action={
           canWrite ? (
             <div className="flex gap-2">

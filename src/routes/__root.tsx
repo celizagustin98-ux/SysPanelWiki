@@ -10,7 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportSysPanelWikiError } from "../lib/error-reporting";
+import { reportSysWikiError } from "../lib/error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
@@ -42,7 +42,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
-    reportSysPanelWikiError(error, { boundary: "tanstack_root_error_component" });
+    reportSysWikiError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
 
   return (
@@ -81,15 +81,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Intranet Área de Sistemas" },
+      { title: "SysWiki Panel" },
       {
         name: "description",
-        content: "Intranet y wiki técnica del Área de Sistemas: guardias, inventario, tóners y tareas.",
+        content: "Wiki operativa para sistemas: guardias, inventario, tóners y tareas.",
       },
-      { property: "og:title", content: "Intranet Área de Sistemas" },
+      { property: "og:title", content: "SysWiki Panel" },
       {
         property: "og:description",
-        content: "Wiki técnica, guardias, inventario, tóners, tareas y credenciales.",
+        content: "Wiki operativa, guardias, inventario, tóners, tareas y credenciales.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

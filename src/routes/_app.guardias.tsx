@@ -38,10 +38,10 @@ export const Route = createFileRoute("/_app/guardias")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Guardias | Intranet Área de Sistemas" },
+      { title: "Guardias | SysWiki Panel" },
       { name: "description", content: "Calendario de guardias con turnos por operador y rango horario." },
-      { property: "og:title", content: "Guardias | Intranet Área de Sistemas" },
-      { property: "og:description", content: "Planificación de turnos del Área de Sistemas." },
+      { property: "og:title", content: "Guardias | SysWiki Panel" },
+      { property: "og:description", content: "Planificación de turnos." },
     ],
   }),
   component: GuardiasPage,
