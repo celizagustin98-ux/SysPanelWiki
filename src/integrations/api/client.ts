@@ -224,8 +224,15 @@ export const api = {
       }
     },
     async signOut() {
-      await postAuth("signout", { token: token() });
+      const currentToken = token();
       setToken(null);
+      if (!currentToken) return { data: { ok: true }, error: null };
+
+      const result = await postAuth("signout", { token: currentToken });
+      if (result.error) {
+        console.warn("No se pudo cerrar la sesion en el servidor", result.error);
+      }
+      return result;
     },
   },
   from(table: string) {
