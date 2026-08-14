@@ -73,6 +73,26 @@ const WRITABLE_BY_TECH = new Set([
   "wiki_folders",
 ]);
 
+const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
+  app_settings: { modulo: "configuracion", fields: ["version_actual"] },
+  credenciales: { modulo: "credenciales", fields: ["servicio", "usuario", "ip", "url"] },
+  guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
+  inventario: { modulo: "inventario", fields: ["codigo", "nombre", "marca", "modelo", "numero_serie"] },
+  profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
+  role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
+  tareas: { modulo: "tareas", fields: ["titulo", "estado", "prioridad"] },
+  tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
+  tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
+  tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
+  toner_modelos: { modulo: "toners", fields: ["nombre", "marca", "prefijo"] },
+  toner_movimientos: { modulo: "toners", fields: ["tipo", "cantidad", "responsable", "sector"] },
+  toner_unidades: { modulo: "toners", fields: ["codigo", "estado"] },
+  user_roles: { modulo: "usuarios", fields: ["user_id", "role"] },
+  wiki_attachments: { modulo: "instructivos", fields: ["file_name", "doc_id"] },
+  wiki_docs: { modulo: "instructivos", fields: ["title"] },
+  wiki_folders: { modulo: "instructivos", fields: ["name"] },
+};
+
 function tableName(table: string) {
   cleanIdentifier(table);
   if (!TABLES.has(table)) throw new Error("Tabla no permitida");
@@ -104,6 +124,49 @@ function appendOrder(order: Order[] | undefined) {
   return ` order by ${order
     .map((o) => `${cleanIdentifier(o.column)} ${o.ascending === false ? "desc" : "asc"}`)
     .join(", ")}`;
+}
+
+function rowDescription(table: string, row: Record<string, unknown>) {
+  const meta = AUDIT_META[table];
+  const parts = (meta?.fields ?? ["id"])
+    .map((field) => row[field])
+    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "")
+    .map((value) => String(value));
+  return parts.slice(0, 3).join(" - ") || String(row.id ?? "");
+}
+
+async function writeAudit(
+  actorId: string,
+  table: string,
+  accion: "crear" | "editar" | "eliminar" | "asignar_rol",
+  rows: Record<string, unknown>[],
+  detalle: Record<string, unknown> = {},
+) {
+  const meta = AUDIT_META[table];
+  if (!meta || rows.length === 0) return;
+
+  const actor = await one<{ full_name: string; email: string }>(
+    `select full_name, email from profiles where id = $1`,
+    [actorId],
+  );
+
+  for (const row of rows.slice(0, 50)) {
+    await query(
+      `insert into audit_log
+        (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle)
+       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+      [
+        actorId,
+        actor?.full_name ?? "",
+        actor?.email ?? "",
+        meta.modulo,
+        accion,
+        row.id ? String(row.id) : null,
+        rowDescription(table, row),
+        JSON.stringify({ tabla: table, ...detalle }),
+      ],
+    );
+  }
 }
 
 async function assertWriteAccess(userId: string, table: string) {
@@ -170,7 +233,9 @@ export const apiMutate = createServerFn({ method: "POST" })
     const where = appendFilters(data.filters, values);
 
     if (data.action === "delete") {
+      const before = await query<Record<string, unknown>>(`select * from ${table}${where}`, values);
       await query(`delete from ${table}${where}`, values);
+      await writeAudit(session.user.id, table, "eliminar", before.rows);
       return { data: null, error: null };
     }
 
@@ -181,7 +246,13 @@ export const apiMutate = createServerFn({ method: "POST" })
         return `${cleanIdentifier(key)} = $${values.length}`;
       });
       if (assignments.length === 0) throw new Error("Sin datos para actualizar");
-      await query(`update ${table} set ${assignments.join(", ")}${where}`, values);
+      const result = await query<Record<string, unknown>>(
+        `update ${table} set ${assignments.join(", ")}${where} returning *`,
+        values,
+      );
+      await writeAudit(session.user.id, table, "editar", result.rows, {
+        campos: Object.keys(payload),
+      });
       return { data: null, error: null };
     }
 
@@ -199,6 +270,7 @@ export const apiMutate = createServerFn({ method: "POST" })
       `insert into ${table} (${cols.join(", ")}) values ${placeholders.join(", ")} returning *`,
       values,
     );
+    await writeAudit(session.user.id, table, "crear", result.rows);
     return { data: result.rows.length === 1 ? result.rows[0] : result.rows, error: null };
   });
 
@@ -235,6 +307,13 @@ export const apiRpc = createServerFn({ method: "POST" })
         data.args?._user_id,
         data.args?._role,
       ]);
+      await writeAudit(
+        session.user.id,
+        "user_roles",
+        "asignar_rol",
+        [{ id: data.args?._user_id, user_id: data.args?._user_id, role: data.args?._role }],
+        { rol: data.args?._role },
+      );
       return { data: null, error: null };
     }
     if (data.name === "generar_codigos_toner") {

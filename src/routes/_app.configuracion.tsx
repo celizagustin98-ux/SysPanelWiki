@@ -95,6 +95,7 @@ type Settings = {
   version_actual: string;
   ultima_revision: string | null;
   ultima_actualizacion: string | null;
+  updated_at: string | null;
 };
 
 type UsuarioRow = {
@@ -110,6 +111,14 @@ function formatDate(value?: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function formatVersion(value?: string | null) {
+  const version = (value ?? "").trim();
+  if (!version || version === "v1.0.0" || /^[a-f0-9]{7,40}$/i.test(version)) return "V 0.1 beta";
+  if (/^v\s/i.test(version)) return version.replace(/^v/i, "V");
+  if (/^\d/.test(version)) return `V ${version}`;
+  return version;
 }
 
 function ConfiguracionPage() {
@@ -138,7 +147,7 @@ function ConfiguracionPage() {
   const loadSettings = useCallback(async () => {
     const { data } = await api
       .from("app_settings")
-      .select("version_actual, ultima_revision, ultima_actualizacion")
+      .select("version_actual, ultima_revision, ultima_actualizacion, updated_at")
       .maybeSingle();
     if (data) setSettings(data as Settings);
   }, []);
@@ -339,7 +348,10 @@ function ConfiguracionPage() {
               <CardContent className="py-4">
                 <p className="text-xs font-medium uppercase text-muted-foreground">Versión actual</p>
                 <p className="mt-2 text-2xl font-semibold">
-                  {settings?.version_actual || "Sin versión registrada"}
+                  {formatVersion(settings?.version_actual)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Rama beta hasta completar la versión oficial V 1.0.
                 </p>
               </CardContent>
             </Card>
@@ -349,7 +361,7 @@ function ConfiguracionPage() {
                   Última actualización
                 </p>
                 <p className="mt-2 text-sm font-medium">
-                  {formatDate(settings?.ultima_actualizacion)}
+                  {formatDate(settings?.ultima_actualizacion ?? settings?.updated_at)}
                 </p>
               </CardContent>
             </Card>

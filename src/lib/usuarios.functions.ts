@@ -6,6 +6,33 @@ type AppRole = "administrador" | "tecnico" | "consulta";
 
 const ROLES: AppRole[] = ["administrador", "tecnico", "consulta"];
 
+async function auditarUsuario(
+  actorId: string,
+  accion: "crear" | "editar" | "eliminar" | "asignar_rol",
+  userId: string,
+  descripcion: string,
+  detalle: Record<string, unknown> = {},
+) {
+  const actor = await query<{ full_name: string; email: string }>(
+    `select full_name, email from profiles where id = $1`,
+    [actorId],
+  );
+  await query(
+    `insert into audit_log
+      (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle)
+     values ($1, $2, $3, 'usuarios', $4, $5, $6, $7::jsonb)`,
+    [
+      actorId,
+      actor.rows[0]?.full_name ?? "",
+      actor.rows[0]?.email ?? "",
+      accion,
+      userId,
+      descripcion,
+      JSON.stringify(detalle),
+    ],
+  );
+}
+
 export const crearUsuario = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
   .inputValidator(
@@ -37,6 +64,11 @@ export const crearUsuario = createServerFn({ method: "POST" })
       data.username,
     ]);
     await query(`insert into user_roles (user_id, role) values ($1, $2)`, [uid, data.role]);
+    await auditarUsuario(context.userId, "crear", uid, data.fullName || data.email, {
+      email: data.email,
+      username: data.username,
+      role: data.role,
+    });
 
     return { id: uid, email: data.email, full_name: data.fullName, role: data.role };
   });
@@ -50,7 +82,18 @@ export const eliminarUsuario = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     if (data.userId === context.userId) throw new Error("No podés eliminar tu propio usuario");
+    const target = await query<{ full_name: string; email: string; username: string | null }>(
+      `select full_name, email, username from profiles where id = $1`,
+      [data.userId],
+    );
     await query(`delete from app_users where id = $1`, [data.userId]);
+    await auditarUsuario(
+      context.userId,
+      "eliminar",
+      data.userId,
+      target.rows[0]?.full_name || target.rows[0]?.email || data.userId,
+      { email: target.rows[0]?.email, username: target.rows[0]?.username },
+    );
     return { ok: true };
   });
 
@@ -78,5 +121,21 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
     if (data.fullName) {
       await query(`update profiles set full_name = $1 where id = $2`, [data.fullName, data.userId]);
     }
+    const target = await query<{ full_name: string; email: string }>(
+      `select full_name, email from profiles where id = $1`,
+      [data.userId],
+    );
+    await auditarUsuario(
+      context.userId,
+      "editar",
+      data.userId,
+      target.rows[0]?.full_name || target.rows[0]?.email || data.userId,
+      {
+        campos: [
+          ...(data.fullName ? ["fullName"] : []),
+          ...(data.password ? ["password"] : []),
+        ],
+      },
+    );
     return { ok: true };
   });

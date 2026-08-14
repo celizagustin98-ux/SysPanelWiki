@@ -186,7 +186,7 @@ create table if not exists credenciales (
 
 create table if not exists app_settings (
   singleton boolean primary key default true check (singleton),
-  version_actual text not null default 'v1.0.0',
+  version_actual text not null default 'V 0.1 beta',
   github_repo text not null default 'celizagustin98-ux/SysPanelWiki',
   ultima_revision timestamptz,
   ultima_actualizacion timestamptz,
@@ -246,6 +246,11 @@ create trigger toner_mov_stock after insert on toner_movimientos for each row ex
 
 insert into app_settings (singleton) values (true)
 on conflict (singleton) do nothing;
+
+update app_settings
+   set version_actual = 'V 0.1 beta'
+ where singleton = true
+   and (version_actual is null or version_actual = 'v1.0.0' or version_actual ~ '^[a-f0-9]{7,40}$');
 
 insert into role_permissions (role, modulo, can_view, can_create, can_edit, can_delete)
 select r.role::app_role, m.modulo, true, true, true, true

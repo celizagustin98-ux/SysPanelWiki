@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { History, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  History,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -56,10 +65,14 @@ type Actor = { actor_id: string; actor_nombre: string; actor_email: string };
 
 const MODULOS = [
   { key: "instructivos", label: "Instructivos" },
+  { key: "guardias", label: "Guardias" },
   { key: "inventario", label: "Inventario" },
-  { key: "credenciales", label: "Credenciales" },
   { key: "toners", label: "Tóners" },
+  { key: "tareas", label: "Tareas" },
+  { key: "credenciales", label: "Credenciales" },
   { key: "usuarios", label: "Usuarios" },
+  { key: "roles", label: "Roles y permisos" },
+  { key: "configuracion", label: "Configuración" },
 ];
 
 const ACCIONES = [
@@ -67,7 +80,6 @@ const ACCIONES = [
   { key: "editar", label: "Editar" },
   { key: "eliminar", label: "Eliminar" },
   { key: "asignar_rol", label: "Asignar rol" },
-  { key: "quitar_rol", label: "Quitar rol" },
 ];
 
 const TODOS = "__todos__";
@@ -76,6 +88,23 @@ function accionVariant(accion: string): "default" | "secondary" | "destructive" 
   if (accion === "eliminar" || accion === "quitar_rol") return "destructive";
   if (accion === "editar") return "default";
   return "secondary";
+}
+
+function labelModulo(value: string) {
+  return MODULOS.find((m) => m.key === value)?.label ?? value;
+}
+
+function labelAccion(value: string) {
+  return ACCIONES.find((a) => a.key === value)?.label ?? value;
+}
+
+function detalleLegible(detalle: unknown) {
+  if (!detalle || typeof detalle !== "object") return "";
+  const data = detalle as Record<string, unknown>;
+  const campos = Array.isArray(data.campos) ? `Campos: ${data.campos.join(", ")}` : "";
+  const tabla = data.tabla ? `Tabla: ${String(data.tabla)}` : "";
+  const rol = data.rol ? `Rol: ${String(data.rol)}` : "";
+  return [campos, rol, tabla].filter(Boolean).join(" · ");
 }
 
 function AuditoriaPage() {
@@ -137,7 +166,9 @@ function AuditoriaPage() {
 
   const resumen = useMemo(() => {
     const criticas = rows.filter((r) => r.accion === "eliminar").length;
-    return { total: rows.length, criticas };
+    const usuarios = new Set(rows.map((r) => r.actor_id).filter(Boolean)).size;
+    const modulos = new Set(rows.map((r) => r.modulo).filter(Boolean)).size;
+    return { total: rows.length, criticas, usuarios, modulos };
   }, [rows]);
 
   if (!isAdmin) {
@@ -158,7 +189,7 @@ function AuditoriaPage() {
     <div className="space-y-6">
       <PageHeader
         title="Auditoría"
-        description="Quién realizó cada acción crítica y cuándo."
+        description="Registro operativo de cambios: usuarios, módulos, elementos modificados y fecha."
         action={
           <Button variant="outline" onClick={() => void cargar()} disabled={cargando}>
             {cargando ? (
@@ -170,6 +201,45 @@ function AuditoriaPage() {
           </Button>
         }
       />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="panel">
+          <CardContent className="flex items-center gap-3 py-4">
+            <Activity className="size-5 text-primary" />
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Eventos</p>
+              <p className="text-2xl font-semibold">{resumen.total}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="panel">
+          <CardContent className="flex items-center gap-3 py-4">
+            <Users className="size-5 text-primary" />
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Usuarios</p>
+              <p className="text-2xl font-semibold">{resumen.usuarios}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="panel">
+          <CardContent className="flex items-center gap-3 py-4">
+            <History className="size-5 text-primary" />
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Módulos</p>
+              <p className="text-2xl font-semibold">{resumen.modulos}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="panel">
+          <CardContent className="flex items-center gap-3 py-4">
+            <AlertTriangle className="size-5 text-destructive" />
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Eliminaciones</p>
+              <p className="text-2xl font-semibold">{resumen.criticas}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card className="panel">
         <CardHeader className="pb-2">
@@ -278,8 +348,8 @@ function AuditoriaPage() {
               No hay eventos registrados con esos filtros.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-sm">
+            <div className="rounded-lg border border-border">
+              <table className="hidden w-full text-sm md:table">
                 <thead className="bg-muted/50 text-left">
                   <tr>
                     <th className="px-4 py-2 font-medium">Fecha y hora</th>
@@ -300,18 +370,18 @@ function AuditoriaPage() {
                         <p className="text-xs text-muted-foreground">{r.actor_email}</p>
                       </td>
                       <td className="px-4 py-2 capitalize">
-                        {MODULOS.find((m) => m.key === r.modulo)?.label ?? r.modulo}
+                        {labelModulo(r.modulo)}
                       </td>
                       <td className="px-4 py-2">
                         <Badge variant={accionVariant(r.accion)}>
-                          {ACCIONES.find((a) => a.key === r.accion)?.label ?? r.accion}
+                          {labelAccion(r.accion)}
                         </Badge>
                       </td>
                       <td className="px-4 py-2">
                         <p>{r.entidad_desc || "—"}</p>
-                        {r.detalle && Object.keys(r.detalle as object).length ? (
+                        {detalleLegible(r.detalle) ? (
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            {JSON.stringify(r.detalle)}
+                            {detalleLegible(r.detalle)}
                           </p>
                         ) : null}
                       </td>
@@ -319,6 +389,28 @@ function AuditoriaPage() {
                   ))}
                 </tbody>
               </table>
+              <div className="divide-y divide-border md:hidden">
+                {rows.map((r) => (
+                  <div key={r.id} className="space-y-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">{r.entidad_desc || labelModulo(r.modulo)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(r.created_at).toLocaleString("es-AR")}
+                        </p>
+                      </div>
+                      <Badge variant={accionVariant(r.accion)}>{labelAccion(r.accion)}</Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline">{labelModulo(r.modulo)}</Badge>
+                      <span>{r.actor_nombre || r.actor_email || "Sistema"}</span>
+                    </div>
+                    {detalleLegible(r.detalle) ? (
+                      <p className="text-xs text-muted-foreground">{detalleLegible(r.detalle)}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>
