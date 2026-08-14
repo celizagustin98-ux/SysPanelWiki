@@ -6,7 +6,6 @@ import {
   CalendarClock,
   History,
   KanbanSquare,
-  KeyRound,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -14,7 +13,6 @@ import {
   Settings2,
   ShieldCheck,
   Sun,
-  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,8 +28,6 @@ const NAV = [
   { to: "/toners", label: "Tóners", icon: Printer, modulo: "toners", adminOnly: false },
   { to: "/tareas", label: "Tareas", icon: KanbanSquare, modulo: "tareas", adminOnly: false },
   { to: "/credenciales", label: "Credenciales", icon: ShieldCheck, modulo: "credenciales", adminOnly: false },
-  { to: "/usuarios", label: "Usuarios", icon: Users, modulo: "usuarios", adminOnly: true },
-  { to: "/roles", label: "Roles y permisos", icon: KeyRound, modulo: null, adminOnly: true },
   { to: "/auditoria", label: "Auditoría", icon: History, modulo: null, adminOnly: true },
   { to: "/configuracion", label: "Configuración", icon: Settings2, modulo: null, adminOnly: true },
 ] as const;
