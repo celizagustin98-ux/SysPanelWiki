@@ -97,6 +97,7 @@ type Unidad = {
   codigo: string;
   estado: string;
   generado_por_nombre: string | null;
+  lote_generacion_id: string | null;
   created_at: string;
   toner_modelos: { nombre: string } | null;
 };
@@ -995,7 +996,7 @@ function agruparCodigosGenerados(unidades: Unidad[]): LoteCodigos[] {
   for (const unidad of unidades) {
     const fecha = new Date(unidad.created_at);
     const minuto = Number.isNaN(fecha.getTime()) ? unidad.created_at : fecha.toISOString().slice(0, 16);
-    const key = `${unidad.modelo_id}|${unidad.generado_por_nombre || ""}|${minuto}`;
+    const key = unidad.lote_generacion_id || `${unidad.modelo_id}|${unidad.generado_por_nombre || ""}|${minuto}`;
     grupos.set(key, [...(grupos.get(key) ?? []), unidad]);
   }
 

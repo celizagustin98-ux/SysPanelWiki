@@ -120,11 +120,13 @@ create table if not exists toner_unidades (
   estado text not null default 'en_stock',
   generado_por uuid references app_users(id) on delete set null,
   generado_por_nombre text,
+  lote_generacion_id uuid,
   created_at timestamptz not null default now()
 );
 
 alter table toner_unidades add column if not exists generado_por uuid references app_users(id) on delete set null;
 alter table toner_unidades add column if not exists generado_por_nombre text;
+alter table toner_unidades add column if not exists lote_generacion_id uuid;
 
 create table if not exists toner_movimientos (
   id uuid primary key default gen_random_uuid(),

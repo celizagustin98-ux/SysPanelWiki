@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { randomUUID } from "node:crypto";
 import {
   assertAdmin,
   assertCanWrite,
@@ -333,14 +334,15 @@ export const apiRpc = createServerFn({ method: "POST" })
         `select full_name, email from profiles where id = $1`,
         [session.user.id],
       );
+      const loteGeneracionId = randomUUID();
       const codes: string[] = [];
       for (let i = 1; i <= cantidad; i += 1) {
-        const code = `${model.prefijo}-${String(model.correlativo + i).padStart(4, "0")}`;
+        const code = `${model.prefijo} ${String(model.correlativo + i).padStart(3, "0")}`;
         codes.push(code);
         await query(
-          `insert into toner_unidades (modelo_id, codigo, generado_por, generado_por_nombre)
-           values ($1, $2, $3, $4)`,
-          [data.args?._modelo_id, code, session.user.id, actor?.full_name ?? actor?.email ?? ""],
+          `insert into toner_unidades (modelo_id, codigo, generado_por, generado_por_nombre, lote_generacion_id)
+           values ($1, $2, $3, $4, $5)`,
+          [data.args?._modelo_id, code, session.user.id, actor?.full_name ?? actor?.email ?? "", loteGeneracionId],
         );
       }
       await writeAudit(
@@ -353,7 +355,13 @@ export const apiRpc = createServerFn({ method: "POST" })
           estado: "en_stock",
           modelo: model.nombre,
         })),
-        { modelo_id: model.id, modelo: model.nombre, cantidad, accion_especial: "generar_codigos" },
+        {
+          modelo_id: model.id,
+          modelo: model.nombre,
+          cantidad,
+          lote_generacion_id: loteGeneracionId,
+          accion_especial: "generar_codigos",
+        },
       );
       return { data: codes, error: null };
     }
