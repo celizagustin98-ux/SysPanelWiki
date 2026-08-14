@@ -3,10 +3,14 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
+  Database,
+  HardDrive,
   KeyRound,
   Loader2,
   Pencil,
+  Printer,
   Search,
+  Server,
   Settings2,
   ShieldCheck,
   Trash2,
@@ -106,6 +110,13 @@ type UsuarioRow = {
   role: AppRole;
 };
 
+type SystemStats = {
+  auditoria: number;
+  instructivos: number;
+  toners: number;
+  guardias: number;
+};
+
 function formatDate(value?: string | null) {
   if (!value) return "Sin registro";
   return new Date(value).toLocaleString("es-AR", {
@@ -130,6 +141,12 @@ function ConfiguracionPage() {
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([]);
+  const [systemStats, setSystemStats] = useState<SystemStats>({
+    auditoria: 0,
+    instructivos: 0,
+    toners: 0,
+    guardias: 0,
+  });
   const [cargandoUsuarios, setCargandoUsuarios] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -153,6 +170,21 @@ function ConfiguracionPage() {
     if (data) setSettings(data as Settings);
   }, []);
 
+  const loadSystemStats = useCallback(async () => {
+    const [auditoria, instructivos, toners, guardias] = await Promise.all([
+      api.from("audit_log").select("id", { count: "exact", head: true }),
+      api.from("wiki_docs").select("id", { count: "exact", head: true }),
+      api.from("toner_modelos").select("id", { count: "exact", head: true }),
+      api.from("guardias").select("id", { count: "exact", head: true }),
+    ]);
+    setSystemStats({
+      auditoria: auditoria.count ?? 0,
+      instructivos: instructivos.count ?? 0,
+      toners: toners.count ?? 0,
+      guardias: guardias.count ?? 0,
+    });
+  }, []);
+
   const cargarUsuarios = useCallback(async () => {
     setCargandoUsuarios(true);
     const [{ data: profiles }, { data: roles }] = await Promise.all([
@@ -174,7 +206,8 @@ function ConfiguracionPage() {
 
   useEffect(() => {
     void loadSettings();
-  }, [loadSettings]);
+    void loadSystemStats();
+  }, [loadSettings, loadSystemStats]);
 
   useEffect(() => {
     if (isAdmin) void cargarUsuarios();
@@ -392,6 +425,40 @@ function ConfiguracionPage() {
                   <p className="mt-1 text-xs text-muted-foreground">{r.hint}</p>
                 </div>
               ))}
+            </CardContent>
+          </Card>
+
+          <Card className="panel">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Server className="size-4" /> Estado del sistema
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <SystemStatus
+                icon={<Database className="size-4" />}
+                title="Base de datos"
+                value="Operativa"
+                detail={`${systemStats.auditoria} eventos auditados`}
+              />
+              <SystemStatus
+                icon={<HardDrive className="size-4" />}
+                title="Almacenamiento"
+                value="Local"
+                detail={`${systemStats.instructivos} instructivos registrados`}
+              />
+              <SystemStatus
+                icon={<Printer className="size-4" />}
+                title="Tóners"
+                value={`${systemStats.toners} modelos`}
+                detail="Stock manual por carga y consumo"
+              />
+              <SystemStatus
+                icon={<ShieldCheck className="size-4" />}
+                title="Guardias"
+                value={`${systemStats.guardias} turnos`}
+                detail="Períodos y liquidación cargados"
+              />
             </CardContent>
           </Card>
 
@@ -697,6 +764,30 @@ function ConfiguracionPage() {
     </div>
   );
 }
+
+function SystemStatus({
+  icon,
+  title,
+  value,
+  detail,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border p-4">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        {icon}
+        <p className="text-xs font-medium uppercase">{title}</p>
+      </div>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
 
 function filteredEmpty(rows: UsuarioRow[]) {
   return rows.length === 0;

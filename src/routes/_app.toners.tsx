@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Boxes,
   Copy,
+  Download,
   Edit3,
   ListChecks,
   ListFilter,
@@ -15,6 +16,7 @@ import {
   Plus,
   Save,
   ScanLine,
+  Search,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -118,6 +120,10 @@ function TonersPage() {
   const [generados, setGenerados] = useState<string[]>([]);
   const [genOpen, setGenOpen] = useState(false);
   const [modeloSel, setModeloSel] = useState<string>("");
+  const [stockQuery, setStockQuery] = useState("");
+  const [stockEstado, setStockEstado] = useState<"todos" | "ok" | "critico">("todos");
+  const [reposicionQuery, setReposicionQuery] = useState("");
+  const [codigoQuery, setCodigoQuery] = useState("");
 
   const { data: modelos = [] } = useQuery({
     queryKey: ["toner_modelos"],
@@ -181,6 +187,42 @@ function TonersPage() {
   const reposiciones = movimientos.filter((m) => m.tipo === "reposicion");
   const stockMovimientos = movimientos.filter((m) => m.tipo === "cargar" || m.tipo === "consumo");
   const lotesCodigos = useMemo(() => agruparCodigosGenerados(unidades), [unidades]);
+  const modelosFiltrados = useMemo(() => {
+    const q = stockQuery.trim().toLowerCase();
+    return modelos.filter((m) => {
+      const coincide =
+        !q ||
+        m.nombre.toLowerCase().includes(q) ||
+        (m.marca ?? "").toLowerCase().includes(q) ||
+        m.prefijo.toLowerCase().includes(q);
+      const critico = m.stock <= m.stock_minimo;
+      const estadoOk = stockEstado === "todos" || (stockEstado === "critico" ? critico : !critico);
+      return coincide && estadoOk;
+    });
+  }, [modelos, stockEstado, stockQuery]);
+  const reposicionesFiltradas = useMemo(() => {
+    const q = reposicionQuery.trim().toLowerCase();
+    if (!q) return reposiciones;
+    return reposiciones.filter((m) =>
+      [
+        m.sector,
+        m.toner_modelos?.nombre,
+        m.toner_entra,
+        m.toner_sale,
+        m.responsable,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q)),
+    );
+  }, [reposiciones, reposicionQuery]);
+  const lotesFiltrados = useMemo(() => {
+    const q = codigoQuery.trim().toLowerCase();
+    if (!q) return lotesCodigos;
+    return lotesCodigos.filter((lote) =>
+      [lote.codigoGenerado, lote.modelo, lote.generadoPor, lote.fechaGenerado]
+        .some((value) => value.toLowerCase().includes(q)),
+    );
+  }, [codigoQuery, lotesCodigos]);
 
   const ultimoControlPorModelo = useMemo(() => {
     const map = new Map<string, Movimiento>();
@@ -205,6 +247,7 @@ function TonersPage() {
                 modeloSel={modeloSel}
                 setModeloSel={setModeloSel}
                 generados={generados}
+                setGenerados={setGenerados}
                 generar={generar}
               />
               <ModeloDialog onDone={refresh} />
@@ -257,17 +300,59 @@ function TonersPage() {
                   >
                     <PackageX className="size-3" /> {criticos.length} críticos
                   </Badge>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      exportCsv(
+                        "stock-toners.csv",
+                        ["Modelo", "Marca", "Prefijo", "Cantidad actual", "Cantidad minima", "Estado"],
+                        modelosFiltrados.map((m) => [
+                          m.nombre,
+                          m.marca ?? "",
+                          m.prefijo,
+                          m.stock,
+                          m.stock_minimo,
+                          m.stock <= m.stock_minimo ? "Critico" : "OK",
+                        ]),
+                      )
+                    }
+                  >
+                    <Download className="size-4" /> Exportar
+                  </Button>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative w-full sm:max-w-sm">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={stockQuery}
+                    onChange={(e) => setStockQuery(e.target.value)}
+                    placeholder="Buscar modelo, marca o prefijo"
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={stockEstado} onValueChange={(value) => setStockEstado(value as typeof stockEstado)}>
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="ok">Stock OK</SelectItem>
+                    <SelectItem value="critico">Stock crítico</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="overflow-x-auto">
                 <Table className="min-w-[980px]">
                   <TableHeader>
                     <TableRow className="border-b border-border/70 bg-muted/45 hover:bg-muted/45">
                       <TableHead className="h-11 min-w-[330px] px-5 text-xs font-semibold uppercase text-muted-foreground">
                         <div className="flex items-center gap-2">
-                          Toner marcas
+                          Modelo
                           <ListFilter className="size-3.5" />
                         </div>
                       </TableHead>
@@ -288,7 +373,7 @@ function TonersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {modelos.map((m) => {
+                    {modelosFiltrados.map((m) => {
                       const ultimo = ultimoControlPorModelo.get(m.id);
                       const bajoStock = m.stock <= m.stock_minimo;
                       const stockPct =
@@ -384,7 +469,7 @@ function TonersPage() {
                         </TableRow>
                       );
                     })}
-                    {modelos.length === 0 && (
+                    {modelosFiltrados.length === 0 && (
                       <TableRow>
                         <TableCell
                           colSpan={canWrite ? 5 : 4}
@@ -392,8 +477,8 @@ function TonersPage() {
                         >
                           <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
                             <PackageCheck className="size-8 text-muted-foreground/60" />
-                            <p className="font-medium text-foreground">Todavía no hay tóners cargados</p>
-                            <p>Usá Carga Nuevo Toner para crear el ítem y empezar a controlar su stock.</p>
+                            <p className="font-medium text-foreground">No hay tóners para mostrar</p>
+                            <p>Usá Carga Nuevo Toner o ajustá los filtros activos.</p>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -461,9 +546,41 @@ function TonersPage() {
                   Registro de cambios por sector: toner nuevo colocado y toner agotado retirado.
                 </p>
               </div>
-              {canWrite && <ReposicionDialog modelos={modelos} onDone={refresh} />}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    exportCsv(
+                      "reposicion-toner.csv",
+                      ["Fecha", "Sector", "Modelo", "Toner Entra", "Toner Sale", "Responsable"],
+                      reposicionesFiltradas.map((m) => [
+                        new Date(m.created_at).toLocaleString("es-AR"),
+                        m.sector ?? "",
+                        m.toner_modelos?.nombre ?? "",
+                        m.toner_entra ?? "",
+                        m.toner_sale ?? "",
+                        m.responsable ?? "",
+                      ]),
+                    )
+                  }
+                >
+                  <Download className="size-4" /> Exportar
+                </Button>
+                {canWrite && <ReposicionDialog modelos={modelos} onDone={refresh} />}
+              </div>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
+            <CardContent className="space-y-3">
+              <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={reposicionQuery}
+                  onChange={(e) => setReposicionQuery(e.target.value)}
+                  placeholder="Buscar sector, modelo, código o responsable"
+                  className="pl-9"
+                />
+              </div>
+              <div className="overflow-x-auto">
               <Table className="min-w-[820px]">
                 <TableHeader>
                   <TableRow>
@@ -476,7 +593,7 @@ function TonersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {reposiciones.map((m) => (
+                  {reposicionesFiltradas.map((m) => (
                     <TableRow key={m.id}>
                       <TableCell className="text-xs">{new Date(m.created_at).toLocaleString("es-AR")}</TableCell>
                       <TableCell>{m.sector || "—"}</TableCell>
@@ -486,7 +603,7 @@ function TonersPage() {
                       <TableCell>{m.responsable || "—"}</TableCell>
                     </TableRow>
                   ))}
-                  {reposiciones.length === 0 && (
+                  {reposicionesFiltradas.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                         Todavía no hay reposiciones registradas.
@@ -495,6 +612,7 @@ function TonersPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -508,13 +626,44 @@ function TonersPage() {
                   Generá códigos correlativos por modelo para imprimir o pegar en la etiqueta física del toner.
                 </p>
               </div>
-              {canWrite && (
-                <Button onClick={() => setGenOpen(true)}>
-                  <Wand2 className="size-4" /> Generar códigos
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    exportCsv(
+                      "generacion-codigos-toner.csv",
+                      ["Codigo generado", "Modelo", "Cantidad", "Generado por", "Fecha generado"],
+                      lotesFiltrados.map((lote) => [
+                        lote.codigoGenerado,
+                        lote.modelo,
+                        lote.cantidad,
+                        lote.generadoPor,
+                        lote.fechaGenerado,
+                      ]),
+                    )
+                  }
+                >
+                  <Download className="size-4" /> Exportar
                 </Button>
-              )}
+                {canWrite && (
+                  <Button onClick={() => setGenOpen(true)}>
+                    <Wand2 className="size-4" /> Generar códigos
+                  </Button>
+                )}
+              </div>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
+            <CardContent className="space-y-3">
+              <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={codigoQuery}
+                  onChange={(e) => setCodigoQuery(e.target.value)}
+                  placeholder="Buscar lote, modelo o usuario"
+                  className="pl-9"
+                />
+              </div>
+              <div className="overflow-x-auto">
               <Table className="min-w-[920px]">
                 <TableHeader>
                   <TableRow>
@@ -534,7 +683,7 @@ function TonersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {lotesCodigos.map((lote) => (
+                  {lotesFiltrados.map((lote) => (
                     <TableRow key={lote.id}>
                       <TableCell className="font-mono text-sm font-semibold">{lote.codigoGenerado}</TableCell>
                       <TableCell>{lote.modelo}</TableCell>
@@ -547,7 +696,7 @@ function TonersPage() {
                       <TableCell className="text-xs">{lote.fechaGenerado}</TableCell>
                     </TableRow>
                   ))}
-                  {lotesCodigos.length === 0 && (
+                  {lotesFiltrados.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                         Todavía no generaste códigos.
@@ -556,6 +705,7 @@ function TonersPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -571,6 +721,7 @@ function GenerarCodigosDialog({
   modeloSel,
   setModeloSel,
   generados,
+  setGenerados,
   generar,
 }: {
   open: boolean;
@@ -579,81 +730,121 @@ function GenerarCodigosDialog({
   modeloSel: string;
   setModeloSel: (value: string) => void;
   generados: string[];
+  setGenerados: (value: string[]) => void;
   generar: ReturnType<typeof useMutation<string[], Error, { modelo_id: string; cantidad: number }>>;
 }) {
+  const modeloSeleccionado = modelos.find((m) => m.id === modeloSel);
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setModeloSel("");
+      setGenerados([]);
+      generar.reset();
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="default" className="gap-2">
           <Wand2 className="size-4" /> Generar códigos
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Generación de Códigos</DialogTitle>
-          <DialogDescription>
-            Seleccioná el modelo y la cantidad. El sistema mantiene la correlatividad automáticamente.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
-            const cantidad = Number(fd.get("cantidad") || 1);
-            if (!modeloSel) return toast.error("Elegí un modelo");
-            if (!Number.isFinite(cantidad) || cantidad < 1) return toast.error("La cantidad no es válida");
-            generar.mutate({ modelo_id: modeloSel, cantidad });
-          }}
-        >
-          <div className="space-y-1.5">
-            <Label>Modelo</Label>
-            <Select value={modeloSel} onValueChange={setModeloSel}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar modelo" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelos.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.nombre} ({m.prefijo}) · próximo {m.correlativo + 1}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Cantidad</Label>
-            <Input type="number" name="cantidad" min={1} max={200} defaultValue={1} />
-          </div>
-          <DialogFooter>
-            <Button type="submit" disabled={generar.isPending}>
-              {generar.isPending ? "Generando..." : "Generar"}
-            </Button>
-          </DialogFooter>
-        </form>
-        {generados.length > 0 && (
-          <div className="rounded-lg border border-border p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium">Códigos generados</p>
+        {generados.length > 0 ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Códigos generados</DialogTitle>
+              <DialogDescription>
+                Dejá esta ventana abierta mientras pasás los códigos a la etiquetadora.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-lg border border-border/80 bg-muted/20">
+              <div className="border-b border-border/70 px-3 py-2">
+                <p className="text-sm font-semibold text-foreground">
+                  {modeloSeleccionado?.nombre ?? "Modelo seleccionado"}
+                </p>
+                <p className="text-xs text-muted-foreground">{generados.length} código(s) listos para etiquetar</p>
+              </div>
+              <div className="max-h-72 overflow-y-auto p-3">
+                <div className="grid gap-1.5">
+                  {generados.map((codigo, index) => (
+                    <div
+                      key={codigo}
+                      className="flex items-center justify-between rounded-md border border-border/60 bg-background px-3 py-2"
+                    >
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span className="font-mono text-sm font-semibold uppercase tracking-normal text-foreground">
+                        {codigo}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
-                size="sm"
-                variant="ghost"
+                type="button"
+                variant="outline"
                 onClick={() => {
                   navigator.clipboard.writeText(generados.join("\n"));
-                  toast.success("Copiados al portapapeles");
+                  toast.success("Códigos copiados al portapapeles");
                 }}
               >
-                <Copy className="size-4" /> Copiar
+                <Copy className="size-4" /> Copiar listado
+              </Button>
+              <Button type="button" onClick={() => handleOpenChange(false)}>
+                Aceptar
               </Button>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {generados.map((c) => (
-                <Badge key={c} variant="secondary" className="font-mono">
-                  {c}
-                </Badge>
-              ))}
-            </div>
-          </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Generación de Códigos</DialogTitle>
+              <DialogDescription>
+                Seleccioná el modelo y la cantidad. El sistema mantiene la correlatividad automáticamente.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              className="grid gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                const cantidad = Number(fd.get("cantidad") || 1);
+                if (!modeloSel) return toast.error("Elegí un modelo");
+                if (!Number.isFinite(cantidad) || cantidad < 1) return toast.error("La cantidad no es válida");
+                generar.mutate({ modelo_id: modeloSel, cantidad });
+              }}
+            >
+              <div className="space-y-1.5">
+                <Label>Modelo</Label>
+                <Select value={modeloSel} onValueChange={setModeloSel}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar modelo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelos.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.nombre} ({m.prefijo}) · próximo {m.correlativo + 1}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cantidad</Label>
+                <Input type="number" name="cantidad" min={1} max={200} defaultValue={1} />
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={generar.isPending}>
+                  {generar.isPending ? "Generando..." : "Generar"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </>
         )}
       </DialogContent>
     </Dialog>
@@ -681,7 +872,8 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
         <DialogHeader>
           <DialogTitle>{isEditing ? "Editar tóner" : "Carga Nuevo Toner"}</DialogTitle>
           <DialogDescription>
-            Cargá los datos necesarios para que el tóner aparezca en Stock. La cantidad se modifica solo desde Cargar o Consumo.
+            Cargá los datos necesarios para que el tóner aparezca en Stock. La cantidad se modifica solo desde Cargar
+            o Consumo.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -725,7 +917,12 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
             <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[1.5fr_0.9fr_0.75fr_0.75fr]">
               <div className="space-y-1.5">
                 <Label className="md:hidden">Modelo</Label>
-                <Input name="nombre" required defaultValue={modelo?.nombre ?? ""} placeholder="TONER ALTERNATIVO HP CE285A/CB435A/CB436A" />
+                <Input
+                  name="nombre"
+                  required
+                  defaultValue={modelo?.nombre ?? ""}
+                  placeholder="TONER ALTERNATIVO HP CE285A/CB435A/CB436A"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="md:hidden">Marca</Label>
@@ -762,7 +959,7 @@ function EliminarModeloDialog({ modelo, onDone }: { modelo: Modelo; onDone: () =
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <Button size="icon" variant="ghost" className="size-8 text-destructive" title="Eliminar modelo" onClick={() => setOpen(true)}>
+      <Button size="icon" variant="ghost" className="size-8 text-destructive" title="Eliminar tóner" onClick={() => setOpen(true)}>
         <Trash2 className="size-4" />
       </Button>
       <AlertDialogContent>
@@ -988,6 +1185,21 @@ function movimientoLabel(tipo: string) {
   if (tipo === "entrada") return "Entrada";
   if (tipo === "salida") return "Salida";
   return tipo;
+}
+
+function exportCsv(fileName: string, headers: string[], rows: Array<Array<string | number>>) {
+  const escape = (value: string | number) => {
+    const text = String(value ?? "");
+    return /[",\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(";")).join("\n");
+  const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function agruparCodigosGenerados(unidades: Unidad[]): LoteCodigos[] {

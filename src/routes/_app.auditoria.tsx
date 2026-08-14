@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  Download,
   History,
   Loader2,
   RefreshCw,
@@ -70,6 +71,7 @@ const MODULOS = [
   { key: "toners", label: "Tóners" },
   { key: "tareas", label: "Tareas" },
   { key: "credenciales", label: "Credenciales" },
+  { key: "oficina", label: "Oficina" },
   { key: "usuarios", label: "Usuarios" },
   { key: "roles", label: "Roles y permisos" },
   { key: "configuracion", label: "Configuración" },
@@ -191,14 +193,38 @@ function AuditoriaPage() {
         title="Auditoría"
         description="Registro operativo de cambios: usuarios, módulos, elementos modificados y fecha."
         action={
-          <Button variant="outline" onClick={() => void cargar()} disabled={cargando}>
-            {cargando ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 size-4" />
-            )}
-            Actualizar
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() =>
+                exportCsv(
+                  "auditoria-sysintranet.csv",
+                  ["Fecha", "Usuario", "Correo", "Modulo", "Accion", "Elemento", "Detalle"],
+                  rows.map((r) => [
+                    new Date(r.created_at).toLocaleString("es-AR"),
+                    r.actor_nombre,
+                    r.actor_email,
+                    labelModulo(r.modulo),
+                    labelAccion(r.accion),
+                    r.entidad_desc,
+                    detalleLegible(r.detalle),
+                  ]),
+                )
+              }
+              disabled={rows.length === 0}
+            >
+              <Download className="mr-2 size-4" />
+              Exportar
+            </Button>
+            <Button variant="outline" onClick={() => void cargar()} disabled={cargando}>
+              {cargando ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 size-4" />
+              )}
+              Actualizar
+            </Button>
+          </div>
         }
       />
 
@@ -417,4 +443,19 @@ function AuditoriaPage() {
       </Card>
     </div>
   );
+}
+
+function exportCsv(fileName: string, headers: string[], rows: Array<Array<string | number>>) {
+  const escape = (value: string | number) => {
+    const text = String(value ?? "");
+    return /[",\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(";")).join("\n");
+  const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
 }

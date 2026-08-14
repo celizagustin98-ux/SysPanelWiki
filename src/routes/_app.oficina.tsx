@@ -8,9 +8,15 @@ export const Route = createFileRoute("/_app/oficina")({
   head: () => ({
     meta: [
       { title: "Oficina | SysIntranet | Area Wiki" },
-      { name: "description", content: "Modulo Oficina en desarrollo." },
+      {
+        name: "description",
+        content: "Modulo Oficina en desarrollo.",
+      },
       { property: "og:title", content: "Oficina | SysIntranet | Area Wiki" },
-      { property: "og:description", content: "Modulo Oficina en desarrollo." },
+      {
+        property: "og:description",
+        content: "Modulo Oficina en desarrollo.",
+      },
     ],
   }),
   component: OficinaPage,

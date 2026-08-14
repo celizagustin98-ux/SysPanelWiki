@@ -1,8 +1,8 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
-  BriefcaseBusiness,
   Boxes,
+  BriefcaseBusiness,
   Building2,
   CalendarClock,
   History,
@@ -30,7 +30,6 @@ const NAV = [
   { to: "/toners", label: "Tóners", icon: Printer, modulo: "toners", adminOnly: false },
   { to: "/tareas", label: "Tareas", icon: KanbanSquare, modulo: "tareas", adminOnly: false },
   { to: "/credenciales", label: "Credenciales", icon: ShieldCheck, modulo: "credenciales", adminOnly: false },
-  { to: "/oficina", label: "Oficina", icon: BriefcaseBusiness, modulo: "oficina", adminOnly: false },
   { to: "/auditoria", label: "Auditoría", icon: History, modulo: null, adminOnly: true },
   { to: "/configuracion", label: "Configuración", icon: Settings2, modulo: null, adminOnly: true },
 ] as const;
