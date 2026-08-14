@@ -10,6 +10,7 @@ export type Modulo =
   | "toners"
   | "tareas"
   | "credenciales"
+  | "oficina"
   | "usuarios";
 
 export type Accion = "view" | "create" | "edit" | "delete";

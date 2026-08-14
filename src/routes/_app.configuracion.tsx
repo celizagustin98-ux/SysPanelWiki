@@ -69,6 +69,7 @@ const MODULOS: { key: string; label: string }[] = [
   { key: "toners", label: "Tóners" },
   { key: "tareas", label: "Tareas" },
   { key: "credenciales", label: "Credenciales" },
+  { key: "oficina", label: "Oficina" },
   { key: "usuarios", label: "Usuarios" },
 ];
 
