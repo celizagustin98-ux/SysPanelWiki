@@ -118,8 +118,13 @@ create table if not exists toner_unidades (
   modelo_id uuid not null references toner_modelos(id) on delete cascade,
   codigo text not null unique,
   estado text not null default 'en_stock',
+  generado_por uuid references app_users(id) on delete set null,
+  generado_por_nombre text,
   created_at timestamptz not null default now()
 );
+
+alter table toner_unidades add column if not exists generado_por uuid references app_users(id) on delete set null;
+alter table toner_unidades add column if not exists generado_por_nombre text;
 
 create table if not exists toner_movimientos (
   id uuid primary key default gen_random_uuid(),
@@ -128,9 +133,16 @@ create table if not exists toner_movimientos (
   cantidad integer not null default 1,
   sector text,
   responsable text,
+  toner_codigo text,
+  toner_entra text,
+  toner_sale text,
   notas text,
   created_at timestamptz not null default now()
 );
+
+alter table toner_movimientos add column if not exists toner_codigo text;
+alter table toner_movimientos add column if not exists toner_entra text;
+alter table toner_movimientos add column if not exists toner_sale text;
 
 create table if not exists tareas (
   id uuid primary key default gen_random_uuid(),
@@ -235,8 +247,22 @@ create trigger app_settings_touch before update on app_settings for each row exe
 create or replace function apply_toner_movimiento() returns trigger language plpgsql as $$
 begin
   update toner_modelos
-     set stock = greatest(0, stock + case when new.tipo = 'entrada' then new.cantidad else -new.cantidad end)
+     set stock = greatest(
+       0,
+       stock + case
+         when new.tipo in ('entrada', 'cargar') then new.cantidad
+         when new.tipo in ('salida', 'consumo', 'reposicion') then -new.cantidad
+         else 0
+       end
+     )
    where id = new.modelo_id;
+
+  if new.tipo = 'reposicion' and coalesce(new.toner_entra, '') <> '' then
+    update toner_unidades
+       set estado = 'instalado'
+     where codigo = new.toner_entra;
+  end if;
+
   return new;
 end;
 $$;

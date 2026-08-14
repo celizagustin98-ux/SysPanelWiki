@@ -85,7 +85,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
   toner_modelos: { modulo: "toners", fields: ["nombre", "marca", "prefijo"] },
-  toner_movimientos: { modulo: "toners", fields: ["tipo", "cantidad", "responsable", "sector"] },
+  toner_movimientos: { modulo: "toners", fields: ["tipo", "cantidad", "responsable", "sector", "toner_entra"] },
   toner_unidades: { modulo: "toners", fields: ["codigo", "estado"] },
   user_roles: { modulo: "usuarios", fields: ["user_id", "role"] },
   wiki_attachments: { modulo: "instructivos", fields: ["file_name", "doc_id"] },
@@ -321,23 +321,40 @@ export const apiRpc = createServerFn({ method: "POST" })
       const cantidad = Math.max(1, Math.min(200, Number(data.args?._cantidad ?? 1)));
       const client = await query("select 1");
       void client;
-      const model = await one<{ prefijo: string; correlativo: number }>(
+      const model = await one<{ id: string; nombre: string; prefijo: string; correlativo: number }>(
         `update toner_modelos
             set correlativo = correlativo + $2
           where id = $1
-          returning prefijo, correlativo - $2 as correlativo`,
+          returning id, nombre, prefijo, correlativo - $2 as correlativo`,
         [data.args?._modelo_id, cantidad],
       );
       if (!model) throw new Error("Modelo inexistente");
+      const actor = await one<{ full_name: string; email: string }>(
+        `select full_name, email from profiles where id = $1`,
+        [session.user.id],
+      );
       const codes: string[] = [];
       for (let i = 1; i <= cantidad; i += 1) {
         const code = `${model.prefijo}-${String(model.correlativo + i).padStart(4, "0")}`;
         codes.push(code);
-        await query(`insert into toner_unidades (modelo_id, codigo) values ($1, $2)`, [
-          data.args?._modelo_id,
-          code,
-        ]);
+        await query(
+          `insert into toner_unidades (modelo_id, codigo, generado_por, generado_por_nombre)
+           values ($1, $2, $3, $4)`,
+          [data.args?._modelo_id, code, session.user.id, actor?.full_name ?? actor?.email ?? ""],
+        );
       }
+      await writeAudit(
+        session.user.id,
+        "toner_unidades",
+        "crear",
+        codes.map((codigo) => ({
+          id: codigo,
+          codigo,
+          estado: "en_stock",
+          modelo: model.nombre,
+        })),
+        { modelo_id: model.id, modelo: model.nombre, cantidad, accion_especial: "generar_codigos" },
+      );
       return { data: codes, error: null };
     }
     throw new Error("Función no permitida");

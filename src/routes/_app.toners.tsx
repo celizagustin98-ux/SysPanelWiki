@@ -3,15 +3,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowDownLeft,
-  ArrowUpRight,
+  Boxes,
   Copy,
   Edit3,
+  ListChecks,
   ListFilter,
   PackageCheck,
+  PackageMinus,
+  PackagePlus,
   PackageX,
   Plus,
   Save,
+  ScanLine,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -52,9 +55,12 @@ export const Route = createFileRoute("/_app/toners")({
   head: () => ({
     meta: [
       { title: "Tóners | SysIntranet | Área Wiki" },
-      { name: "description", content: "Entradas, salidas, stock crítico y generación de códigos seriados de tóners." },
+      {
+        name: "description",
+        content: "Stock actual, reposición por sector y generación de códigos para etiquetas de tóners.",
+      },
       { property: "og:title", content: "Tóners | SysIntranet | Área Wiki" },
-      { property: "og:description", content: "Control de stock y codificación de tóners." },
+      { property: "og:description", content: "Control de stock, reposiciones y codificación de tóners." },
     ],
   }),
   component: TonersPage,
@@ -68,6 +74,30 @@ type Modelo = {
   correlativo: number;
   stock: number;
   stock_minimo: number;
+};
+
+type Movimiento = {
+  id: string;
+  modelo_id: string;
+  tipo: string;
+  cantidad: number;
+  sector: string | null;
+  responsable: string | null;
+  toner_codigo: string | null;
+  toner_entra: string | null;
+  toner_sale: string | null;
+  notas: string | null;
+  created_at: string;
+  toner_modelos: { nombre: string } | null;
+};
+
+type Unidad = {
+  id: string;
+  codigo: string;
+  estado: string;
+  generado_por_nombre: string | null;
+  created_at: string;
+  toner_modelos: { nombre: string } | null;
 };
 
 function TonersPage() {
@@ -93,18 +123,9 @@ function TonersPage() {
         .from("toner_movimientos")
         .select("*, toner_modelos(nombre)")
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(150);
       if (error) throw error;
-      return data as Array<{
-        id: string;
-        modelo_id: string;
-        tipo: string;
-        cantidad: number;
-        sector: string | null;
-        responsable: string | null;
-        created_at: string;
-        toner_modelos: { nombre: string } | null;
-      }>;
+      return data as Movimiento[];
     },
   });
 
@@ -115,15 +136,9 @@ function TonersPage() {
         .from("toner_unidades")
         .select("*, toner_modelos(nombre)")
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(300);
       if (error) throw error;
-      return data as Array<{
-        id: string;
-        codigo: string;
-        estado: string;
-        created_at: string;
-        toner_modelos: { nombre: string } | null;
-      }>;
+      return data as Unidad[];
     },
   });
 
@@ -144,15 +159,18 @@ function TonersPage() {
     },
     onSuccess: (codes) => {
       setGenerados(codes);
-      toast.success(`${codes.length} código(s) generados`);
+      toast.success(`${codes.length} código(s) generado(s)`);
       refresh();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const criticos = modelos.filter((m) => m.stock <= m.stock_minimo);
+  const reposiciones = movimientos.filter((m) => m.tipo === "reposicion");
+  const stockMovimientos = movimientos.filter((m) => m.tipo === "cargar" || m.tipo === "consumo");
+
   const ultimoControlPorModelo = useMemo(() => {
-    const map = new Map<string, (typeof movimientos)[number]>();
+    const map = new Map<string, Movimiento>();
     for (const movimiento of movimientos) {
       if (!map.has(movimiento.modelo_id)) map.set(movimiento.modelo_id, movimiento);
     }
@@ -163,86 +181,19 @@ function TonersPage() {
     <div>
       <PageHeader
         title="Tóners"
-        description="Stock, movimientos y codificación de tóners."
+        description="Stock actual, reposición por sector y generación de códigos para etiquetas físicas."
         action={
           canWrite ? (
-            <div className="flex gap-2">
-              <Dialog open={genOpen} onOpenChange={setGenOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="default" className="gap-2">
-                    <Wand2 className="size-4" /> Generar códigos
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Generador de códigos seriados</DialogTitle>
-                    <DialogDescription>
-                      Genera códigos correlativos con el prefijo del modelo (ej: hpuni-0001).
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form
-                    className="grid gap-3"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const fd = new FormData(e.currentTarget);
-                      if (!modeloSel) return toast.error("Elegí un modelo");
-                      generar.mutate({
-                        modelo_id: modeloSel,
-                        cantidad: Number(fd.get("cantidad") || 1),
-                      });
-                    }}
-                  >
-                    <div className="space-y-1.5">
-                      <Label>Modelo</Label>
-                      <Select value={modeloSel} onValueChange={setModeloSel}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar modelo" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {modelos.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {m.nombre} ({m.prefijo})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Cantidad</Label>
-                      <Input type="number" name="cantidad" min={1} max={200} defaultValue={1} />
-                    </div>
-                    <DialogFooter>
-                      <Button type="submit" disabled={generar.isPending}>
-                        Generar
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                  {generados.length > 0 && (
-                    <div className="rounded-lg border border-border p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium">Códigos generados</p>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            navigator.clipboard.writeText(generados.join("\n"));
-                            toast.success("Copiados al portapapeles");
-                          }}
-                        >
-                          <Copy className="size-4" /> Copiar
-                        </Button>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {generados.map((c) => (
-                          <Badge key={c} variant="secondary" className="font-mono">
-                            {c}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </DialogContent>
-              </Dialog>
+            <div className="flex flex-wrap gap-2">
+              <GenerarCodigosDialog
+                open={genOpen}
+                setOpen={setGenOpen}
+                modelos={modelos}
+                modeloSel={modeloSel}
+                setModeloSel={setModeloSel}
+                generados={generados}
+                generar={generar}
+              />
               <ModeloDialog onDone={refresh} />
             </div>
           ) : null
@@ -266,8 +217,8 @@ function TonersPage() {
       <Tabs defaultValue="stock">
         <TabsList>
           <TabsTrigger value="stock">Stock</TabsTrigger>
-          <TabsTrigger value="movimientos">Entradas / Salidas</TabsTrigger>
-          <TabsTrigger value="codigos">Códigos seriados</TabsTrigger>
+          <TabsTrigger value="reposicion">Reposición Toner</TabsTrigger>
+          <TabsTrigger value="codigos">Generación de Códigos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="stock" className="mt-4">
@@ -276,11 +227,11 @@ function TonersPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <PackageCheck className="size-4 text-primary" />
-                    Stock de tóners
+                    <Boxes className="size-4 text-primary" />
+                    Stock actual de tóners
                   </CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Control operativo por modelo, cantidad disponible y último movimiento registrado.
+                    Existencias actuales por modelo. Usá Cargar para sumar stock y Consumo para descontar unidades.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -317,7 +268,7 @@ function TonersPage() {
                         Último control
                       </TableHead>
                       {canWrite && (
-                        <TableHead className="h-11 w-[210px] px-5 text-right text-xs font-semibold uppercase text-muted-foreground">
+                        <TableHead className="h-11 w-[240px] px-5 text-right text-xs font-semibold uppercase text-muted-foreground">
                           Acciones
                         </TableHead>
                       )}
@@ -345,8 +296,7 @@ function TonersPage() {
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-foreground">{m.nombre}</p>
                                 <p className="truncate text-xs text-muted-foreground">
-                                  {m.marca || "Sin marca"} · prefijo{" "}
-                                  <span className="font-mono">{m.prefijo}</span>
+                                  {m.marca || "Sin marca"} · prefijo <span className="font-mono">{m.prefijo}</span>
                                 </p>
                               </div>
                             </div>
@@ -382,7 +332,7 @@ function TonersPage() {
                                   {new Date(ultimo.created_at).toLocaleDateString("es-AR")}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {ultimo.tipo === "entrada" ? "Entrada" : "Salida"} de {ultimo.cantidad} u.
+                                  {movimientoLabel(ultimo.tipo)} de {ultimo.cantidad} u.
                                   {ultimo.responsable ? ` · ${ultimo.responsable}` : ""}
                                 </p>
                               </div>
@@ -392,26 +342,26 @@ function TonersPage() {
                           </TableCell>
                           {canWrite && (
                             <TableCell className="px-5 py-4">
-                              <div className="flex justify-end gap-2">
+                              <div className="flex flex-wrap justify-end gap-2">
                                 <ModeloDialog modelo={m} onDone={refresh} />
                                 <EliminarModeloDialog modelo={m} onDone={refresh} />
-                                <MovimientoDialog
+                                <StockMovimientoDialog
                                   modelo={m}
-                                  tipo="entrada"
+                                  tipo="cargar"
                                   onDone={refresh}
                                   trigger={
                                     <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-md px-2.5">
-                                      <ArrowDownLeft className="size-4" /> Entrada
+                                      <PackagePlus className="size-4" /> Cargar
                                     </Button>
                                   }
                                 />
-                                <MovimientoDialog
+                                <StockMovimientoDialog
                                   modelo={m}
-                                  tipo="salida"
+                                  tipo="consumo"
                                   onDone={refresh}
                                   trigger={
                                     <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-md px-2.5">
-                                      <ArrowUpRight className="size-4" /> Salida
+                                      <PackageMinus className="size-4" /> Consumo
                                     </Button>
                                   }
                                 />
@@ -440,41 +390,95 @@ function TonersPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="movimientos" className="mt-4">
-          <Card className="panel">
-            <CardContent className="overflow-x-auto p-4">
+          <Card className="panel mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListChecks className="size-4 text-primary" />
+                Últimos movimientos de stock
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>
                     <TableHead>Modelo</TableHead>
-                    <TableHead>Tipo</TableHead>
+                    <TableHead>Movimiento</TableHead>
                     <TableHead>Cant.</TableHead>
+                    <TableHead>Responsable</TableHead>
+                    <TableHead>Notas</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stockMovimientos.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="text-xs">{new Date(m.created_at).toLocaleString("es-AR")}</TableCell>
+                      <TableCell>{m.toner_modelos?.nombre ?? "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant={m.tipo === "cargar" ? "secondary" : "outline"}>{movimientoLabel(m.tipo)}</Badge>
+                      </TableCell>
+                      <TableCell>{m.cantidad}</TableCell>
+                      <TableCell>{m.responsable || "—"}</TableCell>
+                      <TableCell className="max-w-[260px] truncate">{m.notas || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                  {stockMovimientos.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                        Sin cargas ni consumos registrados.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="reposicion" className="mt-4">
+          <Card className="panel">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ScanLine className="size-4 text-primary" />
+                  Reposición Toner
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Registro de cambios por sector: toner nuevo colocado y toner agotado retirado.
+                </p>
+              </div>
+              {canWrite && <ReposicionDialog modelos={modelos} onDone={refresh} />}
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table className="min-w-[920px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Toner codigo</TableHead>
                     <TableHead>Sector</TableHead>
+                    <TableHead>Modelo</TableHead>
+                    <TableHead>Toner Entra</TableHead>
+                    <TableHead>Toner Sale</TableHead>
                     <TableHead>Responsable</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {movimientos.map((m) => (
+                  {reposiciones.map((m) => (
                     <TableRow key={m.id}>
-                      <TableCell className="text-xs">
-                        {new Date(m.created_at).toLocaleString("es-AR")}
-                      </TableCell>
-                      <TableCell>{m.toner_modelos?.nombre ?? "—"}</TableCell>
-                      <TableCell>
-                        <Badge variant={m.tipo === "entrada" ? "secondary" : "outline"}>{m.tipo}</Badge>
-                      </TableCell>
-                      <TableCell>{m.cantidad}</TableCell>
+                      <TableCell className="text-xs">{new Date(m.created_at).toLocaleString("es-AR")}</TableCell>
+                      <TableCell className="font-mono text-xs">{m.toner_codigo || m.toner_entra || "—"}</TableCell>
                       <TableCell>{m.sector || "—"}</TableCell>
+                      <TableCell>{m.toner_modelos?.nombre ?? "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{m.toner_entra || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{m.toner_sale || "—"}</TableCell>
                       <TableCell>{m.responsable || "—"}</TableCell>
                     </TableRow>
                   ))}
-                  {movimientos.length === 0 && (
+                  {reposiciones.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                        Sin movimientos registrados.
+                      <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                        Todavía no hay reposiciones registradas.
                       </TableCell>
                     </TableRow>
                   )}
@@ -486,8 +490,13 @@ function TonersPage() {
 
         <TabsContent value="codigos" className="mt-4">
           <Card className="panel">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Unidades codificadas</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle className="text-base">Generación de Códigos</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Generá códigos correlativos por modelo para imprimir o pegar en la etiqueta física del toner.
+                </p>
+              </div>
               {canWrite && (
                 <Button onClick={() => setGenOpen(true)}>
                   <Wand2 className="size-4" /> Generar códigos
@@ -501,6 +510,7 @@ function TonersPage() {
                     <TableHead>Código</TableHead>
                     <TableHead>Modelo</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Generado por</TableHead>
                     <TableHead>Alta</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -510,16 +520,15 @@ function TonersPage() {
                       <TableCell className="font-mono">{u.codigo}</TableCell>
                       <TableCell>{u.toner_modelos?.nombre ?? "—"}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{u.estado}</Badge>
+                        <Badge variant="secondary">{estadoLabel(u.estado)}</Badge>
                       </TableCell>
-                      <TableCell className="text-xs">
-                        {new Date(u.created_at).toLocaleDateString("es-AR")}
-                      </TableCell>
+                      <TableCell>{u.generado_por_nombre || "—"}</TableCell>
+                      <TableCell className="text-xs">{new Date(u.created_at).toLocaleDateString("es-AR")}</TableCell>
                     </TableRow>
                   ))}
                   {unidades.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                         Todavía no generaste códigos.
                       </TableCell>
                     </TableRow>
@@ -531,6 +540,102 @@ function TonersPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function GenerarCodigosDialog({
+  open,
+  setOpen,
+  modelos,
+  modeloSel,
+  setModeloSel,
+  generados,
+  generar,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  modelos: Modelo[];
+  modeloSel: string;
+  setModeloSel: (value: string) => void;
+  generados: string[];
+  generar: ReturnType<typeof useMutation<string[], Error, { modelo_id: string; cantidad: number }>>;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="default" className="gap-2">
+          <Wand2 className="size-4" /> Generar códigos
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Generación de Códigos</DialogTitle>
+          <DialogDescription>
+            Seleccioná el modelo y la cantidad. El sistema mantiene la correlatividad automáticamente.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            const cantidad = Number(fd.get("cantidad") || 1);
+            if (!modeloSel) return toast.error("Elegí un modelo");
+            if (!Number.isFinite(cantidad) || cantidad < 1) return toast.error("La cantidad no es válida");
+            generar.mutate({ modelo_id: modeloSel, cantidad });
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label>Modelo</Label>
+            <Select value={modeloSel} onValueChange={setModeloSel}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                {modelos.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.nombre} ({m.prefijo}) · próximo {m.correlativo + 1}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cantidad</Label>
+            <Input type="number" name="cantidad" min={1} max={200} defaultValue={1} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={generar.isPending}>
+              {generar.isPending ? "Generando..." : "Generar"}
+            </Button>
+          </DialogFooter>
+        </form>
+        {generados.length > 0 && (
+          <div className="rounded-lg border border-border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-medium">Códigos generados</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  navigator.clipboard.writeText(generados.join("\n"));
+                  toast.success("Copiados al portapapeles");
+                }}
+              >
+                <Copy className="size-4" /> Copiar
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {generados.map((c) => (
+                <Badge key={c} variant="secondary" className="font-mono">
+                  {c}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -554,9 +659,7 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditing ? "Editar modelo de tóner" : "Nuevo modelo de tóner"}</DialogTitle>
-          <DialogDescription>
-            Cargá los datos tal como se van a ver en la hoja de stock.
-          </DialogDescription>
+          <DialogDescription>Cargá los datos tal como se van a ver en la hoja de stock.</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
@@ -566,9 +669,7 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
             const fd = new FormData(e.currentTarget);
             const nombre = String(fd.get("nombre") || "").trim();
             const marca = String(fd.get("marca") || "").trim();
-            const prefijo = String(fd.get("prefijo") || "")
-              .trim()
-              .toLowerCase();
+            const prefijo = String(fd.get("prefijo") || "").trim().toLowerCase();
             const stock = Number(fd.get("stock") || 0);
             const stockMinimo = Number(fd.get("stock_minimo") || 0);
 
@@ -580,13 +681,7 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
             if (!Number.isFinite(stockMinimo) || stockMinimo < 0) return toast.error("La cantidad mínima no es válida");
 
             setSaving(true);
-            const payload = {
-              nombre,
-              marca,
-              prefijo,
-              stock,
-              stock_minimo: stockMinimo,
-            };
+            const payload = { nombre, marca, prefijo, stock, stock_minimo: stockMinimo };
             const { error } = isEditing
               ? await api.from("toner_modelos").update(payload).eq("id", modelo.id)
               : await api.from("toner_modelos").insert(payload);
@@ -656,7 +751,7 @@ function EliminarModeloDialog({ modelo, onDone }: { modelo: Modelo; onDone: () =
         <AlertDialogHeader>
           <AlertDialogTitle>Eliminar modelo de tóner</AlertDialogTitle>
           <AlertDialogDescription>
-            Se eliminará "{modelo.nombre}" junto con sus movimientos y códigos seriados. Esta acción no se puede deshacer.
+            Se eliminará "{modelo.nombre}" junto con sus movimientos y códigos generados. Esta acción no se puede deshacer.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -683,42 +778,56 @@ function EliminarModeloDialog({ modelo, onDone }: { modelo: Modelo; onDone: () =
   );
 }
 
-function MovimientoDialog({
+function StockMovimientoDialog({
   modelo,
   tipo,
   trigger,
   onDone,
 }: {
   modelo: Modelo;
-  tipo: "entrada" | "salida";
+  tipo: "cargar" | "consumo";
   trigger: React.ReactNode;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const isConsumo = tipo === "consumo";
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="capitalize">
-            {tipo} · {modelo.nombre}
+          <DialogTitle>
+            {isConsumo ? "Registrar consumo" : "Cargar stock"} · {modelo.nombre}
           </DialogTitle>
+          <DialogDescription>
+            {isConsumo
+              ? "Descuenta unidades del stock actual cuando se retira un toner del depósito."
+              : "Suma unidades al stock actual cuando ingresan tóners al depósito."}
+          </DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-3"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (saving) return;
             const fd = new FormData(e.currentTarget);
+            const cantidad = Number(fd.get("cantidad") || 1);
+            if (!Number.isFinite(cantidad) || cantidad < 1) return toast.error("La cantidad no es válida");
+            if (isConsumo && cantidad > modelo.stock) return toast.error("No hay stock suficiente para descontar");
+
+            setSaving(true);
             const { error } = await api.from("toner_movimientos").insert({
               modelo_id: modelo.id,
               tipo,
-              cantidad: Number(fd.get("cantidad") || 1),
-              sector: String(fd.get("sector") || ""),
+              cantidad,
               responsable: String(fd.get("responsable") || ""),
               notas: String(fd.get("notas") || ""),
             });
+            setSaving(false);
             if (error) return toast.error(error.message);
-            toast.success("Movimiento registrado");
+            toast.success(isConsumo ? "Consumo registrado" : "Stock cargado");
             setOpen(false);
             onDone();
           }}
@@ -729,23 +838,144 @@ function MovimientoDialog({
               <Input type="number" name="cantidad" min={1} defaultValue={1} />
             </div>
             <div className="space-y-1.5">
-              <Label>Sector</Label>
-              <Input name="sector" />
+              <Label>Responsable</Label>
+              <Input name="responsable" />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Responsable</Label>
-            <Input name="responsable" />
-          </div>
-          <div className="space-y-1.5">
             <Label>Notas</Label>
-            <Input name="notas" />
+            <Input name="notas" placeholder={isConsumo ? "Retiro de depósito" : "Compra / ingreso / ajuste"} />
           </div>
           <DialogFooter>
-            <Button type="submit">Registrar</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Registrando..." : "Registrar"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
+}
+
+function ReposicionDialog({ modelos, onDone }: { modelos: Modelo[]; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [modeloId, setModeloId] = useState("");
+
+  const modelo = modelos.find((m) => m.id === modeloId);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <Plus className="size-4" /> Registrar reposición
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Registrar reposición de toner</DialogTitle>
+          <DialogDescription>
+            Usalo cuando llevás un toner nuevo a un sector, retirás el toner sin tinta y querés dejar registro.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (saving) return;
+            const fd = new FormData(e.currentTarget);
+            if (!modeloId) return toast.error("Elegí un modelo");
+            if (modelo && modelo.stock < 1) return toast.error("No hay stock disponible para reponer este modelo");
+
+            const tonerEntra = String(fd.get("toner_entra") || "").trim();
+            const tonerSale = String(fd.get("toner_sale") || "").trim();
+            const sector = String(fd.get("sector") || "").trim();
+            const responsable = String(fd.get("responsable") || "").trim();
+
+            if (!sector) return toast.error("Ingresá el sector");
+            if (!responsable) return toast.error("Ingresá el responsable");
+
+            setSaving(true);
+            const { error } = await api.from("toner_movimientos").insert({
+              modelo_id: modeloId,
+              tipo: "reposicion",
+              cantidad: 1,
+              sector,
+              responsable,
+              toner_codigo: tonerEntra,
+              toner_entra: tonerEntra,
+              toner_sale: tonerSale,
+              notas: String(fd.get("notas") || ""),
+            });
+            setSaving(false);
+            if (error) return toast.error(error.message);
+            toast.success("Reposición registrada");
+            setOpen(false);
+            onDone();
+          }}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Modelo</Label>
+              <Select value={modeloId} onValueChange={setModeloId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar modelo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelos.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.nombre} · stock {m.stock}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Sector</Label>
+              <Input name="sector" placeholder="Mesa de ayuda, RRHH, Sistemas..." />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Toner Entra</Label>
+              <Input name="toner_entra" placeholder="Código del toner nuevo" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Toner Sale</Label>
+              <Input name="toner_sale" placeholder="Código / referencia del toner retirado" />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Responsable</Label>
+              <Input name="responsable" placeholder="Quién realizó o recibió la reposición" />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Notas</Label>
+              <Input name="notas" placeholder="Observaciones opcionales" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Guardando..." : "Guardar reposición"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function movimientoLabel(tipo: string) {
+  if (tipo === "cargar") return "Cargar";
+  if (tipo === "consumo") return "Consumo";
+  if (tipo === "reposicion") return "Reposición";
+  if (tipo === "entrada") return "Entrada";
+  if (tipo === "salida") return "Salida";
+  return tipo;
+}
+
+function estadoLabel(estado: string) {
+  if (estado === "en_stock") return "En stock";
+  if (estado === "instalado") return "Instalado";
+  return estado;
 }
