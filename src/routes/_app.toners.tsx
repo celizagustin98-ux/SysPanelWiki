@@ -451,11 +451,10 @@ function TonersPage() {
               {canWrite && <ReposicionDialog modelos={modelos} onDone={refresh} />}
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              <Table className="min-w-[920px]">
+              <Table className="min-w-[820px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>
-                    <TableHead>Toner codigo</TableHead>
                     <TableHead>Sector</TableHead>
                     <TableHead>Modelo</TableHead>
                     <TableHead>Toner Entra</TableHead>
@@ -467,7 +466,6 @@ function TonersPage() {
                   {reposiciones.map((m) => (
                     <TableRow key={m.id}>
                       <TableCell className="text-xs">{new Date(m.created_at).toLocaleString("es-AR")}</TableCell>
-                      <TableCell className="font-mono text-xs">{m.toner_codigo || m.toner_entra || "—"}</TableCell>
                       <TableCell>{m.sector || "—"}</TableCell>
                       <TableCell>{m.toner_modelos?.nombre ?? "—"}</TableCell>
                       <TableCell className="font-mono text-xs">{m.toner_entra || "—"}</TableCell>
@@ -477,7 +475,7 @@ function TonersPage() {
                   ))}
                   {reposiciones.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                         Todavía no hay reposiciones registradas.
                       </TableCell>
                     </TableRow>
@@ -862,8 +860,6 @@ function ReposicionDialog({ modelos, onDone }: { modelos: Modelo[]; onDone: () =
   const [saving, setSaving] = useState(false);
   const [modeloId, setModeloId] = useState("");
 
-  const modelo = modelos.find((m) => m.id === modeloId);
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -875,7 +871,8 @@ function ReposicionDialog({ modelos, onDone }: { modelos: Modelo[]; onDone: () =
         <DialogHeader>
           <DialogTitle>Registrar reposición de toner</DialogTitle>
           <DialogDescription>
-            Usalo cuando llevás un toner nuevo a un sector, retirás el toner sin tinta y querés dejar registro.
+            Usalo para dejar registro del cambio realizado en un sector. El stock se ajusta manualmente desde Cargar o
+            Consumo.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -885,7 +882,6 @@ function ReposicionDialog({ modelos, onDone }: { modelos: Modelo[]; onDone: () =
             if (saving) return;
             const fd = new FormData(e.currentTarget);
             if (!modeloId) return toast.error("Elegí un modelo");
-            if (modelo && modelo.stock < 1) return toast.error("No hay stock disponible para reponer este modelo");
 
             const tonerEntra = String(fd.get("toner_entra") || "").trim();
             const tonerSale = String(fd.get("toner_sale") || "").trim();
@@ -902,7 +898,7 @@ function ReposicionDialog({ modelos, onDone }: { modelos: Modelo[]; onDone: () =
               cantidad: 1,
               sector,
               responsable,
-              toner_codigo: tonerEntra,
+              toner_codigo: "",
               toner_entra: tonerEntra,
               toner_sale: tonerSale,
               notas: String(fd.get("notas") || ""),
@@ -924,7 +920,7 @@ function ReposicionDialog({ modelos, onDone }: { modelos: Modelo[]; onDone: () =
                 <SelectContent>
                   {modelos.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
-                      {m.nombre} · stock {m.stock}
+                      {m.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
