@@ -253,17 +253,11 @@ begin
        0,
        stock + case
          when new.tipo in ('entrada', 'cargar') then new.cantidad
-         when new.tipo in ('salida', 'consumo', 'reposicion') then -new.cantidad
+         when new.tipo in ('salida', 'consumo') then -new.cantidad
          else 0
        end
      )
    where id = new.modelo_id;
-
-  if new.tipo = 'reposicion' and coalesce(new.toner_entra, '') <> '' then
-    update toner_unidades
-       set estado = 'instalado'
-     where codigo = new.toner_entra;
-  end if;
 
   return new;
 end;
