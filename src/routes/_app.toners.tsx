@@ -392,8 +392,8 @@ function TonersPage() {
                         >
                           <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
                             <PackageCheck className="size-8 text-muted-foreground/60" />
-                            <p className="font-medium text-foreground">Todavía no hay modelos cargados</p>
-                            <p>Cargá un modelo de tóner para comenzar a controlar el stock.</p>
+                            <p className="font-medium text-foreground">Todavía no hay tóners cargados</p>
+                            <p>Usá Carga Nuevo Toner para crear el ítem y empezar a controlar su stock.</p>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -668,20 +668,20 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {isEditing ? (
-          <Button size="icon" variant="ghost" className="size-8" title="Editar modelo">
+          <Button size="icon" variant="ghost" className="size-8" title="Editar tóner">
             <Edit3 className="size-4" />
           </Button>
         ) : (
           <Button variant="secondary">
-            <Plus className="size-4" /> Modelo
+            <Plus className="size-4" /> Carga Nuevo Toner
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Editar modelo de tóner" : "Nuevo modelo de tóner"}</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar tóner" : "Carga Nuevo Toner"}</DialogTitle>
           <DialogDescription>
-            Definí los datos base del modelo. El stock se modifica solo desde Cargar o Consumo.
+            Cargá los datos necesarios para que el tóner aparezca en Stock. La cantidad se modifica solo desde Cargar o Consumo.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -695,7 +695,7 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
             const prefijo = String(fd.get("prefijo") || "").trim().toLowerCase();
             const stockMinimo = Number(fd.get("stock_minimo") || 0);
 
-            if (nombre.length < 2) return toast.error("Ingresá el nombre del modelo");
+            if (nombre.length < 2) return toast.error("Ingresá el modelo del toner");
             if (!/^[a-z0-9_-]{2,16}$/.test(prefijo)) {
               return toast.error("El prefijo debe tener 2 a 16 letras, números, guiones o guiones bajos");
             }
@@ -710,22 +710,22 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
               : await api.from("toner_modelos").insert(payload);
             setSaving(false);
             if (error) return toast.error(error.message);
-            toast.success(isEditing ? "Modelo actualizado" : "Modelo creado");
+            toast.success(isEditing ? "Toner actualizado" : "Toner cargado");
             setOpen(false);
             onDone();
           }}
         >
           <div className="rounded-lg border border-border/70 bg-muted/20">
             <div className="grid grid-cols-1 border-b border-border/70 bg-muted/50 text-xs font-semibold uppercase text-muted-foreground md:grid-cols-[1.5fr_0.9fr_0.75fr_0.75fr]">
-              <div className="px-3 py-2">Toner marcas</div>
+              <div className="px-3 py-2">Modelo</div>
               <div className="px-3 py-2">Marca</div>
               <div className="px-3 py-2">Prefijo</div>
               <div className="px-3 py-2">Cantidad mínima</div>
             </div>
             <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[1.5fr_0.9fr_0.75fr_0.75fr]">
               <div className="space-y-1.5">
-                <Label className="md:hidden">Toner marcas</Label>
-                <Input name="nombre" required defaultValue={modelo?.nombre ?? ""} placeholder="HP 26A Universal" />
+                <Label className="md:hidden">Modelo</Label>
+                <Input name="nombre" required defaultValue={modelo?.nombre ?? ""} placeholder="TONER ALTERNATIVO HP CE285A/CB435A/CB436A" />
               </div>
               <div className="space-y-1.5">
                 <Label className="md:hidden">Marca</Label>
@@ -767,7 +767,7 @@ function EliminarModeloDialog({ modelo, onDone }: { modelo: Modelo; onDone: () =
       </Button>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Eliminar modelo de tóner</AlertDialogTitle>
+          <AlertDialogTitle>Eliminar tóner</AlertDialogTitle>
           <AlertDialogDescription>
             Se eliminará "{modelo.nombre}" junto con sus movimientos y códigos generados. Esta acción no se puede deshacer.
           </AlertDialogDescription>
@@ -783,7 +783,7 @@ function EliminarModeloDialog({ modelo, onDone }: { modelo: Modelo; onDone: () =
               const { error } = await api.from("toner_modelos").delete().eq("id", modelo.id);
               setDeleting(false);
               if (error) return toast.error(error.message);
-              toast.success("Modelo eliminado");
+              toast.success("Toner eliminado");
               setOpen(false);
               onDone();
             }}
