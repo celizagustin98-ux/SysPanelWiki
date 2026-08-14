@@ -93,11 +93,22 @@ type Movimiento = {
 
 type Unidad = {
   id: string;
+  modelo_id: string;
   codigo: string;
   estado: string;
   generado_por_nombre: string | null;
   created_at: string;
   toner_modelos: { nombre: string } | null;
+};
+
+type LoteCodigos = {
+  id: string;
+  codigoGenerado: string;
+  modelo: string;
+  cantidad: number;
+  generadoPor: string;
+  fechaGenerado: string;
+  sortDate: number;
 };
 
 function TonersPage() {
@@ -168,6 +179,7 @@ function TonersPage() {
   const criticos = modelos.filter((m) => m.stock <= m.stock_minimo);
   const reposiciones = movimientos.filter((m) => m.tipo === "reposicion");
   const stockMovimientos = movimientos.filter((m) => m.tipo === "cargar" || m.tipo === "consumo");
+  const lotesCodigos = useMemo(() => agruparCodigosGenerados(unidades), [unidades]);
 
   const ultimoControlPorModelo = useMemo(() => {
     const map = new Map<string, Movimiento>();
@@ -502,29 +514,39 @@ function TonersPage() {
               )}
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[920px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Modelo</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Generado por</TableHead>
-                    <TableHead>Alta</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase text-muted-foreground">
+                      Código generado
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold uppercase text-muted-foreground">Modelo</TableHead>
+                    <TableHead className="w-[120px] text-xs font-semibold uppercase text-muted-foreground">
+                      Cantidad
+                    </TableHead>
+                    <TableHead className="w-[180px] text-xs font-semibold uppercase text-muted-foreground">
+                      Generado por
+                    </TableHead>
+                    <TableHead className="w-[170px] text-xs font-semibold uppercase text-muted-foreground">
+                      Fecha generado
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {unidades.map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell className="font-mono">{u.codigo}</TableCell>
-                      <TableCell>{u.toner_modelos?.nombre ?? "—"}</TableCell>
+                  {lotesCodigos.map((lote) => (
+                    <TableRow key={lote.id}>
+                      <TableCell className="font-mono text-sm font-semibold">{lote.codigoGenerado}</TableCell>
+                      <TableCell>{lote.modelo}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{estadoLabel(u.estado)}</Badge>
+                        <Badge variant="secondary" className="rounded-md">
+                          {lote.cantidad}
+                        </Badge>
                       </TableCell>
-                      <TableCell>{u.generado_por_nombre || "—"}</TableCell>
-                      <TableCell className="text-xs">{new Date(u.created_at).toLocaleDateString("es-AR")}</TableCell>
+                      <TableCell>{lote.generadoPor}</TableCell>
+                      <TableCell className="text-xs">{lote.fechaGenerado}</TableCell>
                     </TableRow>
                   ))}
-                  {unidades.length === 0 && (
+                  {lotesCodigos.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                         Todavía no generaste códigos.
@@ -657,7 +679,9 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditing ? "Editar modelo de tóner" : "Nuevo modelo de tóner"}</DialogTitle>
-          <DialogDescription>Cargá los datos tal como se van a ver en la hoja de stock.</DialogDescription>
+          <DialogDescription>
+            Definí los datos base del modelo. El stock se modifica solo desde Cargar o Consumo.
+          </DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
@@ -668,18 +692,18 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
             const nombre = String(fd.get("nombre") || "").trim();
             const marca = String(fd.get("marca") || "").trim();
             const prefijo = String(fd.get("prefijo") || "").trim().toLowerCase();
-            const stock = Number(fd.get("stock") || 0);
             const stockMinimo = Number(fd.get("stock_minimo") || 0);
 
             if (nombre.length < 2) return toast.error("Ingresá el nombre del modelo");
             if (!/^[a-z0-9_-]{2,16}$/.test(prefijo)) {
               return toast.error("El prefijo debe tener 2 a 16 letras, números, guiones o guiones bajos");
             }
-            if (!Number.isFinite(stock) || stock < 0) return toast.error("La cantidad actual no es válida");
             if (!Number.isFinite(stockMinimo) || stockMinimo < 0) return toast.error("La cantidad mínima no es válida");
 
             setSaving(true);
-            const payload = { nombre, marca, prefijo, stock, stock_minimo: stockMinimo };
+            const payload = isEditing
+              ? { nombre, marca, prefijo, stock_minimo: stockMinimo }
+              : { nombre, marca, prefijo, stock: 0, stock_minimo: stockMinimo };
             const { error } = isEditing
               ? await api.from("toner_modelos").update(payload).eq("id", modelo.id)
               : await api.from("toner_modelos").insert(payload);
@@ -691,14 +715,13 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
           }}
         >
           <div className="rounded-lg border border-border/70 bg-muted/20">
-            <div className="grid grid-cols-1 border-b border-border/70 bg-muted/50 text-xs font-semibold uppercase text-muted-foreground md:grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_0.7fr]">
+            <div className="grid grid-cols-1 border-b border-border/70 bg-muted/50 text-xs font-semibold uppercase text-muted-foreground md:grid-cols-[1.5fr_0.9fr_0.75fr_0.75fr]">
               <div className="px-3 py-2">Toner marcas</div>
               <div className="px-3 py-2">Marca</div>
               <div className="px-3 py-2">Prefijo</div>
-              <div className="px-3 py-2">Cantidad actual</div>
               <div className="px-3 py-2">Cantidad mínima</div>
             </div>
-            <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_0.7fr]">
+            <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[1.5fr_0.9fr_0.75fr_0.75fr]">
               <div className="space-y-1.5">
                 <Label className="md:hidden">Toner marcas</Label>
                 <Input name="nombre" required defaultValue={modelo?.nombre ?? ""} placeholder="HP 26A Universal" />
@@ -710,10 +733,6 @@ function ModeloDialog({ modelo, onDone }: { modelo?: Modelo; onDone: () => void 
               <div className="space-y-1.5">
                 <Label className="md:hidden">Prefijo</Label>
                 <Input name="prefijo" required defaultValue={modelo?.prefijo ?? ""} placeholder="hp26a" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="md:hidden">Cantidad actual</Label>
-                <Input type="number" name="stock" defaultValue={modelo?.stock ?? 0} min={0} />
               </div>
               <div className="space-y-1.5">
                 <Label className="md:hidden">Cantidad mínima</Label>
@@ -970,8 +989,65 @@ function movimientoLabel(tipo: string) {
   return tipo;
 }
 
-function estadoLabel(estado: string) {
-  if (estado === "en_stock") return "En stock";
-  if (estado === "instalado") return "Instalado";
-  return estado;
+function agruparCodigosGenerados(unidades: Unidad[]): LoteCodigos[] {
+  const grupos = new Map<string, Unidad[]>();
+
+  for (const unidad of unidades) {
+    const fecha = new Date(unidad.created_at);
+    const minuto = Number.isNaN(fecha.getTime()) ? unidad.created_at : fecha.toISOString().slice(0, 16);
+    const key = `${unidad.modelo_id}|${unidad.generado_por_nombre || ""}|${minuto}`;
+    grupos.set(key, [...(grupos.get(key) ?? []), unidad]);
+  }
+
+  return Array.from(grupos.entries())
+    .map(([id, items]) => {
+      const ordenados = [...items].sort((a, b) => compararCodigos(a.codigo, b.codigo));
+      const primero = ordenados[0];
+      return {
+        id,
+        codigoGenerado: formatearRangoCodigos(ordenados.map((item) => item.codigo)),
+        modelo: primero.toner_modelos?.nombre ?? "—",
+        cantidad: ordenados.length,
+        generadoPor: primero.generado_por_nombre || "—",
+        fechaGenerado: new Date(primero.created_at).toLocaleString("es-AR"),
+        sortDate: new Date(primero.created_at).getTime(),
+      };
+    })
+    .sort((a, b) => b.sortDate - a.sortDate);
+}
+
+function compararCodigos(a: string, b: string) {
+  const parsedA = parseCodigo(a);
+  const parsedB = parseCodigo(b);
+  if (parsedA && parsedB && parsedA.prefijo === parsedB.prefijo) return parsedA.numero - parsedB.numero;
+  return a.localeCompare(b, "es-AR", { numeric: true });
+}
+
+function formatearRangoCodigos(codigos: string[]) {
+  if (codigos.length === 0) return "—";
+
+  const parsed = codigos.map(parseCodigo);
+  const todosValidos = parsed.every(Boolean);
+  if (!todosValidos) return codigos.length === 1 ? codigos[0] : `${codigos[0]} al ${codigos[codigos.length - 1]}`;
+
+  const primero = parsed[0]!;
+  const ultimo = parsed[parsed.length - 1]!;
+  const desde = formatearNumeroCodigo(primero.numero);
+  const hasta = formatearNumeroCodigo(ultimo.numero);
+
+  if (codigos.length === 1 || desde === hasta) return `${primero.prefijo} ${desde}`;
+  return `${primero.prefijo} ${desde} al ${hasta}`;
+}
+
+function parseCodigo(codigo: string) {
+  const match = codigo.trim().match(/^(.+?)[\s_-]*(\d+)$/);
+  if (!match) return null;
+  return {
+    prefijo: match[1].replace(/[\s_-]+$/g, "").toLowerCase(),
+    numero: Number(match[2]),
+  };
+}
+
+function formatearNumeroCodigo(numero: number) {
+  return String(numero).padStart(3, "0");
 }
