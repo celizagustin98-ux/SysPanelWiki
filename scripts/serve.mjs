@@ -19,6 +19,7 @@ const pool = new Pool({
   ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
 });
 const DEFAULT_BRANCH = "main";
+const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 1024 * 1024);
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -58,6 +59,7 @@ function trySendStatic(req, res) {
 
   const ext = extname(filePath).toLowerCase();
   res.statusCode = 200;
+  setSecurityHeaders(req, res);
   res.setHeader("content-type", contentTypes[ext] || "application/octet-stream");
   res.setHeader("cache-control", ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable");
 
@@ -72,15 +74,42 @@ function trySendStatic(req, res) {
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
+  setSecurityHeaders(null, res);
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
 }
 
 async function readJson(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_JSON_BYTES) {
+      const error = new Error("La solicitud supera el tamaño máximo permitido");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    const error = new Error("JSON inválido");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function setSecurityHeaders(req, res) {
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "DENY");
+  res.setHeader("referrer-policy", "same-origin");
+  res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  res.setHeader("cross-origin-opener-policy", "same-origin");
+  if (req?.headers?.["x-forwarded-proto"] === "https") {
+    res.setHeader("strict-transport-security", "max-age=15552000; includeSubDomains");
+  }
 }
 
 function hashToken(token) {
@@ -170,7 +199,7 @@ async function requireAdmin(req) {
 }
 
 async function requireRequestSession(req, url) {
-  const token = bearerToken(req) || url.searchParams.get("token") || "";
+  const token = bearerToken(req) || "";
   const session = await getSession(token);
   if (!session) {
     const error = new Error("No autorizado");
@@ -308,6 +337,9 @@ async function handleUpdates(req, res) {
   if (req.method !== "POST" || !req.url?.startsWith("/api/updates/")) return false;
 
   try {
+    if (process.env.ENABLE_WEB_UPDATES !== "true") {
+      return sendJson(res, 404, { error: "Actualizaciones web deshabilitadas" }), true;
+    }
     await requireAdmin(req);
     const action = new URL(req.url, "http://localhost").pathname.replace("/api/updates/", "");
     const branch = process.env.GITHUB_BRANCH || process.env.REPO_BRANCH || DEFAULT_BRANCH;
@@ -481,6 +513,13 @@ async function handleAuth(req, res) {
         return sendJson(res, 400, { error: "La contrasena debe tener al menos 8 caracteres" }), true;
       }
 
+      const currentUsers = await one(`select count(*)::int as count from app_users`);
+      if (Number(currentUsers?.count || 0) > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") {
+        return sendJson(res, 403, {
+          error: "El registro público está deshabilitado. Un administrador debe crear el usuario.",
+        }), true;
+      }
+
       const client = await pool.connect();
       try {
         await client.query("begin");
@@ -506,10 +545,9 @@ async function handleAuth(req, res) {
           email,
           username,
         ]);
-        const count = await client.query(`select count(*)::int as count from app_users`);
         await client.query(`insert into user_roles (user_id, role) values ($1, $2)`, [
           userId,
-          Number(count.rows[0]?.count || 0) <= 1 ? "administrador" : "consulta",
+          Number(currentUsers?.count || 0) === 0 ? "administrador" : "consulta",
         ]);
         await client.query("commit");
         const token = await createSession(userId);
@@ -557,6 +595,7 @@ function createWebRequest(req) {
 async function sendWebResponse(res, response) {
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
+  setSecurityHeaders(null, res);
 
   response.headers.forEach((value, name) => {
     res.setHeader(name, value);

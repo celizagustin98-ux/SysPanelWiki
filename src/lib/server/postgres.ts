@@ -1,6 +1,6 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
-import { dirname, join, normalize } from "node:path";
+import { dirname, join, normalize, resolve } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
 
@@ -142,12 +142,21 @@ export function cleanIdentifier(value: string) {
 
 export function storagePath(bucket: string, path: string) {
   cleanIdentifier(bucket);
-  const base = process.env.FILE_STORAGE_DIR || join(process.cwd(), "storage");
-  const safe = normalize(path).replace(/^(\.\.(\/|\\|$))+/, "");
-  return join(base, bucket, safe);
+  const base = resolve(process.env.FILE_STORAGE_DIR || join(process.cwd(), "storage"));
+  const bucketDir = resolve(base, bucket);
+  const safe = normalize(String(path || "")).replace(/^[/\\]+/, "");
+  const file = resolve(bucketDir, safe);
+  if (!file.startsWith(`${bucketDir}/`) && file !== bucketDir) {
+    throw new Error("Ruta de archivo inválida");
+  }
+  return file;
 }
 
 export async function saveFile(bucket: string, path: string, base64: string) {
+  const maxBytes = Number(process.env.MAX_UPLOAD_BYTES || 10 * 1024 * 1024);
+  const approximateBytes = Math.floor((base64.length * 3) / 4);
+  if (!Number.isFinite(maxBytes) || maxBytes < 1) throw new Error("MAX_UPLOAD_BYTES inválido");
+  if (approximateBytes > maxBytes) throw new Error("El archivo supera el tamaño máximo permitido");
   const file = storagePath(bucket, path);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, Buffer.from(base64, "base64"));

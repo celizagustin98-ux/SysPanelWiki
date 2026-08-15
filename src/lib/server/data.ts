@@ -186,6 +186,31 @@ async function assertWriteAccess(userId: string, table: string) {
   await assertAdmin(userId);
 }
 
+function filterValue(filters: Filter[] | undefined, column: string) {
+  return filters?.find((filter) => filter.op === "eq" && filter.column === column)?.value;
+}
+
+async function assertReadAccess(userId: string, table: string, filters: Filter[] | undefined) {
+  if (["audit_log", "app_settings"].includes(table)) {
+    await assertAdmin(userId);
+    return;
+  }
+  if (table === "credenciales") {
+    await assertCanWrite(userId);
+    return;
+  }
+  if (table === "profiles") {
+    const requestedId = filterValue(filters, "id");
+    if (requestedId && requestedId !== userId) await assertAdmin(userId);
+    return;
+  }
+  if (table === "user_roles") {
+    const requestedUserId = filterValue(filters, "user_id");
+    if (requestedUserId !== userId) await assertAdmin(userId);
+    return;
+  }
+}
+
 function withJoinedModels(table: string, rows: any[]) {
   return async () => {
     if (!["toner_movimientos", "toner_unidades"].includes(table) || rows.length === 0) return rows;
@@ -201,10 +226,11 @@ function withJoinedModels(table: string, rows: any[]) {
 }
 
 export const apiSelect = createServerFn({ method: "POST" })
-  .inputValidator((data: SelectInput) => data)
+  .validator((data: SelectInput) => data)
   .handler(async ({ data }) => {
-    await requireSession(data.token);
+    const session = await requireSession(data.token);
     const table = tableName(data.table);
+    await assertReadAccess(session.user.id, table, data.filters);
     const values: unknown[] = [];
     const where = appendFilters(data.filters, values);
 
@@ -225,7 +251,7 @@ export const apiSelect = createServerFn({ method: "POST" })
   });
 
 export const apiMutate = createServerFn({ method: "POST" })
-  .inputValidator((data: MutateInput) => data)
+  .validator((data: MutateInput) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     const table = tableName(data.table);
@@ -276,7 +302,7 @@ export const apiMutate = createServerFn({ method: "POST" })
   });
 
 export const apiRpc = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null; name: string; args?: Record<string, any> }) => data)
+  .validator((data: { token?: string | null; name: string; args?: Record<string, any> }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     if (data.name === "has_role") {
@@ -369,11 +395,11 @@ export const apiRpc = createServerFn({ method: "POST" })
   });
 
 export const authGetSession = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null }) => data)
+  .validator((data: { token?: string | null }) => data)
   .handler(async ({ data }) => ({ session: await getSession(data.token) }));
 
 export const authSignIn = createServerFn({ method: "POST" })
-  .inputValidator((data: { username: string; password: string }) => data)
+  .validator((data: { username: string; password: string }) => data)
   .handler(async ({ data }) => {
     const username = (data.username ?? "").trim().toLowerCase();
     const user = await one<{ id: string; password_hash: string }>(
@@ -391,7 +417,7 @@ export const authSignIn = createServerFn({ method: "POST" })
   });
 
 export const authSignUp = createServerFn({ method: "POST" })
-  .inputValidator((data: { fullName: string; username: string; email: string; password: string }) => data)
+  .validator((data: { fullName: string; username: string; email: string; password: string }) => data)
   .handler(async ({ data }) => {
     const fullName = (data.fullName ?? "").trim();
     const username = (data.username ?? "").trim().toLowerCase();
@@ -400,6 +426,11 @@ export const authSignUp = createServerFn({ method: "POST" })
     if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error("Usuario inválido");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
     if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
+    const userCount = await one<{ count: string }>(`select count(*)::text as count from app_users`);
+    const allowPublicSignup = process.env.ALLOW_PUBLIC_SIGNUP === "true";
+    if (Number(userCount?.count ?? 0) > 0 && !allowPublicSignup) {
+      throw new Error("El registro público está deshabilitado. Un administrador debe crear el usuario.");
+    }
     const exists = await one(`select id from app_users where email = $1 union select id from profiles where username = $2`, [
       email,
       username,
@@ -417,30 +448,29 @@ export const authSignUp = createServerFn({ method: "POST" })
       email,
       username,
     ]);
-    const first = await one<{ count: string }>(`select count(*)::text as count from app_users`);
     await query(`insert into user_roles (user_id, role) values ($1, $2)`, [
       userId,
-      Number(first?.count ?? 0) <= 1 ? "administrador" : "consulta",
+      Number(userCount?.count ?? 0) === 0 ? "administrador" : "consulta",
     ]);
     const token = await createSession(userId);
     return { session: await getSession(token) };
   });
 
 export const authSignOut = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null }) => data)
+  .validator((data: { token?: string | null }) => data)
   .handler(async ({ data }) => {
     await deleteSession(data.token);
     return { ok: true };
   });
 
 export const authResetPassword = createServerFn({ method: "POST" })
-  .inputValidator((data: { email: string }) => data)
+  .validator((data: { email: string }) => data)
   .handler(async () => {
     throw new Error("El restablecimiento por correo requiere configurar un proveedor SMTP.");
   });
 
 export const authUpdatePassword = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null; password: string }) => data)
+  .validator((data: { token?: string | null; password: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
@@ -452,7 +482,7 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
   });
 
 export const storageUpload = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null; bucket: string; path: string; base64: string }) => data)
+  .validator((data: { token?: string | null; bucket: string; path: string; base64: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     await assertCanWrite(session.user.id);
@@ -461,14 +491,14 @@ export const storageUpload = createServerFn({ method: "POST" })
   });
 
 export const storageSignedUrl = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null; bucket: string; path: string }) => data)
+  .validator((data: { token?: string | null; bucket: string; path: string }) => data)
   .handler(async ({ data }) => {
     await requireSession(data.token);
     return { data: { signedUrl: await readFileAsDataUrl(data.bucket, data.path) }, error: null };
   });
 
 export const storageRemove = createServerFn({ method: "POST" })
-  .inputValidator((data: { token?: string | null; bucket: string; path: string }) => data)
+  .validator((data: { token?: string | null; bucket: string; path: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     await assertCanWrite(session.user.id);

@@ -101,7 +101,7 @@ export const checkForUpdates = createServerFn({ method: "POST" })
 
 export const applyUpdate = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
-  .inputValidator((data: { version: string }) => {
+  .validator((data: { version: string }) => {
     if (!data?.version || data.version.length > 120) throw new Error("Versión inválida");
     return data;
   })

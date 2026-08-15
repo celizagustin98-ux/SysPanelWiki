@@ -255,8 +255,17 @@ export const api = {
   },
   instructivos: {
     pdfUrl(attachmentId: string) {
-      const params = new URLSearchParams({ token: token() ?? "" });
-      return `/api/instructivos/pdf/${encodeURIComponent(attachmentId)}?${params.toString()}`;
+      return `/api/instructivos/pdf/${encodeURIComponent(attachmentId)}`;
+    },
+    async pdfBlobUrl(attachmentId: string) {
+      const response = await fetch(api.instructivos.pdfUrl(attachmentId), {
+        headers: { authorization: `Bearer ${token() ?? ""}` },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "No se pudo abrir el PDF");
+      }
+      return URL.createObjectURL(await response.blob());
     },
   },
   storage: {

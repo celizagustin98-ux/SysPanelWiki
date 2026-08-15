@@ -16,7 +16,7 @@ function normalizarUsuario(v: string) {
 
 /** Registro público: nombre y apellido, usuario, correo y contraseña. */
 export const registrarCuenta = createServerFn({ method: "POST" })
-  .inputValidator((data: { fullName: string; username: string; email: string; password: string }) => {
+  .validator((data: { fullName: string; username: string; email: string; password: string }) => {
     const fullName = (data?.fullName ?? "").trim();
     const username = normalizarUsuario(data?.username ?? "");
     const email = (data?.email ?? "").trim().toLowerCase();
@@ -31,6 +31,10 @@ export const registrarCuenta = createServerFn({ method: "POST" })
     return { fullName, username, email, password };
   })
   .handler(async ({ data }) => {
+    const userCount = await one<{ count: string }>(`select count(*)::text as count from app_users`);
+    if (Number(userCount?.count ?? 0) > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") {
+      throw new Error("El registro público está deshabilitado. Un administrador debe crear el usuario.");
+    }
     const existe = await one<{ id: string }>(
       `select id from app_users where email = $1
        union
@@ -52,10 +56,9 @@ export const registrarCuenta = createServerFn({ method: "POST" })
       data.username,
     ]);
 
-    const first = await one<{ count: string }>(`select count(*)::text as count from app_users`);
     await query(`insert into user_roles (user_id, role) values ($1, $2)`, [
       userId,
-      Number(first?.count ?? 0) <= 1 ? "administrador" : "consulta",
+      Number(userCount?.count ?? 0) === 0 ? "administrador" : "consulta",
     ]);
 
     return { ok: true };
@@ -63,7 +66,7 @@ export const registrarCuenta = createServerFn({ method: "POST" })
 
 /** Ingreso con nombre de usuario: resuelve el correo en el servidor (nunca se expone al cliente). */
 export const ingresarConUsuario = createServerFn({ method: "POST" })
-  .inputValidator((data: { username: string; password: string }) => {
+  .validator((data: { username: string; password: string }) => {
     const username = normalizarUsuario(data?.username ?? "");
     const password = data?.password ?? "";
     if (!username || !password) throw new Error("Usuario y contraseña son obligatorios");

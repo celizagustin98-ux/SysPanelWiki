@@ -35,7 +35,7 @@ async function auditarUsuario(
 
 export const crearUsuario = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
-  .inputValidator(
+  .validator(
     (data: { email: string; username: string; password: string; fullName: string; role: AppRole }) => {
     const email = (data?.email ?? "").trim().toLowerCase();
     const username = (data?.username ?? "").trim().toLowerCase();
@@ -75,7 +75,7 @@ export const crearUsuario = createServerFn({ method: "POST" })
 
 export const eliminarUsuario = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
-  .inputValidator((data: { userId: string }) => {
+  .validator((data: { userId: string }) => {
     if (!data?.userId) throw new Error("Usuario inválido");
     return { userId: data.userId };
   })
@@ -99,7 +99,7 @@ export const eliminarUsuario = createServerFn({ method: "POST" })
 
 export const actualizarUsuario = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
-  .inputValidator((data: { userId: string; fullName?: string; password?: string }) => {
+  .validator((data: { userId: string; fullName?: string; password?: string }) => {
     if (!data?.userId) throw new Error("Usuario inválido");
     const fullName = data.fullName?.trim();
     const password = data.password?.trim();

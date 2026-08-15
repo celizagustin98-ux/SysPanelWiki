@@ -94,7 +94,9 @@ function InstructivosPage() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ title: "", content: "", tags: "" });
-  const [pdfActivo, setPdfActivo] = useState<{ id: string; name: string; url: string } | null>(null);
+  const [pdfActivo, setPdfActivo] = useState<{ id: string; name: string } | null>(null);
+  const [pdfViewerSrc, setPdfViewerSrc] = useState("");
+  const [loadingPdf, setLoadingPdf] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState<Carpeta | null>(null);
   const [pdfToDelete, setPdfToDelete] = useState<Adjunto | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
@@ -289,7 +291,7 @@ function InstructivosPage() {
   };
 
   const verPdf = (a: Adjunto) => {
-    setPdfActivo({ id: a.id, name: a.file_name, url: api.instructivos.pdfUrl(a.id) });
+    setPdfActivo({ id: a.id, name: a.file_name });
   };
 
   useEffect(() => {
@@ -298,7 +300,30 @@ function InstructivosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activo?.id, adjuntos.length]);
 
-  const pdfViewerSrc = pdfActivo?.url ?? "";
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    setPdfViewerSrc("");
+    if (!pdfActivo?.id) return;
+    setLoadingPdf(true);
+    api.instructivos
+      .pdfBlobUrl(pdfActivo.id)
+      .then((url) => {
+        objectUrl = url;
+        if (active) setPdfViewerSrc(url);
+        else URL.revokeObjectURL(url);
+      })
+      .catch((error) => {
+        if (active) toast.error(error instanceof Error ? error.message : "No se pudo abrir el PDF");
+      })
+      .finally(() => {
+        if (active) setLoadingPdf(false);
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [pdfActivo?.id]);
 
   const renderTree = (parent: string | null, depth = 0) => (
     <div className={cn("space-y-1", depth > 0 && "ml-3 border-l border-border/60 pl-2")}>
@@ -697,7 +722,15 @@ function InstructivosPage() {
                                 size="sm"
                                 variant="outline"
                               >
-                                <a href={pdfActivo.url} target="_blank" rel="noreferrer">
+                                <a
+                                  href={pdfViewerSrc || undefined}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-disabled={!pdfViewerSrc}
+                                  onClick={(event) => {
+                                    if (!pdfViewerSrc) event.preventDefault();
+                                  }}
+                                >
                                   <Eye className="size-4" /> Ver PDF
                                 </a>
                               </Button>
@@ -719,11 +752,20 @@ function InstructivosPage() {
                         </div>
                         {pdfActivo ? (
                           <div className="flex h-[72vh] min-h-[640px] flex-col bg-slate-950">
-                            <iframe
-                              title={`Vista PDF: ${pdfActivo.name}`}
-                              src={pdfViewerSrc}
-                              className="min-h-0 flex-1 border-0 bg-white"
-                            />
+                            {loadingPdf || !pdfViewerSrc ? (
+                              <div className="grid min-h-0 flex-1 place-items-center bg-background text-sm text-muted-foreground">
+                                <div className="flex items-center gap-2">
+                                  <Loader2 className="size-4 animate-spin" />
+                                  Cargando PDF...
+                                </div>
+                              </div>
+                            ) : (
+                              <iframe
+                                title={`Vista PDF: ${pdfActivo.name}`}
+                                src={pdfViewerSrc}
+                                className="min-h-0 flex-1 border-0 bg-white"
+                              />
+                            )}
                           </div>
                         ) : (
                           <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
