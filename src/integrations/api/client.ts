@@ -29,7 +29,10 @@ function responseError(error: unknown) {
   return { data: null, error: error instanceof Error ? error : new Error("Error de servidor") };
 }
 
-async function postAuth<T>(path: string, body: unknown): Promise<{ data: T; error: null } | { data: null; error: Error }> {
+async function postAuth<T>(
+  path: string,
+  body: unknown,
+): Promise<{ data: T; error: null } | { data: null; error: Error }> {
   try {
     const response = await fetch(`/api/auth/${path}`, {
       method: "POST",
@@ -218,7 +221,10 @@ export const api = {
     },
     async updateUser(input: { password: string }) {
       try {
-        return { data: await authUpdatePassword({ data: { token: token(), password: input.password } }), error: null };
+        return {
+          data: await authUpdatePassword({ data: { token: token(), password: input.password } }),
+          error: null,
+        };
       } catch (error) {
         return responseError(error);
       }

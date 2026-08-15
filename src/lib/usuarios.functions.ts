@@ -36,20 +36,27 @@ async function auditarUsuario(
 export const crearUsuario = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
   .validator(
-    (data: { email: string; username: string; password: string; fullName: string; role: AppRole }) => {
-    const email = (data?.email ?? "").trim().toLowerCase();
-    const username = (data?.username ?? "").trim().toLowerCase();
-    if (!/^[a-z0-9._-]{3,32}$/.test(username))
-      throw new Error("Usuario inválido: 3 a 32 caracteres (letras, números, . _ -)");
-    const password = data?.password ?? "";
-    const fullName = (data?.fullName ?? "").trim();
-    const role = data?.role;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
-    if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
-    if (fullName.length < 2 || fullName.length > 120) throw new Error("Nombre inválido");
-    if (!ROLES.includes(role)) throw new Error("Rol inválido");
-    return { email, username, password, fullName, role };
-  })
+    (data: {
+      email: string;
+      username: string;
+      password: string;
+      fullName: string;
+      role: AppRole;
+    }) => {
+      const email = (data?.email ?? "").trim().toLowerCase();
+      const username = (data?.username ?? "").trim().toLowerCase();
+      if (!/^[a-z0-9._-]{3,32}$/.test(username))
+        throw new Error("Usuario inválido: 3 a 32 caracteres (letras, números, . _ -)");
+      const password = data?.password ?? "";
+      const fullName = (data?.fullName ?? "").trim();
+      const role = data?.role;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
+      if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
+      if (fullName.length < 2 || fullName.length > 120) throw new Error("Nombre inválido");
+      if (!ROLES.includes(role)) throw new Error("Rol inválido");
+      return { email, username, password, fullName, role };
+    },
+  )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     const created = await query<{ id: string }>(
@@ -131,10 +138,7 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
       data.userId,
       target.rows[0]?.full_name || target.rows[0]?.email || data.userId,
       {
-        campos: [
-          ...(data.fullName ? ["fullName"] : []),
-          ...(data.password ? ["password"] : []),
-        ],
+        campos: [...(data.fullName ? ["fullName"] : []), ...(data.password ? ["password"] : [])],
       },
     );
     return { ok: true };

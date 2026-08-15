@@ -7,7 +7,11 @@ import { assertAdmin, one, query } from "@/lib/server/postgres";
 const execFileAsync = promisify(execFile);
 const DEFAULT_BRANCH = "main";
 
-async function runUpdateCommand(command: string, args: string[], env: NodeJS.ProcessEnv = process.env) {
+async function runUpdateCommand(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+) {
   await execFileAsync(command, args, {
     cwd: process.cwd(),
     env,
@@ -75,11 +79,19 @@ export const checkForUpdates = createServerFn({ method: "POST" })
       const env = gitEnvWithToken();
       const currentSha = await readCommand("git", ["rev-parse", "HEAD"], env);
       const currentShort = currentSha.slice(0, 7);
-      const remoteLine = await readCommand("git", ["ls-remote", "origin", `refs/heads/${branch}`], env);
+      const remoteLine = await readCommand(
+        "git",
+        ["ls-remote", "origin", `refs/heads/${branch}`],
+        env,
+      );
       const remoteSha = remoteLine.split(/\s+/)[0] ?? "";
 
       if (!remoteSha) {
-        return { ...base, currentVersion: currentShort, error: "No se pudo verificar actualizaciones." };
+        return {
+          ...base,
+          currentVersion: currentShort,
+          error: "No se pudo verificar actualizaciones.",
+        };
       }
 
       const remoteShort = remoteSha.slice(0, 7);

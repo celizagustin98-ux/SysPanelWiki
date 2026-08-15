@@ -53,7 +53,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -64,9 +70,15 @@ export const Route = createFileRoute("/_app/instructivos")({
   head: () => ({
     meta: [
       { title: "Instructivos | Wiki operativa" },
-      { name: "description", content: "Wiki operativa con carpetas, editor visual, adjuntos PDF y buscador global." },
+      {
+        name: "description",
+        content: "Wiki operativa con carpetas, editor visual, adjuntos PDF y buscador global.",
+      },
       { property: "og:title", content: "Instructivos | Wiki operativa" },
-      { property: "og:description", content: "Documentación técnica organizada en árbol con visor de PDF." },
+      {
+        property: "og:description",
+        content: "Documentación técnica organizada en árbol con visor de PDF.",
+      },
     ],
   }),
   component: InstructivosPage,
@@ -198,7 +210,10 @@ function InstructivosPage() {
   };
 
   const countDocsInFolder = (folderId: string) =>
-    getFolderTreeIds(folderId).reduce((total, id) => total + (docsByFolder.get(id)?.length ?? 0), 0);
+    getFolderTreeIds(folderId).reduce(
+      (total, id) => total + (docsByFolder.get(id)?.length ?? 0),
+      0,
+    );
 
   const eliminarCarpeta = async () => {
     if (!folderToDelete) return;
@@ -463,7 +478,7 @@ function InstructivosPage() {
         <Card className="panel h-fit overflow-hidden">
           <CardHeader className="border-b border-border/70 bg-muted/25 pb-3">
             <CardTitle className="flex items-center gap-2 text-sm">
-                <LibraryBig className="size-4 text-primary" /> Biblioteca
+              <LibraryBig className="size-4 text-primary" /> Biblioteca
             </CardTitle>
           </CardHeader>
           <CardContent className="max-h-[70vh] overflow-y-auto p-3">
@@ -549,7 +564,11 @@ function InstructivosPage() {
                           Cancelar
                         </Button>
                         <Button onClick={guardar} disabled={savingDoc}>
-                          {savingDoc ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                          {savingDoc ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Save className="size-4" />
+                          )}
                           Guardar
                         </Button>
                       </>
@@ -614,7 +633,11 @@ function InstructivosPage() {
                           uploadingPdf && "pointer-events-none opacity-70",
                         )}
                       >
-                        {uploadingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                        {uploadingPdf ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="size-3.5" />
+                        )}
                         {uploadingPdf ? "Procesando..." : "Subir PDF"}
                         <input
                           type="file"
@@ -645,7 +668,8 @@ function InstructivosPage() {
                               key={a.id}
                               className={cn(
                                 "group/pdf flex items-start gap-2 rounded-xl border border-transparent px-2 py-2 text-sm transition-colors hover:border-border hover:bg-accent/70",
-                                pdfActivo?.id === a.id && "bg-primary/15 text-primary ring-1 ring-primary/20",
+                                pdfActivo?.id === a.id &&
+                                  "bg-primary/15 text-primary ring-1 ring-primary/20",
                               )}
                             >
                               <button
@@ -655,10 +679,12 @@ function InstructivosPage() {
                               >
                                 <FileText className="mt-0.5 size-4 shrink-0" />
                                 <span className="min-w-0">
-                                <span className="line-clamp-2 font-medium leading-snug">{a.file_name}</span>
-                                <span className="mt-1 block text-[11px] text-muted-foreground">
-                                  Abrir lectura
-                                </span>
+                                  <span className="line-clamp-2 font-medium leading-snug">
+                                    {a.file_name}
+                                  </span>
+                                  <span className="mt-1 block text-[11px] text-muted-foreground">
+                                    Abrir lectura
+                                  </span>
                                 </span>
                               </button>
                               {canWrite && (
@@ -716,12 +742,7 @@ function InstructivosPage() {
                           </div>
                           {pdfActivo && (
                             <div className="flex gap-2">
-                              <Button
-                                asChild
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                              >
+                              <Button asChild type="button" size="sm" variant="outline">
                                 <a
                                   href={pdfViewerSrc || undefined}
                                   target="_blank"
@@ -771,8 +792,12 @@ function InstructivosPage() {
                           <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
                             <div className="max-w-sm space-y-2">
                               <FileText className="mx-auto size-8 text-primary" />
-                              <p className="font-medium text-foreground">Elegí un PDF de la lista</p>
-                              <p>El documento se abre acá para lectura sin salir del instructivo.</p>
+                              <p className="font-medium text-foreground">
+                                Elegí un PDF de la lista
+                              </p>
+                              <p>
+                                El documento se abre acá para lectura sin salir del instructivo.
+                              </p>
                             </div>
                           </div>
                         )}
@@ -786,7 +811,8 @@ function InstructivosPage() {
                         </div>
                         <p className="font-medium">Sin PDF cargado</p>
                         <p className="text-sm text-muted-foreground">
-                          Subí un instructivo en PDF para que quede disponible como documento de consulta.
+                          Subí un instructivo en PDF para que quede disponible como documento de
+                          consulta.
                         </p>
                       </div>
                     </div>
@@ -797,13 +823,16 @@ function InstructivosPage() {
           )}
         </Card>
       </div>
-      <AlertDialog open={!!folderToDelete} onOpenChange={(open) => !open && setFolderToDelete(null)}>
+      <AlertDialog
+        open={!!folderToDelete}
+        onOpenChange={(open) => !open && setFolderToDelete(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar carpeta</AlertDialogTitle>
             <AlertDialogDescription>
-              Se eliminará la carpeta "{folderToDelete?.name}" y sus subcarpetas. Los instructivos no se borran:
-              quedarán movidos a la raíz para que no pierdas contenido.
+              Se eliminará la carpeta "{folderToDelete?.name}" y sus subcarpetas. Los instructivos
+              no se borran: quedarán movidos a la raíz para que no pierdas contenido.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -822,8 +851,8 @@ function InstructivosPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar PDF</AlertDialogTitle>
             <AlertDialogDescription>
-              Se eliminará "{pdfToDelete?.file_name}" del instructivo. Esta acción sirve para quitar versiones
-              viejas o archivos cargados por error.
+              Se eliminará "{pdfToDelete?.file_name}" del instructivo. Esta acción sirve para quitar
+              versiones viejas o archivos cargados por error.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -841,7 +870,13 @@ function InstructivosPage() {
   );
 }
 
-function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () => void | Promise<void> }) {
+function NuevaCarpeta({
+  carpetas,
+  onDone,
+}: {
+  carpetas: Carpeta[];
+  onDone: () => void | Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [parent, setParent] = useState("root");
   const [creating, setCreating] = useState(false);
@@ -898,7 +933,11 @@ function NuevaCarpeta({ carpetas, onDone }: { carpetas: Carpeta[]; onDone: () =>
           </div>
           <DialogFooter>
             <Button type="submit" disabled={creating}>
-              {creating ? <Loader2 className="size-4 animate-spin" /> : <FolderPlus className="size-4" />}
+              {creating ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FolderPlus className="size-4" />
+              )}
               {creating ? "Creando..." : "Crear carpeta"}
             </Button>
           </DialogFooter>

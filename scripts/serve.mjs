@@ -61,7 +61,10 @@ function trySendStatic(req, res) {
   res.statusCode = 200;
   setSecurityHeaders(req, res);
   res.setHeader("content-type", contentTypes[ext] || "application/octet-stream");
-  res.setHeader("cache-control", ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable");
+  res.setHeader(
+    "cache-control",
+    ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+  );
 
   if (req.method === "HEAD") {
     res.end();
@@ -198,7 +201,7 @@ async function requireAdmin(req) {
   return session;
 }
 
-async function requireRequestSession(req, url) {
+async function requireRequestSession(req) {
   const token = bearerToken(req) || "";
   const session = await getSession(token);
   if (!session) {
@@ -265,7 +268,11 @@ async function runGitWithAuthFallback(args, options = {}) {
   } catch (error) {
     if (!process.env.GITHUB_TOKEN) throw error;
     const output = `${error?.stdout || ""}\n${error?.stderr || ""}\n${error?.message || ""}`;
-    if (!/authentication|authorization|bad credentials|could not read username|permission denied|repository not found/i.test(output)) {
+    if (
+      !/authentication|authorization|bad credentials|could not read username|permission denied|repository not found/i.test(
+        output,
+      )
+    ) {
       throw error;
     }
     return runCommand("git", args, { ...options, env: gitEnvWithoutToken() });
@@ -338,7 +345,7 @@ async function handleUpdates(req, res) {
 
   try {
     if (process.env.ENABLE_WEB_UPDATES !== "true") {
-      return sendJson(res, 404, { error: "Actualizaciones web deshabilitadas" }), true;
+      return (sendJson(res, 404, { error: "Actualizaciones web deshabilitadas" }), true);
     }
     await requireAdmin(req);
     const action = new URL(req.url, "http://localhost").pathname.replace("/api/updates/", "");
@@ -347,22 +354,28 @@ async function handleUpdates(req, res) {
     if (action === "check") {
       const settings = await one(`select version_actual from app_settings where singleton = true`);
       const currentSha = await runCommand("git", ["rev-parse", "HEAD"], { timeout: 60_000 });
-      const remoteLine = await runGitWithAuthFallback(["ls-remote", "origin", `refs/heads/${branch}`], {
-        timeout: 60_000,
-      });
+      const remoteLine = await runGitWithAuthFallback(
+        ["ls-remote", "origin", `refs/heads/${branch}`],
+        {
+          timeout: 60_000,
+        },
+      );
       const remoteSha = remoteLine.split(/\s+/)[0] || "";
       if (!remoteSha) {
-        return sendJson(res, 200, {
-          ok: false,
-          error: "No se pudo verificar la rama de actualización configurada.",
-          repo: "",
-          currentVersion: currentSha.slice(0, 7) || settings?.version_actual || "local",
-          latestVersion: null,
-          latestUrl: null,
-          publishedAt: null,
-          notes: null,
-          hasUpdate: false,
-        }), true;
+        return (
+          sendJson(res, 200, {
+            ok: false,
+            error: "No se pudo verificar la rama de actualización configurada.",
+            repo: "",
+            currentVersion: currentSha.slice(0, 7) || settings?.version_actual || "local",
+            latestVersion: null,
+            latestUrl: null,
+            publishedAt: null,
+            notes: null,
+            hasUpdate: false,
+          }),
+          true
+        );
       }
 
       await query(
@@ -389,7 +402,7 @@ async function handleUpdates(req, res) {
       const body = await readJson(req);
       const version = String(body.version || "").trim();
       if (!version || version.length > 120) {
-        return sendJson(res, 400, { error: "Versión inválida" }), true;
+        return (sendJson(res, 400, { error: "Versión inválida" }), true);
       }
 
       try {
@@ -399,9 +412,15 @@ async function handleUpdates(req, res) {
         await runCommand("npm", ["--version"], { timeout: 30_000 });
       } catch (error) {
         console.error(error);
-        return sendJson(res, 500, {
-          error: updateError(error, "No se pudo iniciar la actualización. Revisá los logs del servidor."),
-        }), true;
+        return (
+          sendJson(res, 500, {
+            error: updateError(
+              error,
+              "No se pudo iniciar la actualización. Revisá los logs del servidor.",
+            ),
+          }),
+          true
+        );
       }
 
       const env = gitEnvWithToken();
@@ -410,7 +429,7 @@ async function handleUpdates(req, res) {
       return true;
     }
 
-    return sendJson(res, 404, { error: "Ruta de actualización inexistente" }), true;
+    return (sendJson(res, 404, { error: "Ruta de actualización inexistente" }), true);
   } catch (error) {
     console.error(error);
     sendJson(res, error.statusCode || 500, {
@@ -421,7 +440,10 @@ async function handleUpdates(req, res) {
 }
 
 async function handleInstructionPdf(req, res) {
-  if ((req.method !== "GET" && req.method !== "HEAD") || !req.url?.startsWith("/api/instructivos/pdf/")) {
+  if (
+    (req.method !== "GET" && req.method !== "HEAD") ||
+    !req.url?.startsWith("/api/instructivos/pdf/")
+  ) {
     return false;
   }
 
@@ -430,7 +452,7 @@ async function handleInstructionPdf(req, res) {
     await requireRequestSession(req, url);
     const attachmentId = decodeURIComponent(url.pathname.replace("/api/instructivos/pdf/", ""));
     if (!/^[0-9a-fA-F-]{20,80}$/.test(attachmentId)) {
-      return sendJson(res, 400, { error: "PDF invalido" }), true;
+      return (sendJson(res, 400, { error: "PDF invalido" }), true);
     }
 
     const attachment = await one(
@@ -438,19 +460,22 @@ async function handleInstructionPdf(req, res) {
       [attachmentId],
     );
     if (!attachment) {
-      return sendJson(res, 404, { error: "PDF no encontrado" }), true;
+      return (sendJson(res, 404, { error: "PDF no encontrado" }), true);
     }
 
     const file = storageFilePath("instructivos", attachment.file_path);
     if (!file) {
-      return sendJson(res, 404, { error: "Archivo PDF no encontrado" }), true;
+      return (sendJson(res, 404, { error: "Archivo PDF no encontrado" }), true);
     }
 
     res.statusCode = 200;
     res.setHeader("content-type", "application/pdf");
     res.setHeader("content-length", String(file.stat.size));
     res.setHeader("cache-control", "private, max-age=300");
-    res.setHeader("content-disposition", `inline; filename="${safeDownloadName(attachment.file_name)}"`);
+    res.setHeader(
+      "content-disposition",
+      `inline; filename="${safeDownloadName(attachment.file_name)}"`,
+    );
     res.setHeader("x-content-type-options", "nosniff");
 
     if (req.method === "HEAD") {
@@ -477,16 +502,19 @@ async function handleAuth(req, res) {
     const action = new URL(req.url, "http://localhost").pathname.replace("/api/auth/", "");
 
     if (action === "session") {
-      return sendJson(res, 200, { session: await getSession(data.token) }), true;
+      return (sendJson(res, 200, { session: await getSession(data.token) }), true);
     }
 
     if (action === "signout") {
-      if (data.token) await pool.query(`delete from app_sessions where token_hash = $1`, [hashToken(data.token)]);
-      return sendJson(res, 200, { ok: true }), true;
+      if (data.token)
+        await pool.query(`delete from app_sessions where token_hash = $1`, [hashToken(data.token)]);
+      return (sendJson(res, 200, { ok: true }), true);
     }
 
     if (action === "signin") {
-      const username = String(data.username || "").trim().toLowerCase();
+      const username = String(data.username || "")
+        .trim()
+        .toLowerCase();
       const user = await one(
         `select u.id, u.password_hash
            from app_users u
@@ -495,29 +523,43 @@ async function handleAuth(req, res) {
         [username],
       );
       if (!user || !(await verifyPassword(String(data.password || ""), user.password_hash))) {
-        return sendJson(res, 401, { error: "Usuario o contraseña incorrectos" }), true;
+        return (sendJson(res, 401, { error: "Usuario o contraseña incorrectos" }), true);
       }
       const token = await createSession(user.id);
-      return sendJson(res, 200, { session: await getSession(token) }), true;
+      return (sendJson(res, 200, { session: await getSession(token) }), true);
     }
 
     if (action === "signup") {
       const fullName = String(data.fullName || "").trim();
-      const username = String(data.username || "").trim().toLowerCase();
-      const email = String(data.email || "").trim().toLowerCase();
+      const username = String(data.username || "")
+        .trim()
+        .toLowerCase();
+      const email = String(data.email || "")
+        .trim()
+        .toLowerCase();
       const password = String(data.password || "");
-      if (fullName.length < 2) return sendJson(res, 400, { error: "Ingresa tu nombre y apellido" }), true;
-      if (!/^[a-z0-9._-]{3,32}$/.test(username)) return sendJson(res, 400, { error: "Usuario invalido" }), true;
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: "Correo invalido" }), true;
+      if (fullName.length < 2)
+        return (sendJson(res, 400, { error: "Ingresa tu nombre y apellido" }), true);
+      if (!/^[a-z0-9._-]{3,32}$/.test(username))
+        return (sendJson(res, 400, { error: "Usuario invalido" }), true);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        return (sendJson(res, 400, { error: "Correo invalido" }), true);
       if (password.length < 8) {
-        return sendJson(res, 400, { error: "La contrasena debe tener al menos 8 caracteres" }), true;
+        return (
+          sendJson(res, 400, { error: "La contrasena debe tener al menos 8 caracteres" }),
+          true
+        );
       }
 
       const currentUsers = await one(`select count(*)::int as count from app_users`);
       if (Number(currentUsers?.count || 0) > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") {
-        return sendJson(res, 403, {
-          error: "El registro público está deshabilitado. Un administrador debe crear el usuario.",
-        }), true;
+        return (
+          sendJson(res, 403, {
+            error:
+              "El registro público está deshabilitado. Un administrador debe crear el usuario.",
+          }),
+          true
+        );
       }
 
       const client = await pool.connect();
@@ -531,7 +573,7 @@ async function handleAuth(req, res) {
         );
         if (exists.rowCount) {
           await client.query("rollback");
-          return sendJson(res, 409, { error: "Ese usuario o correo ya esta registrado" }), true;
+          return (sendJson(res, 409, { error: "Ese usuario o correo ya esta registrado" }), true);
         }
 
         const created = await client.query(
@@ -539,19 +581,17 @@ async function handleAuth(req, res) {
           [email, await hashPassword(password)],
         );
         const userId = created.rows[0].id;
-        await client.query(`insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`, [
-          userId,
-          fullName,
-          email,
-          username,
-        ]);
+        await client.query(
+          `insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`,
+          [userId, fullName, email, username],
+        );
         await client.query(`insert into user_roles (user_id, role) values ($1, $2)`, [
           userId,
           Number(currentUsers?.count || 0) === 0 ? "administrador" : "consulta",
         ]);
         await client.query("commit");
         const token = await createSession(userId);
-        return sendJson(res, 200, { session: await getSession(token) }), true;
+        return (sendJson(res, 200, { session: await getSession(token) }), true);
       } catch (error) {
         await client.query("rollback").catch(() => {});
         throw error;
@@ -560,7 +600,7 @@ async function handleAuth(req, res) {
       }
     }
 
-    return sendJson(res, 404, { error: "Ruta de auth inexistente" }), true;
+    return (sendJson(res, 404, { error: "Ruta de auth inexistente" }), true);
   } catch (error) {
     console.error(error);
     sendJson(res, 500, { error: error instanceof Error ? error.message : "Error de servidor" });

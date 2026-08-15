@@ -21,7 +21,8 @@ export const registrarCuenta = createServerFn({ method: "POST" })
     const username = normalizarUsuario(data?.username ?? "");
     const email = (data?.email ?? "").trim().toLowerCase();
     const password = data?.password ?? "";
-    if (fullName.length < 2 || fullName.length > 120) throw new Error("Ingresá tu nombre y apellido");
+    if (fullName.length < 2 || fullName.length > 120)
+      throw new Error("Ingresá tu nombre y apellido");
     if (!USER_RE.test(username))
       throw new Error(
         "El usuario debe tener entre 3 y 32 caracteres: letras, números, punto, guion o guion bajo",
@@ -33,7 +34,9 @@ export const registrarCuenta = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const userCount = await one<{ count: string }>(`select count(*)::text as count from app_users`);
     if (Number(userCount?.count ?? 0) > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") {
-      throw new Error("El registro público está deshabilitado. Un administrador debe crear el usuario.");
+      throw new Error(
+        "El registro público está deshabilitado. Un administrador debe crear el usuario.",
+      );
     }
     const existe = await one<{ id: string }>(
       `select id from app_users where email = $1

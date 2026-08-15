@@ -78,7 +78,10 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   app_settings: { modulo: "configuracion", fields: ["version_actual"] },
   credenciales: { modulo: "credenciales", fields: ["servicio", "usuario", "ip", "url"] },
   guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
-  inventario: { modulo: "inventario", fields: ["codigo", "nombre", "marca", "modelo", "numero_serie"] },
+  inventario: {
+    modulo: "inventario",
+    fields: ["codigo", "nombre", "marca", "modelo", "numero_serie"],
+  },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
   tareas: { modulo: "tareas", fields: ["titulo", "estado", "prioridad"] },
@@ -86,7 +89,10 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
   toner_modelos: { modulo: "toners", fields: ["nombre", "marca", "prefijo"] },
-  toner_movimientos: { modulo: "toners", fields: ["tipo", "cantidad", "responsable", "sector", "toner_entra"] },
+  toner_movimientos: {
+    modulo: "toners",
+    fields: ["tipo", "cantidad", "responsable", "sector", "toner_entra"],
+  },
   toner_unidades: { modulo: "toners", fields: ["codigo", "estado"] },
   user_roles: { modulo: "usuarios", fields: ["user_id", "role"] },
   wiki_attachments: { modulo: "instructivos", fields: ["file_name", "doc_id"] },
@@ -235,7 +241,10 @@ export const apiSelect = createServerFn({ method: "POST" })
     const where = appendFilters(data.filters, values);
 
     if (data.count === "exact" && data.head) {
-      const result = await query<{ count: string }>(`select count(*)::text as count from ${table}${where}`, values);
+      const result = await query<{ count: string }>(
+        `select count(*)::text as count from ${table}${where}`,
+        values,
+      );
       return { data: null, count: Number(result.rows[0]?.count ?? 0), error: null };
     }
 
@@ -283,7 +292,9 @@ export const apiMutate = createServerFn({ method: "POST" })
       return { data: null, error: null };
     }
 
-    const rows = Array.isArray(data.values) ? data.values : [data.values as Record<string, unknown>];
+    const rows = Array.isArray(data.values)
+      ? data.values
+      : [data.values as Record<string, unknown>];
     if (!rows.length || !rows[0]) throw new Error("Sin datos para insertar");
     const cols = Object.keys(rows[0]).map(cleanIdentifier);
     const placeholders = rows.map((row) => {
@@ -368,7 +379,13 @@ export const apiRpc = createServerFn({ method: "POST" })
         await query(
           `insert into toner_unidades (modelo_id, codigo, generado_por, generado_por_nombre, lote_generacion_id)
            values ($1, $2, $3, $4, $5)`,
-          [data.args?._modelo_id, code, session.user.id, actor?.full_name ?? actor?.email ?? "", loteGeneracionId],
+          [
+            data.args?._modelo_id,
+            code,
+            session.user.id,
+            actor?.full_name ?? actor?.email ?? "",
+            loteGeneracionId,
+          ],
         );
       }
       await writeAudit(
@@ -417,7 +434,9 @@ export const authSignIn = createServerFn({ method: "POST" })
   });
 
 export const authSignUp = createServerFn({ method: "POST" })
-  .validator((data: { fullName: string; username: string; email: string; password: string }) => data)
+  .validator(
+    (data: { fullName: string; username: string; email: string; password: string }) => data,
+  )
   .handler(async ({ data }) => {
     const fullName = (data.fullName ?? "").trim();
     const username = (data.username ?? "").trim().toLowerCase();
@@ -425,16 +444,19 @@ export const authSignUp = createServerFn({ method: "POST" })
     if (fullName.length < 2) throw new Error("Ingresá tu nombre y apellido");
     if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error("Usuario inválido");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
-    if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
+    if ((data.password ?? "").length < 8)
+      throw new Error("La contraseña debe tener al menos 8 caracteres");
     const userCount = await one<{ count: string }>(`select count(*)::text as count from app_users`);
     const allowPublicSignup = process.env.ALLOW_PUBLIC_SIGNUP === "true";
     if (Number(userCount?.count ?? 0) > 0 && !allowPublicSignup) {
-      throw new Error("El registro público está deshabilitado. Un administrador debe crear el usuario.");
+      throw new Error(
+        "El registro público está deshabilitado. Un administrador debe crear el usuario.",
+      );
     }
-    const exists = await one(`select id from app_users where email = $1 union select id from profiles where username = $2`, [
-      email,
-      username,
-    ]);
+    const exists = await one(
+      `select id from app_users where email = $1 union select id from profiles where username = $2`,
+      [email, username],
+    );
     if (exists) throw new Error("Ese usuario o correo ya está registrado");
     const passwordHash = await hashPassword(data.password);
     const result = await query<{ id: string }>(
@@ -473,7 +495,8 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
   .validator((data: { token?: string | null; password: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
-    if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
+    if ((data.password ?? "").length < 8)
+      throw new Error("La contraseña debe tener al menos 8 caracteres");
     await query(`update app_users set password_hash = $1 where id = $2`, [
       await hashPassword(data.password),
       session.user.id,
@@ -482,7 +505,9 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
   });
 
 export const storageUpload = createServerFn({ method: "POST" })
-  .validator((data: { token?: string | null; bucket: string; path: string; base64: string }) => data)
+  .validator(
+    (data: { token?: string | null; bucket: string; path: string; base64: string }) => data,
+  )
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     await assertCanWrite(session.user.id);
