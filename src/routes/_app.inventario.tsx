@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import * as XLSX from "xlsx";
+import readXlsxFile from "read-excel-file/browser";
 import {
   Download,
   FileJson,
@@ -191,31 +191,6 @@ function exportJson(rows: Item[]) {
     Object.fromEntries(INVENTARIO_COLUMNS.map((column) => [column, itemField(row, column)])),
   );
   downloadText("inventario.json", JSON.stringify(data, null, 2), "application/json;charset=utf-8");
-}
-
-function inventarioRowsToObjects(rows: Item[]) {
-  return rows.map((row) =>
-    Object.fromEntries(INVENTARIO_COLUMNS.map((column) => [column, itemField(row, column)])),
-  );
-}
-
-function downloadExcel(filename: string, rows: Record<string, unknown>[]) {
-  const worksheet = XLSX.utils.json_to_sheet(rows, { header: [...INVENTARIO_COLUMNS] });
-  worksheet["!cols"] = INVENTARIO_COLUMNS.map((column) => ({
-    wch: Math.max(14, column.length + 4),
-  }));
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Inventario");
-  XLSX.writeFile(workbook, filename);
-}
-
-function exportExcel(rows: Item[]) {
-  downloadExcel("inventario.xlsx", inventarioRowsToObjects(rows));
-}
-
-function downloadExcelTemplate() {
-  const emptyRow = Object.fromEntries(INVENTARIO_COLUMNS.map((column) => [column, ""]));
-  downloadExcel("plantilla-inventario.xlsx", [emptyRow]);
 }
 
 function printRows(rows: Item[]) {
@@ -439,22 +414,19 @@ function readTextFromArrayBuffer(buffer: ArrayBuffer) {
 }
 
 async function parseSpreadsheetFile(file: File) {
-  const buffer = await file.arrayBuffer();
-
-  if (/\.(xlsx|xls)$/i.test(file.name)) {
-    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-    const firstSheetName = workbook.SheetNames[0];
-    if (!firstSheetName) throw new Error("El Excel no tiene hojas para importar");
-    const worksheet = workbook.Sheets[firstSheetName];
-    const rows = XLSX.utils.sheet_to_json<string[]>(worksheet, {
-      header: 1,
-      blankrows: false,
-      raw: false,
-      defval: "",
-    });
-    return parseImportRows(rows.map((row) => row.map((cell) => text(cell))));
+  if (/\.xls$/i.test(file.name)) {
+    throw new Error("El formato .xls es antiguo. Guardá el archivo como .xlsx o CSV UTF-8 y volvé a importarlo.");
   }
 
+  if (/\.xlsx$/i.test(file.name)) {
+    const rows = await readXlsxFile(file);
+    return parseImportRows(rows.map((row) => row.map((cell) => {
+      if (cell instanceof Date) return cell.toISOString().slice(0, 10);
+      return text(cell);
+    })));
+  }
+
+  const buffer = await file.arrayBuffer();
   return parseImportFile(readTextFromArrayBuffer(buffer));
 }
 
@@ -548,7 +520,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
     reset();
     if (!file) return;
     if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
-      toast.error("Subí un archivo Excel .xlsx/.xls o CSV.");
+      toast.error("Subí un archivo .xlsx o CSV.");
       return;
     }
     try {
@@ -583,17 +555,14 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
         <DialogHeader>
           <DialogTitle>Importación masiva</DialogTitle>
           <DialogDescription>
-            Subí un Excel o CSV con las mismas columnas del módulo. La primera hoja del Excel será importada.
+            Subí un Excel .xlsx o CSV con las mismas columnas del módulo. La primera hoja del Excel será importada.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Button type="button" variant="secondary" onClick={downloadExcelTemplate}>
-              <FileSpreadsheet className="size-4" /> Plantilla Excel
-            </Button>
+          <div className="grid gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
               onClick={() =>
                 downloadText(
                   "plantilla-inventario.csv",
@@ -606,9 +575,9 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             </Button>
           </div>
           <div className="space-y-1.5">
-            <Label>Archivo Excel o CSV</Label>
+            <Label>Archivo .xlsx o CSV</Label>
             <Input
-              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
               type="file"
               onChange={(e) => loadFile(e.target.files?.[0])}
             />
@@ -787,9 +756,6 @@ function InventarioPage() {
             </div>
             <Button variant="outline" onClick={() => exportCsv(rows)}>
               <Download className="size-4" /> CSV
-            </Button>
-            <Button variant="outline" onClick={() => exportExcel(rows)}>
-              <FileSpreadsheet className="size-4" /> Excel
             </Button>
             <Button variant="outline" onClick={() => exportJson(rows)}>
               <FileJson className="size-4" /> JSON
