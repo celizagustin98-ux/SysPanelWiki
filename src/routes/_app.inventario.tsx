@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import {
   Download,
   FileJson,
@@ -192,6 +193,31 @@ function exportJson(rows: Item[]) {
   downloadText("inventario.json", JSON.stringify(data, null, 2), "application/json;charset=utf-8");
 }
 
+function inventarioRowsToObjects(rows: Item[]) {
+  return rows.map((row) =>
+    Object.fromEntries(INVENTARIO_COLUMNS.map((column) => [column, itemField(row, column)])),
+  );
+}
+
+function downloadExcel(filename: string, rows: Record<string, unknown>[]) {
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: [...INVENTARIO_COLUMNS] });
+  worksheet["!cols"] = INVENTARIO_COLUMNS.map((column) => ({
+    wch: Math.max(14, column.length + 4),
+  }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Inventario");
+  XLSX.writeFile(workbook, filename);
+}
+
+function exportExcel(rows: Item[]) {
+  downloadExcel("inventario.xlsx", inventarioRowsToObjects(rows));
+}
+
+function downloadExcelTemplate() {
+  const emptyRow = Object.fromEntries(INVENTARIO_COLUMNS.map((column) => [column, ""]));
+  downloadExcel("plantilla-inventario.xlsx", [emptyRow]);
+}
+
 function printRows(rows: Item[]) {
   const tableRows = rows
     .map(
@@ -302,6 +328,7 @@ function parseCsv(textContent: string) {
 function normalizeHeader(value: string) {
   return value
     .replace(/^\ufeff/, "")
+    .replace(/\uFFFD/g, "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[°º]/g, "")
@@ -372,6 +399,10 @@ function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPa
 
 function parseImportFile(content: string) {
   const rows = parseCsv(content);
+  return parseImportRows(rows);
+}
+
+function parseImportRows(rows: string[][]) {
   if (rows.length < 2) throw new Error("El archivo no tiene registros para importar");
 
   const rawHeaders = rows[0];
@@ -399,6 +430,32 @@ function parseImportFile(content: string) {
       throw new Error(`Fila ${index + 2}: ${message}`);
     }
   });
+}
+
+function readTextFromArrayBuffer(buffer: ArrayBuffer) {
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  if (!utf8.includes("\uFFFD")) return utf8;
+  return new TextDecoder("windows-1252", { fatal: false }).decode(buffer);
+}
+
+async function parseSpreadsheetFile(file: File) {
+  const buffer = await file.arrayBuffer();
+
+  if (/\.(xlsx|xls)$/i.test(file.name)) {
+    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) throw new Error("El Excel no tiene hojas para importar");
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json<string[]>(worksheet, {
+      header: 1,
+      blankrows: false,
+      raw: false,
+      defval: "",
+    });
+    return parseImportRows(rows.map((row) => row.map((cell) => text(cell))));
+  }
+
+  return parseImportFile(readTextFromArrayBuffer(buffer));
 }
 
 function uniqueOptions(rows: Item[], getter: (row: Item) => string | null | undefined) {
@@ -490,12 +547,12 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
   const loadFile = async (file: File | undefined) => {
     reset();
     if (!file) return;
-    if (/\.(xlsx|xls)$/i.test(file.name)) {
-      toast.error("Por seguridad, por ahora importá desde Excel usando Archivo > Guardar como > CSV UTF-8.");
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      toast.error("Subí un archivo Excel .xlsx/.xls o CSV.");
       return;
     }
     try {
-      const parsed = parseImportFile(await file.text());
+      const parsed = await parseSpreadsheetFile(file);
       setFileName(file.name);
       setPreviewCount(parsed.length);
       setRecords(parsed);
@@ -526,26 +583,35 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
         <DialogHeader>
           <DialogTitle>Importación masiva</DialogTitle>
           <DialogDescription>
-            Exportá tu Excel como CSV y respetá exactamente las columnas del módulo.
+            Subí un Excel o CSV con las mismas columnas del módulo. La primera hoja del Excel será importada.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() =>
-              downloadText(
-                "plantilla-inventario.csv",
-                `\ufeff${INVENTARIO_COLUMNS.map(csvEscape).join(";")}\r\n`,
-                "text/csv;charset=utf-8",
-              )
-            }
-          >
-            <FileSpreadsheet className="size-4" /> Descargar plantilla CSV
-          </Button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button type="button" variant="secondary" onClick={downloadExcelTemplate}>
+              <FileSpreadsheet className="size-4" /> Plantilla Excel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                downloadText(
+                  "plantilla-inventario.csv",
+                  `\ufeff${INVENTARIO_COLUMNS.map(csvEscape).join(";")}\r\n`,
+                  "text/csv;charset=utf-8",
+                )
+              }
+            >
+              <FileSpreadsheet className="size-4" /> Plantilla CSV
+            </Button>
+          </div>
           <div className="space-y-1.5">
-            <Label>Archivo CSV</Label>
-            <Input accept=".csv,text/csv" type="file" onChange={(e) => loadFile(e.target.files?.[0])} />
+            <Label>Archivo Excel o CSV</Label>
+            <Input
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              type="file"
+              onChange={(e) => loadFile(e.target.files?.[0])}
+            />
           </div>
           {fileName && (
             <div className="rounded-lg border border-border/80 bg-muted/30 p-3 text-sm">
@@ -721,6 +787,9 @@ function InventarioPage() {
             </div>
             <Button variant="outline" onClick={() => exportCsv(rows)}>
               <Download className="size-4" /> CSV
+            </Button>
+            <Button variant="outline" onClick={() => exportExcel(rows)}>
+              <FileSpreadsheet className="size-4" /> Excel
             </Button>
             <Button variant="outline" onClick={() => exportJson(rows)}>
               <FileJson className="size-4" /> JSON
