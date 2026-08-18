@@ -276,6 +276,12 @@ export const apiMutate = createServerFn({ method: "POST" })
 
     if (data.action === "delete") {
       const before = await query<Record<string, unknown>>(`select * from ${table}${where}`, values);
+      if (table === "inventario" && before.rows.length > 0) {
+        const ids = before.rows.map((row) => row.id).filter(Boolean).map(String);
+        if (ids.length > 0) {
+          await query(`delete from inventario_controles where inventario_id = any($1::uuid[])`, [ids]);
+        }
+      }
       await query(`delete from ${table}${where}`, values);
       await writeAudit(session.user.id, table, "eliminar", before.rows);
       return { data: null, error: null };
