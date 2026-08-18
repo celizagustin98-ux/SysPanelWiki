@@ -24,6 +24,7 @@ import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -1181,6 +1182,7 @@ function InventarioPage() {
   const [propiedad, setPropiedad] = useState("todos");
   const [estado, setEstado] = useState("todos");
   const [control, setControl] = useState("todos");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const { data = [] } = useQuery({
     queryKey: ["inventario"],
@@ -1194,14 +1196,38 @@ function InventarioPage() {
     },
   });
 
+  const deleteInventoryItem = async (id: string) => {
+    const controls = await api.from("inventario_controles").delete().eq("inventario_id", id);
+    if (controls.error) throw controls.error;
+    const item = await api.from("inventario").delete().eq("id", id);
+    if (item.error) throw item.error;
+  };
+
   const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await api.from("inventario").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
+    mutationFn: deleteInventoryItem,
+    onSuccess: (_data, id) => {
       toast.success("Registro eliminado");
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       qc.invalidateQueries({ queryKey: ["inventario"] });
+      qc.invalidateQueries({ queryKey: ["inventario-controles"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) await deleteInventoryItem(id);
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      toast.success(`${count} registro(s) eliminado(s)`);
+      setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ["inventario"] });
+      qc.invalidateQueries({ queryKey: ["inventario-controles"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -1241,6 +1267,27 @@ function InventarioPage() {
       }),
     [data, q, planta, sector, rubro, tipo, propiedad, estado, control],
   );
+
+  const selectedRows = rows.filter((row) => selectedIds.has(row.id));
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.id));
+  const toggleSelected = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const toggleAllVisible = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const row of rows) {
+        if (checked) next.add(row.id);
+        else next.delete(row.id);
+      }
+      return next;
+    });
+  };
 
   const totalCantidad = rows.reduce((sum, row) => sum + Number(row.cantidad ?? 0), 0);
   const sinControl = rows.filter((row) => !row.ultima_vez_controlada).length;
@@ -1373,26 +1420,56 @@ function InventarioPage() {
           </div>
 
           <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Filter className="size-4" />
               <span>
                 Mostrando {rows.length} de {data.length} registro(s)
               </span>
+              {canDelete && selectedRows.length > 0 && (
+                <Badge variant="secondary">{selectedRows.length} seleccionado(s)</Badge>
+              )}
             </div>
-            <Badge variant="secondary">Columnas normalizadas para importacion</Badge>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {canDelete && selectedRows.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={bulkDelete.isPending}
+                  onClick={() => {
+                    if (confirm(`¿Eliminar ${selectedRows.length} registro(s) de inventario?`)) {
+                      bulkDelete.mutate(selectedRows.map((row) => row.id));
+                    }
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  {bulkDelete.isPending ? "Eliminando..." : "Eliminar seleccionados"}
+                </Button>
+              )}
+              <Badge variant="secondary">Columnas normalizadas para importacion</Badge>
+            </div>
           </div>
 
           <div className="grid gap-3 lg:hidden">
             {rows.map((item) => (
               <article key={item.id} className="rounded-lg border border-border/70 bg-background p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-3">
+                    {canDelete && (
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        aria-label="Seleccionar registro"
+                        onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
+                      />
+                    )}
+                    <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{item.descripcion || item.nombre}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {[item.planta, item.sector, item.rubro ?? item.categoria, item.tipo ?? item.modelo]
-                        .filter(Boolean)
-                        .join(" · ") || "Sin ubicación"}
-                    </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {[item.planta, item.sector, item.rubro ?? item.categoria, item.tipo ?? item.modelo]
+                          .filter(Boolean)
+                          .join(" · ") || "Sin ubicación"}
+                      </p>
+                    </div>
                   </div>
                   <Badge variant="secondary" className="shrink-0">
                     {item.cantidad ?? 0}
@@ -1473,6 +1550,15 @@ function InventarioPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {canDelete && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allVisibleSelected}
+                        aria-label="Seleccionar registros visibles"
+                        onCheckedChange={(checked) => toggleAllVisible(checked === true)}
+                      />
+                    </TableHead>
+                  )}
                   {INVENTARIO_COLUMNS.map((column) => (
                     <TableHead key={column} className="whitespace-nowrap">
                       {column}
@@ -1483,7 +1569,16 @@ function InventarioPage() {
               </TableHeader>
               <TableBody>
                 {rows.map((item) => (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined}>
+                    {canDelete && (
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(item.id)}
+                          aria-label="Seleccionar registro"
+                          onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
+                        />
+                      </TableCell>
+                    )}
                     {INVENTARIO_COLUMNS.map((column) => (
                       <TableCell
                         key={column}
@@ -1554,7 +1649,7 @@ function InventarioPage() {
                 {rows.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={INVENTARIO_COLUMNS.length + 1}
+                      colSpan={INVENTARIO_COLUMNS.length + 1 + (canDelete ? 1 : 0)}
                       className="py-12 text-center text-sm text-muted-foreground"
                     >
                       No hay registros que coincidan con la busqueda o los filtros.
