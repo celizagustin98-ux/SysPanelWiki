@@ -165,6 +165,7 @@ function normalizeEstado(value: string) {
 }
 
 function text(value: unknown) {
+  if (value instanceof Date) return value.toISOString();
   return String(value ?? "").trim();
 }
 
@@ -173,9 +174,10 @@ function parseCantidad(value: string) {
   return Number(normalized || 1);
 }
 
-function normalizeDateValue(value: string) {
+function normalizeDateValue(value: unknown) {
   const raw = text(value);
   if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return raw.slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
 
   const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
@@ -185,6 +187,35 @@ function normalizeDateValue(value: string) {
   const month = match[2].padStart(2, "0");
   const year = match[3].length === 2 ? `20${match[3]}` : match[3];
   return `${year}-${month}-${day}`;
+}
+
+function toDateInputValue(value: unknown) {
+  return normalizeDateValue(value) ?? "";
+}
+
+function formatDateForDisplay(value: unknown) {
+  const normalized = normalizeDateValue(value);
+  if (!normalized) return "";
+  const date = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return text(value);
+  return date.toLocaleDateString("es-AR");
+}
+
+function normalizeItem(row: Item): Item {
+  return {
+    ...row,
+    ultima_vez_controlada: normalizeDateValue(row.ultima_vez_controlada),
+    created_at: row.created_at ? text(row.created_at) : undefined,
+    updated_at: row.updated_at ? text(row.updated_at) : undefined,
+  };
+}
+
+function normalizeControl(row: Control): Control {
+  return {
+    ...row,
+    fecha_control: normalizeDateValue(row.fecha_control) ?? text(row.fecha_control),
+    created_at: text(row.created_at),
+  };
 }
 
 function itemField(item: Item, column: InventarioColumn) {
@@ -199,7 +230,7 @@ function itemField(item: Item, column: InventarioColumn) {
     "N° de serie": item.numero_serie,
     Propiedad: item.propiedad,
     Estado: estadoLabel(item.estado),
-    "Ultima vez controlada": item.ultima_vez_controlada,
+    "Ultima vez controlada": formatDateForDisplay(item.ultima_vez_controlada),
   };
   return map[column] ?? "";
 }
@@ -611,9 +642,10 @@ function uniqueOptions(rows: Item[], getter: (row: Item) => string | null | unde
   );
 }
 
-function daysSince(dateValue: string | null | undefined) {
-  if (!dateValue) return null;
-  const date = new Date(`${dateValue}T00:00:00`);
+function daysSince(dateValue: unknown) {
+  const normalized = normalizeDateValue(dateValue);
+  if (!normalized) return null;
+  const date = new Date(`${normalized}T00:00:00`);
   if (Number.isNaN(date.getTime())) return null;
   const today = new Date();
   const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -697,7 +729,15 @@ function ItemDialog({
                     name={column}
                     type={column === "Cantidad" ? "number" : column === "Ultima vez controlada" ? "date" : "text"}
                     min={column === "Cantidad" ? 0 : undefined}
-                    defaultValue={String(item ? itemField(item, column) : column === "Cantidad" ? 1 : "")}
+                    defaultValue={
+                      item
+                        ? column === "Ultima vez controlada"
+                          ? toDateInputValue(item.ultima_vez_controlada)
+                          : String(itemField(item, column))
+                        : column === "Cantidad"
+                          ? 1
+                          : ""
+                    }
                     required={column === "Descripcion" || column === "Cantidad"}
                   />
                 )}
@@ -1058,7 +1098,7 @@ function HistorialDialog({ item, trigger }: { item: Item; trigger: React.ReactNo
         toast.error(error.message || "No se pudo cargar el historial");
         return [] as Control[];
       }
-      return data as Control[];
+      return (data as Control[]).map(normalizeControl);
     },
   });
 
@@ -1086,7 +1126,7 @@ function HistorialDialog({ item, trigger }: { item: Item; trigger: React.ReactNo
             <article key={control.id} className="rounded-lg border border-border/70 bg-background p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold">{control.fecha_control}</p>
+                  <p className="text-sm font-semibold">{formatDateForDisplay(control.fecha_control)}</p>
                   <p className="text-xs text-muted-foreground">
                     {control.controlado_por_nombre || "Usuario no identificado"}
                   </p>
@@ -1150,7 +1190,7 @@ function InventarioPage() {
         .select("*")
         .order("updated_at", { ascending: false });
       if (error) throw error;
-      return data as Item[];
+      return (data as Item[]).map(normalizeItem);
     },
   });
 
