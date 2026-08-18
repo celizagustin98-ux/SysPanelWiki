@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { readSheet } from "read-excel-file/browser";
+import { useId, useMemo, useState } from "react";
+import readExcelFile, { readSheet } from "read-excel-file/browser";
 import {
   CheckCircle2,
   Download,
@@ -381,9 +381,11 @@ function parseImportFile(content: string) {
 }
 
 function parseImportRows(rows: string[][]) {
+  if (!Array.isArray(rows)) throw new Error("No se pudo leer la hoja del Excel.");
   if (rows.length < 2) throw new Error("El archivo no tiene registros para importar");
 
   const rawHeaders = rows[0];
+  if (!Array.isArray(rawHeaders)) throw new Error("La primera fila del archivo no tiene encabezados válidos.");
   const headers = rawHeaders.map((header) => HEADER_ALIASES[normalizeHeader(header)]);
   const missing = INVENTARIO_COLUMNS.filter((column) => !headers.includes(column));
   if (missing.length > 0) {
@@ -410,7 +412,28 @@ function parseImportRows(rows: string[][]) {
   });
 }
 
-function normalizeSpreadsheetRows(rows: unknown[][]) {
+function pickSpreadsheetRows(input: unknown): unknown[][] {
+  if (Array.isArray(input)) {
+    if (input.every((row) => Array.isArray(row))) return input as unknown[][];
+    const firstSheet = input.find(
+      (sheet): sheet is { data: unknown } =>
+        typeof sheet === "object" && sheet !== null && "data" in sheet && Array.isArray(sheet.data),
+    );
+    if (firstSheet && Array.isArray(firstSheet.data)) return firstSheet.data as unknown[][];
+  }
+
+  if (typeof input === "object" && input !== null) {
+    const data = "data" in input ? (input as { data?: unknown }).data : undefined;
+    const rows = "rows" in input ? (input as { rows?: unknown }).rows : undefined;
+    if (Array.isArray(data)) return pickSpreadsheetRows(data);
+    if (Array.isArray(rows)) return pickSpreadsheetRows(rows);
+  }
+
+  throw new Error("No se pudo interpretar la hoja del Excel. Revisá que el archivo tenga una tabla en la primera hoja.");
+}
+
+function normalizeSpreadsheetRows(input: unknown) {
+  const rows = pickSpreadsheetRows(input);
   return rows
     .filter((row): row is unknown[] => Array.isArray(row))
     .map((row) =>
@@ -434,7 +457,13 @@ async function parseSpreadsheetFile(file: File) {
   }
 
   if (/\.xlsx$/i.test(file.name)) {
-    const rows = await readSheet(file);
+    let rows: unknown;
+    try {
+      rows = await readSheet(file);
+    } catch {
+      const sheets = await readExcelFile(file);
+      rows = sheets[0]?.data;
+    }
     return parseImportRows(normalizeSpreadsheetRows(rows));
   }
 
@@ -523,6 +552,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
   const [records, setRecords] = useState<ItemPayload[]>([]);
   const [isReading, setIsReading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const fileInputId = useId();
 
   const reset = () => {
     setFileName("");
@@ -547,7 +577,8 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
       setRecords(parsed);
       toast.success(`${parsed.length} registro(s) listos para importar`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo leer el archivo");
+      const message = error instanceof Error ? error.message : "No se pudo leer el archivo";
+      toast.error(message === "e.map is not a function" ? "No se pudo interpretar la hoja del Excel." : message);
     } finally {
       setIsReading(false);
     }
@@ -599,7 +630,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             <Button
               type="button"
               variant="secondary"
-              className="h-11 justify-center gap-2"
+              className="h-11 justify-center gap-2 font-semibold"
               onClick={() =>
                 downloadText(
                   "plantilla-inventario.csv",
@@ -610,26 +641,38 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             >
               <FileSpreadsheet className="size-4" /> Plantilla CSV
             </Button>
-            <Button type="button" variant="outline" className="h-11 justify-center gap-2" asChild>
-              <label>
+            <Button
+              type="button"
+              variant={fileName ? "secondary" : "outline"}
+              className="h-11 justify-center gap-2 font-semibold"
+              disabled={isReading || isImporting}
+              asChild
+            >
+              <label htmlFor={fileInputId}>
                 <Upload className="size-4" />
-                Seleccionar archivo
-                <input
-                  className="sr-only"
-                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-                  type="file"
-                  onChange={(e) => loadFile(e.target.files?.[0])}
-                />
+                {fileName ? "Cambiar archivo" : "Seleccionar archivo"}
               </label>
             </Button>
           </div>
-          <div className="rounded-lg border border-dashed border-border/80 bg-background/60 p-4 text-center">
-            <FileSpreadsheet className="mx-auto size-8 text-muted-foreground" />
-            <p className="mt-2 text-sm font-medium">Archivo Excel o CSV</p>
+          <input
+            id={fileInputId}
+            className="hidden"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+            type="file"
+            onChange={(e) => loadFile(e.target.files?.[0])}
+          />
+          <label
+            htmlFor={fileInputId}
+            className="group cursor-pointer rounded-lg border border-dashed border-border/80 bg-background/60 p-5 text-center transition hover:border-primary/60 hover:bg-primary/5"
+          >
+            <FileSpreadsheet className="mx-auto size-9 text-muted-foreground transition group-hover:text-primary" />
+            <p className="mt-2 text-sm font-semibold">
+              {fileName ? fileName : "Arrastrá o seleccioná un archivo Excel o CSV"}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Formatos admitidos: .xlsx y .csv. Para .xls antiguo, guardalo como .xlsx.
             </p>
-          </div>
+          </label>
           {isReading && (
             <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/30 p-3 text-sm">
               <Loader2 className="size-4 animate-spin text-primary" />
@@ -652,7 +695,12 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
             Cancelar
           </Button>
-          <Button type="button" disabled={records.length === 0 || isImporting || isReading} onClick={importRows}>
+          <Button
+            type="button"
+            className="font-semibold"
+            disabled={records.length === 0 || isImporting || isReading}
+            onClick={importRows}
+          >
             {isImporting ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
             {isImporting ? "Importando..." : "Importar registros"}
           </Button>
