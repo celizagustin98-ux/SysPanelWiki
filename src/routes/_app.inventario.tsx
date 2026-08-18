@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
 import readExcelFile, { readSheet } from "read-excel-file/browser";
+import { strToU8, zipSync } from "fflate";
 import {
   CheckCircle2,
   ClipboardCheck,
@@ -9,6 +10,7 @@ import {
   FileJson,
   FileSpreadsheet,
   Filter,
+  History,
   Info,
   Loader2,
   Pencil,
@@ -79,6 +81,7 @@ const INVENTARIO_COLUMNS = [
   "Marca",
   "N° de serie",
   "Propiedad",
+  "Estado",
   "Ultima vez controlada",
 ] as const;
 
@@ -99,8 +102,8 @@ type Item = {
   modelo: string | null;
   numero_serie: string | null;
   propiedad: string | null;
-  ultima_vez_controlada: string | null;
   estado: string;
+  ultima_vez_controlada: string | null;
   asignado_a: string | null;
   notas: string | null;
   created_at?: string;
@@ -121,11 +124,46 @@ type ItemPayload = {
   modelo: string;
   numero_serie: string;
   propiedad: string;
-  ultima_vez_controlada: string | null;
   estado: string;
+  ultima_vez_controlada: string | null;
   asignado_a: string;
   notas: string;
 };
+
+type Control = {
+  id: string;
+  inventario_id: string;
+  controlado_por_nombre: string | null;
+  fecha_control: string;
+  estado: string;
+  observacion: string | null;
+  created_at: string;
+};
+
+const ESTADOS = ["operativo", "observado", "reparacion", "baja"] as const;
+
+function estadoLabel(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    operativo: "Operativo",
+    en_uso: "Operativo",
+    observado: "Observado",
+    reparacion: "Reparación",
+    baja: "Baja",
+    nuevo: "Nuevo",
+  };
+  return labels[value || ""] ?? text(value || "Operativo");
+}
+
+function normalizeEstado(value: string) {
+  const normalized = text(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (normalized.includes("baja")) return "baja";
+  if (normalized.includes("repar")) return "reparacion";
+  if (normalized.includes("observ")) return "observado";
+  return "operativo";
+}
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -161,6 +199,7 @@ function itemField(item: Item, column: InventarioColumn) {
     Marca: item.marca,
     "N° de serie": item.numero_serie,
     Propiedad: item.propiedad,
+    Estado: estadoLabel(item.estado),
     "Ultima vez controlada": item.ultima_vez_controlada,
   };
   return map[column] ?? "";
@@ -196,6 +235,73 @@ function exportJson(rows: Item[]) {
     Object.fromEntries(INVENTARIO_COLUMNS.map((column) => [column, itemField(row, column)])),
   );
   downloadText("inventario.json", JSON.stringify(data, null, 2), "application/json;charset=utf-8");
+}
+
+function xmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function columnName(index: number) {
+  let n = index + 1;
+  let name = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+function exportXlsx(rows: Item[]) {
+  const matrix = [
+    [...INVENTARIO_COLUMNS],
+    ...rows.map((row) => INVENTARIO_COLUMNS.map((column) => String(itemField(row, column) ?? ""))),
+  ];
+  const sheetData = matrix
+    .map((row, rowIndex) => {
+      const cells = row
+        .map((value, columnIndex) => {
+          const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
+          return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`;
+        })
+        .join("");
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    })
+    .join("");
+  const widths = INVENTARIO_COLUMNS.map((_, index) => `<col min="${index + 1}" max="${index + 1}" width="22" customWidth="1"/>`).join("");
+  const files: Record<string, Uint8Array> = {
+    "[Content_Types].xml": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    ),
+    "_rels/.rels": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    ),
+    "xl/workbook.xml": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Inventario" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    ),
+    "xl/_rels/workbook.xml.rels": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    ),
+    "xl/worksheets/sheet1.xml": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${widths}</cols><sheetData>${sheetData}</sheetData></worksheet>`,
+    ),
+  };
+  const zipped = zipSync(files);
+  const blob = new Blob([zipped], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "inventario.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function printRows(rows: Item[]) {
@@ -338,6 +444,9 @@ const HEADER_ALIASES: Record<string, InventarioColumn> = {
   "serial number": "N° de serie",
   propiedad: "Propiedad",
   owner: "Propiedad",
+  estado: "Estado",
+  status: "Estado",
+  condicion: "Estado",
   "ultima vez controlada": "Ultima vez controlada",
   "ultimo control": "Ultima vez controlada",
   "ultima controlada": "Ultima vez controlada",
@@ -370,10 +479,26 @@ function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPa
     modelo: tipo,
     numero_serie: numeroSerie,
     propiedad: text(input.Propiedad),
+    estado: normalizeEstado(input.Estado),
     ultima_vez_controlada: normalizeDateValue(input["Ultima vez controlada"]),
-    estado: "en_uso",
     asignado_a: "",
     notas: "",
+  };
+}
+
+function payloadToRecord(payload: ItemPayload): Record<InventarioColumn, string> {
+  return {
+    Planta: payload.planta,
+    Sector: payload.sector,
+    Rubro: payload.rubro,
+    Tipo: payload.tipo,
+    Descripcion: payload.descripcion,
+    Cantidad: String(payload.cantidad),
+    Marca: payload.marca,
+    "N° de serie": payload.numero_serie,
+    Propiedad: payload.propiedad,
+    Estado: estadoLabel(payload.estado),
+    "Ultima vez controlada": payload.ultima_vez_controlada ?? "",
   };
 }
 
@@ -479,6 +604,23 @@ function uniqueOptions(rows: Item[], getter: (row: Item) => string | null | unde
   );
 }
 
+function daysSince(dateValue: string | null | undefined) {
+  if (!dateValue) return null;
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.floor((localToday.getTime() - date.getTime()) / 86400000);
+}
+
+function controlBadgeVariant(item: Item): "default" | "secondary" | "destructive" | "outline" {
+  const days = daysSince(item.ultima_vez_controlada);
+  if (days === null) return "destructive";
+  if (days > 180) return "destructive";
+  if (days > 90) return "outline";
+  return "secondary";
+}
+
 function ItemDialog({
   item,
   trigger,
@@ -489,6 +631,7 @@ function ItemDialog({
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [estado, setEstado] = useState(item?.estado || "operativo");
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -496,6 +639,7 @@ function ItemDialog({
     const record = Object.fromEntries(
       INVENTARIO_COLUMNS.map((column) => [column, text(fd.get(column))]),
     ) as Record<InventarioColumn, string>;
+    record.Estado = estado;
 
     let payload: ItemPayload;
     try {
@@ -528,13 +672,28 @@ function ItemDialog({
             {INVENTARIO_COLUMNS.map((column) => (
               <div key={column} className="space-y-1.5">
                 <Label>{column}</Label>
-                <Input
-                  name={column}
-                  type={column === "Cantidad" ? "number" : column === "Ultima vez controlada" ? "date" : "text"}
-                  min={column === "Cantidad" ? 0 : undefined}
-                  defaultValue={String(item ? itemField(item, column) : column === "Cantidad" ? 1 : "")}
-                  required={column === "Descripcion" || column === "Cantidad"}
-                />
+                {column === "Estado" ? (
+                  <Select value={estado} onValueChange={setEstado}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ESTADOS.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {estadoLabel(value)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    name={column}
+                    type={column === "Cantidad" ? "number" : column === "Ultima vez controlada" ? "date" : "text"}
+                    min={column === "Cantidad" ? 0 : undefined}
+                    defaultValue={String(item ? itemField(item, column) : column === "Cantidad" ? 1 : "")}
+                    required={column === "Descripcion" || column === "Cantidad"}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -599,6 +758,21 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const updatePreviewCell = (rowIndex: number, column: InventarioColumn, value: string) => {
+    setRecords((current) =>
+      current.map((record, index) => {
+        if (index !== rowIndex) return record;
+        const nextRecord = payloadToRecord(record);
+        nextRecord[column] = value;
+        try {
+          return makePayload(nextRecord, rowIndex);
+        } catch {
+          return record;
+        }
+      }),
+    );
   };
 
   return (
@@ -699,6 +873,60 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
               </div>
             </div>
           )}
+          {records.length > 0 && (
+            <div className="rounded-lg border border-border/70">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold">Vista previa editable</p>
+                  <p className="text-xs text-muted-foreground">
+                    Revisá los primeros registros antes de confirmar la importación.
+                  </p>
+                </div>
+                <Badge variant="secondary">{records.length} registro(s)</Badge>
+              </div>
+              <div className="max-h-80 overflow-auto">
+                <table className="min-w-[1100px] text-xs">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr>
+                      <th className="w-10 border-b border-r border-border/70 px-2 py-2 text-left">#</th>
+                      {INVENTARIO_COLUMNS.map((column) => (
+                        <th key={column} className="border-b border-r border-border/70 px-2 py-2 text-left">
+                          {column}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records.slice(0, 50).map((record, index) => {
+                      const preview = payloadToRecord(record);
+                      return (
+                        <tr key={index}>
+                          <td className="border-b border-r border-border/60 px-2 py-1 text-muted-foreground">
+                            {index + 1}
+                          </td>
+                          {INVENTARIO_COLUMNS.map((column) => (
+                            <td key={column} className="border-b border-r border-border/60 p-1">
+                              <Input
+                                className="h-8 min-w-28 border-0 bg-transparent px-2 text-xs shadow-none focus-visible:ring-1"
+                                type={column === "Cantidad" ? "number" : column === "Ultima vez controlada" ? "date" : "text"}
+                                value={preview[column]}
+                                onChange={(e) => updatePreviewCell(index, column, e.target.value)}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {records.length > 50 && (
+                <p className="border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
+                  Se muestran 50 filas para revisión rápida. Al importar se guardan las {records.length} filas.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <DialogFooter className="grid gap-2 sm:flex sm:justify-end">
           <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>
@@ -714,6 +942,151 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             {isImporting ? "Importando..." : "Importar registros"}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ControlDialog({
+  item,
+  trigger,
+  onDone,
+}: {
+  item: Item;
+  trigger: React.ReactNode;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [estado, setEstado] = useState(item.estado || "operativo");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const fecha = text(fd.get("fecha_control")) || new Date().toISOString().slice(0, 10);
+    const observacion = text(fd.get("observacion"));
+    setIsSaving(true);
+    try {
+      const { error } = await api.rpc("controlar_inventario", {
+        _inventario_id: item.id,
+        _fecha_control: fecha,
+        _estado: estado,
+        _observacion: observacion,
+      });
+      if (error) return toast.error(error.message);
+      toast.success("Control registrado en historial");
+      setOpen(false);
+      onDone();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Controlar inventario</DialogTitle>
+          <DialogDescription>
+            Registrá el control de este activo. Queda historial con fecha, estado y responsable.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="grid gap-3" onSubmit={submit}>
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+            <p className="text-sm font-semibold">{item.descripcion || item.nombre}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[item.planta, item.sector, item.numero_serie].filter(Boolean).join(" · ") || "Sin datos adicionales"}
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Fecha de control</Label>
+              <Input name="fecha_control" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Estado</Label>
+              <Select value={estado} onValueChange={setEstado}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ESTADOS.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {estadoLabel(value)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Observación</Label>
+            <Input name="observacion" placeholder="Ej: verificado en sitio, requiere revisión, enviado a reparación..." />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={isSaving}>
+              {isSaving ? <Loader2 className="size-4 animate-spin" /> : <ClipboardCheck className="size-4" />}
+              Guardar control
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function HistorialDialog({ item, trigger }: { item: Item; trigger: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const { data = [], isLoading } = useQuery({
+    queryKey: ["inventario-controles", item.id],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await api
+        .from("inventario_controles")
+        .select("*")
+        .eq("inventario_id", item.id)
+        .order("fecha_control", { ascending: false });
+      if (error) throw error;
+      return data as Control[];
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Historial de controles</DialogTitle>
+          <DialogDescription>{item.descripcion || item.nombre}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {isLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/30 p-3 text-sm">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              Cargando historial...
+            </div>
+          )}
+          {!isLoading && data.length === 0 && (
+            <div className="rounded-lg border border-dashed border-border/70 py-10 text-center text-sm text-muted-foreground">
+              Este registro todavía no tiene controles guardados.
+            </div>
+          )}
+          {data.map((control) => (
+            <article key={control.id} className="rounded-lg border border-border/70 bg-background p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold">{control.fecha_control}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {control.controlado_por_nombre || "Usuario no identificado"}
+                  </p>
+                </div>
+                <Badge variant="secondary">{estadoLabel(control.estado)}</Badge>
+              </div>
+              {control.observacion && <p className="mt-2 text-sm text-muted-foreground">{control.observacion}</p>}
+            </article>
+          ))}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -756,6 +1129,8 @@ function InventarioPage() {
   const [rubro, setRubro] = useState("todos");
   const [tipo, setTipo] = useState("todos");
   const [propiedad, setPropiedad] = useState("todos");
+  const [estado, setEstado] = useState("todos");
+  const [control, setControl] = useState("todos");
 
   const { data = [] } = useQuery({
     queryKey: ["inventario"],
@@ -781,22 +1156,6 @@ function InventarioPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const controlar = useMutation({
-    mutationFn: async (item: Item) => {
-      const today = new Date().toISOString().slice(0, 10);
-      const { error } = await api
-        .from("inventario")
-        .update({ ultima_vez_controlada: today, estado: item.estado || "en_uso" })
-        .eq("id", item.id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Control registrado");
-      qc.invalidateQueries({ queryKey: ["inventario"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const options = useMemo(
     () => ({
       plantas: uniqueOptions(data, (row) => row.planta),
@@ -804,6 +1163,7 @@ function InventarioPage() {
       rubros: uniqueOptions(data, (row) => row.rubro ?? row.categoria),
       tipos: uniqueOptions(data, (row) => row.tipo ?? row.modelo),
       propiedades: uniqueOptions(data, (row) => row.propiedad),
+      estados: uniqueOptions(data, (row) => estadoLabel(row.estado)),
     }),
     [data],
   );
@@ -812,22 +1172,41 @@ function InventarioPage() {
     () =>
       data.filter((item) => {
         const searchable = INVENTARIO_COLUMNS.map((column) => itemField(item, column)).join(" ");
+        const days = daysSince(item.ultima_vez_controlada);
+        const controlMatch =
+          control === "todos" ||
+          (control === "sin_control" && days === null) ||
+          (control === "vencido_90" && (days === null || days > 90)) ||
+          (control === "vencido_180" && (days === null || days > 180));
         return (
           searchable.toLowerCase().includes(q.toLowerCase()) &&
           (planta === "todos" || item.planta === planta) &&
           (sector === "todos" || item.sector === sector) &&
           (rubro === "todos" || (item.rubro ?? item.categoria) === rubro) &&
           (tipo === "todos" || (item.tipo ?? item.modelo) === tipo) &&
-          (propiedad === "todos" || item.propiedad === propiedad)
+          (propiedad === "todos" || item.propiedad === propiedad) &&
+          (estado === "todos" || estadoLabel(item.estado) === estado) &&
+          controlMatch
         );
       }),
-    [data, q, planta, sector, rubro, tipo, propiedad],
+    [data, q, planta, sector, rubro, tipo, propiedad, estado, control],
   );
 
   const totalCantidad = rows.reduce((sum, row) => sum + Number(row.cantidad ?? 0), 0);
   const sinControl = rows.filter((row) => !row.ultima_vez_controlada).length;
+  const control90 = rows.filter((row) => {
+    const days = daysSince(row.ultima_vez_controlada);
+    return days === null || days > 90;
+  }).length;
+  const control180 = rows.filter((row) => {
+    const days = daysSince(row.ultima_vez_controlada);
+    return days === null || days > 180;
+  }).length;
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["inventario"] });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["inventario"] });
+    qc.invalidateQueries({ queryKey: ["inventario-controles"] });
+  };
   const canCreate = can("inventario", "create");
   const canEdit = can("inventario", "edit");
   const canDelete = can("inventario", "delete") || isAdmin;
@@ -856,7 +1235,7 @@ function InventarioPage() {
         }
       />
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-5">
         <Card className="panel">
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Registros visibles</p>
@@ -881,6 +1260,13 @@ function InventarioPage() {
             <p className="mt-1 text-2xl font-semibold">{sinControl}</p>
           </CardContent>
         </Card>
+        <Card className="panel">
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">Control vencido</p>
+            <p className="mt-1 text-2xl font-semibold">{control180}</p>
+            <p className="text-xs text-muted-foreground">{control90} con más de 90 días</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="panel">
@@ -895,7 +1281,10 @@ function InventarioPage() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-4">
+              <Button variant="outline" onClick={() => exportXlsx(rows)}>
+                <FileSpreadsheet className="size-4" /> Excel
+              </Button>
               <Button variant="outline" onClick={() => exportCsv(rows)}>
                 <Download className="size-4" /> CSV
               </Button>
@@ -908,7 +1297,7 @@ function InventarioPage() {
             </div>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-7">
             <FilterSelect label="Todas las plantas" value={planta} onChange={setPlanta} options={options.plantas} />
             <FilterSelect label="Todos los sectores" value={sector} onChange={setSector} options={options.sectores} />
             <FilterSelect label="Todos los rubros" value={rubro} onChange={setRubro} options={options.rubros} />
@@ -919,6 +1308,18 @@ function InventarioPage() {
               onChange={setPropiedad}
               options={options.propiedades}
             />
+            <FilterSelect label="Todos los estados" value={estado} onChange={setEstado} options={options.estados} />
+            <Select value={control} onValueChange={setControl}>
+              <SelectTrigger className="w-full md:w-44">
+                <SelectValue placeholder="Control" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los controles</SelectItem>
+                <SelectItem value="sin_control">Sin control</SelectItem>
+                <SelectItem value="vencido_90">Más de 90 días</SelectItem>
+                <SelectItem value="vencido_180">Más de 180 días</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
@@ -948,17 +1349,23 @@ function InventarioPage() {
                   </Badge>
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  {(["Marca", "N° de serie", "Propiedad", "Ultima vez controlada"] as InventarioColumn[]).map(
+                  {(["Marca", "N° de serie", "Propiedad", "Estado", "Ultima vez controlada"] as InventarioColumn[]).map(
                     (column) => (
                       <div key={column} className="min-w-0">
                         <dt className="text-xs text-muted-foreground">{column}</dt>
-                        <dd className="truncate font-medium">{itemField(item, column) || "-"}</dd>
+                        <dd className="truncate font-medium">
+                          {column === "Ultima vez controlada" ? (
+                            <Badge variant={controlBadgeVariant(item)}>{itemField(item, column) || "Sin control"}</Badge>
+                          ) : (
+                            itemField(item, column) || "-"
+                          )}
+                        </dd>
                       </div>
                     ),
                   )}
                 </dl>
                 {canWrite && (
-                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <div className="mt-4 grid gap-2 sm:grid-cols-4">
                     {canEdit && (
                       <ItemDialog
                         item={item}
@@ -971,15 +1378,24 @@ function InventarioPage() {
                       />
                     )}
                     {canEdit && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={controlar.isPending}
-                        onClick={() => controlar.mutate(item)}
-                      >
-                        <ClipboardCheck className="size-4" /> Controlar
-                      </Button>
+                      <ControlDialog
+                        item={item}
+                        trigger={
+                          <Button size="sm" variant="outline">
+                            <ClipboardCheck className="size-4" /> Controlar
+                          </Button>
+                        }
+                        onDone={refresh}
+                      />
                     )}
+                    <HistorialDialog
+                      item={item}
+                      trigger={
+                        <Button size="sm" variant="outline">
+                          <History className="size-4" /> Historial
+                        </Button>
+                      }
+                    />
                     {canDelete && (
                       <Button
                         size="sm"
@@ -1028,12 +1444,18 @@ function InventarioPage() {
                       >
                         {column === "Cantidad" ? (
                           <Badge variant="secondary">{itemField(item, column) || 0}</Badge>
+                        ) : column === "Estado" ? (
+                          <Badge variant={item.estado === "baja" ? "destructive" : "secondary"}>
+                            {itemField(item, column) || "Operativo"}
+                          </Badge>
+                        ) : column === "Ultima vez controlada" ? (
+                          <Badge variant={controlBadgeVariant(item)}>{itemField(item, column) || "Sin control"}</Badge>
                         ) : (
                           itemField(item, column) || "-"
                         )}
                       </TableCell>
                     ))}
-                    <TableCell className="min-w-72 whitespace-nowrap text-right">
+                    <TableCell className="min-w-96 whitespace-nowrap text-right">
                       {canEdit && (
                         <ItemDialog
                           item={item}
@@ -1046,16 +1468,24 @@ function InventarioPage() {
                         />
                       )}
                       {canEdit && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          title="Registrar control"
-                          disabled={controlar.isPending}
-                          onClick={() => controlar.mutate(item)}
-                        >
-                          <ClipboardCheck className="size-4" /> Controlar
-                        </Button>
+                        <ControlDialog
+                          item={item}
+                          trigger={
+                            <Button size="sm" variant="ghost" title="Registrar control">
+                              <ClipboardCheck className="size-4" /> Controlar
+                            </Button>
+                          }
+                          onDone={refresh}
+                        />
                       )}
+                      <HistorialDialog
+                        item={item}
+                        trigger={
+                          <Button size="sm" variant="ghost" title="Ver historial">
+                            <History className="size-4" /> Historial
+                          </Button>
+                        }
+                      />
                       {canDelete && (
                         <Button
                           size="sm"

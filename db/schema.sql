@@ -117,6 +117,23 @@ alter table inventario add column if not exists cantidad integer not null defaul
 alter table inventario add column if not exists propiedad text;
 alter table inventario add column if not exists ultima_vez_controlada date;
 
+create table if not exists inventario_controles (
+  id uuid primary key default gen_random_uuid(),
+  inventario_id uuid not null references inventario(id) on delete cascade,
+  controlado_por uuid references app_users(id) on delete set null,
+  controlado_por_nombre text,
+  fecha_control date not null default current_date,
+  estado text not null default 'operativo',
+  observacion text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists inventario_controles_item_idx
+  on inventario_controles (inventario_id, fecha_control desc);
+
+create index if not exists inventario_controles_fecha_idx
+  on inventario_controles (fecha_control desc);
+
 update inventario
    set descripcion = coalesce(nullif(descripcion, ''), nombre),
        rubro = coalesce(nullif(rubro, ''), categoria),

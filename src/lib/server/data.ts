@@ -44,6 +44,7 @@ const TABLES = new Set([
   "credenciales",
   "guardias",
   "inventario",
+  "inventario_controles",
   "profiles",
   "role_permissions",
   "tarea_comentarios",
@@ -62,6 +63,7 @@ const TABLES = new Set([
 const WRITABLE_BY_TECH = new Set([
   "guardias",
   "inventario",
+  "inventario_controles",
   "tarea_comentarios",
   "tarea_instructivos",
   "tarea_subtareas",
@@ -81,6 +83,10 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   inventario: {
     modulo: "inventario",
     fields: ["planta", "sector", "descripcion", "numero_serie"],
+  },
+  inventario_controles: {
+    modulo: "inventario",
+    fields: ["fecha_control", "estado", "observacion"],
   },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
@@ -407,6 +413,52 @@ export const apiRpc = createServerFn({ method: "POST" })
         },
       );
       return { data: codes, error: null };
+    }
+    if (data.name === "controlar_inventario") {
+      await assertCanWrite(session.user.id);
+      const inventarioId = String(data.args?._inventario_id ?? "");
+      if (!inventarioId) throw new Error("Falta el registro de inventario");
+      const fechaControl = String(data.args?._fecha_control ?? new Date().toISOString().slice(0, 10));
+      const estado = String(data.args?._estado ?? "operativo").trim() || "operativo";
+      const observacion = String(data.args?._observacion ?? "").trim();
+      const actor = await one<{ full_name: string; email: string }>(
+        `select full_name, email from profiles where id = $1`,
+        [session.user.id],
+      );
+      const item = await one<Record<string, unknown>>(`select * from inventario where id = $1`, [
+        inventarioId,
+      ]);
+      if (!item) throw new Error("Registro de inventario inexistente");
+      const control = await query<Record<string, unknown>>(
+        `insert into inventario_controles
+          (inventario_id, controlado_por, controlado_por_nombre, fecha_control, estado, observacion)
+         values ($1, $2, $3, $4, $5, $6)
+         returning *`,
+        [
+          inventarioId,
+          session.user.id,
+          actor?.full_name ?? actor?.email ?? "",
+          fechaControl,
+          estado,
+          observacion,
+        ],
+      );
+      await query(
+        `update inventario
+            set ultima_vez_controlada = $2,
+                estado = $3,
+                notas = case
+                  when $4::text = '' then notas
+                  else $4
+                end
+          where id = $1`,
+        [inventarioId, fechaControl, estado, observacion],
+      );
+      await writeAudit(session.user.id, "inventario_controles", "crear", control.rows, {
+        inventario_id: inventarioId,
+        descripcion: rowDescription("inventario", item),
+      });
+      return { data: control.rows[0], error: null };
     }
     throw new Error("Función no permitida");
   });
