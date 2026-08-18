@@ -125,6 +125,25 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function parseCantidad(value: string) {
+  const normalized = text(value).replace(/\./g, "").replace(",", ".");
+  return Number(normalized || 1);
+}
+
+function normalizeDateValue(value: string) {
+  const raw = text(value);
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!match) return raw;
+
+  const day = match[1].padStart(2, "0");
+  const month = match[2].padStart(2, "0");
+  const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+  return `${year}-${month}-${day}`;
+}
+
 function itemField(item: Item, column: InventarioColumn) {
   const map: Record<InventarioColumn, string | number | null | undefined> = {
     Planta: item.planta,
@@ -160,10 +179,10 @@ function downloadText(filename: string, content: string, type: string) {
 
 function exportCsv(rows: Item[]) {
   const lines = [
-    INVENTARIO_COLUMNS.join(","),
-    ...rows.map((row) => INVENTARIO_COLUMNS.map((column) => csvEscape(itemField(row, column))).join(",")),
+    INVENTARIO_COLUMNS.map(csvEscape).join(";"),
+    ...rows.map((row) => INVENTARIO_COLUMNS.map((column) => csvEscape(itemField(row, column))).join(";")),
   ];
-  downloadText("inventario.csv", lines.join("\n"), "text/csv;charset=utf-8");
+  downloadText("inventario.csv", `\ufeff${lines.join("\r\n")}`, "text/csv;charset=utf-8");
 }
 
 function exportJson(rows: Item[]) {
@@ -210,7 +229,45 @@ function printRows(rows: Item[]) {
   win.print();
 }
 
+function splitCsvLine(line: string, delimiter: string) {
+  const cells: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      cell += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === delimiter && !inQuotes) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+function detectCsvDelimiter(textContent: string) {
+  const firstLine = textContent
+    .replace(/^\ufeff/, "")
+    .split(/\r?\n/)
+    .find((line) => line.trim().length > 0);
+  if (!firstLine) return ",";
+
+  const candidates = [";", ",", "\t"];
+  return candidates
+    .map((delimiter) => ({ delimiter, count: splitCsvLine(firstLine, delimiter).length }))
+    .sort((a, b) => b.count - a.count)[0]?.delimiter ?? ",";
+}
+
 function parseCsv(textContent: string) {
+  const delimiter = detectCsvDelimiter(textContent);
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -224,7 +281,7 @@ function parseCsv(textContent: string) {
       i += 1;
     } else if (char === '"') {
       inQuotes = !inQuotes;
-    } else if (char === "," && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       row.push(cell.trim());
       cell = "";
     } else if ((char === "\n" || char === "\r") && !inQuotes) {
@@ -244,9 +301,11 @@ function parseCsv(textContent: string) {
 
 function normalizeHeader(value: string) {
   return value
+    .replace(/^\ufeff/, "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[°º]/g, "")
+    .replace(/[#.:;,_-]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -258,19 +317,31 @@ const HEADER_ALIASES: Record<string, InventarioColumn> = {
   rubro: "Rubro",
   tipo: "Tipo",
   descripcion: "Descripcion",
+  description: "Descripcion",
   cantidad: "Cantidad",
   marca: "Marca",
   "n de serie": "N° de serie",
+  "n serie": "N° de serie",
+  "nro serie": "N° de serie",
   "numero de serie": "N° de serie",
+  "numero serie": "N° de serie",
   "nro de serie": "N° de serie",
+  serie: "N° de serie",
+  serial: "N° de serie",
+  "serial number": "N° de serie",
   propiedad: "Propiedad",
+  owner: "Propiedad",
   "ultima vez controlada": "Ultima vez controlada",
+  "ultimo control": "Ultima vez controlada",
+  "ultima controlada": "Ultima vez controlada",
+  "fecha control": "Ultima vez controlada",
+  "fecha de control": "Ultima vez controlada",
 };
 
 function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPayload {
   const descripcion = text(input.Descripcion);
   const numeroSerie = text(input["N° de serie"]);
-  const cantidad = Number(text(input.Cantidad) || 1);
+  const cantidad = parseCantidad(input.Cantidad);
   if (!descripcion) throw new Error("La descripción es obligatoria");
   if (!Number.isFinite(cantidad) || cantidad < 0) throw new Error("La cantidad no es válida");
 
@@ -292,7 +363,7 @@ function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPa
     modelo: tipo,
     numero_serie: numeroSerie,
     propiedad: text(input.Propiedad),
-    ultima_vez_controlada: text(input["Ultima vez controlada"]) || null,
+    ultima_vez_controlada: normalizeDateValue(input["Ultima vez controlada"]),
     estado: "en_uso",
     asignado_a: "",
     notas: "",
@@ -303,10 +374,14 @@ function parseImportFile(content: string) {
   const rows = parseCsv(content);
   if (rows.length < 2) throw new Error("El archivo no tiene registros para importar");
 
-  const headers = rows[0].map((header) => HEADER_ALIASES[normalizeHeader(header)]);
+  const rawHeaders = rows[0];
+  const headers = rawHeaders.map((header) => HEADER_ALIASES[normalizeHeader(header)]);
   const missing = INVENTARIO_COLUMNS.filter((column) => !headers.includes(column));
   if (missing.length > 0) {
-    throw new Error(`Faltan columnas: ${missing.join(", ")}`);
+    const detected = rawHeaders.map((header) => text(header)).filter(Boolean).join(" | ");
+    throw new Error(
+      `Faltan columnas: ${missing.join(", ")}. Columnas detectadas: ${detected || "ninguna"}`,
+    );
   }
 
   return rows.slice(1).map((row, index) => {
@@ -416,7 +491,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
     reset();
     if (!file) return;
     if (/\.(xlsx|xls)$/i.test(file.name)) {
-      toast.error("Guardá el Excel como CSV y subí ese archivo para importar sin dependencias extra.");
+      toast.error("Por seguridad, por ahora importá desde Excel usando Archivo > Guardar como > CSV UTF-8.");
       return;
     }
     try {
@@ -458,7 +533,13 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => downloadText("plantilla-inventario.csv", `${INVENTARIO_COLUMNS.join(",")}\n`, "text/csv;charset=utf-8")}
+            onClick={() =>
+              downloadText(
+                "plantilla-inventario.csv",
+                `\ufeff${INVENTARIO_COLUMNS.map(csvEscape).join(";")}\r\n`,
+                "text/csv;charset=utf-8",
+              )
+            }
           >
             <FileSpreadsheet className="size-4" /> Descargar plantilla CSV
           </Button>
