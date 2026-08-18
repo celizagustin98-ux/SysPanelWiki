@@ -1,17 +1,22 @@
 {
   "name": "syswiki-panel",
+  "version": "1.0.0",
   "private": true,
   "sideEffects": false,
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "prebuild": "node scripts/write-build-info.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "db:init": "node scripts/init-db.mjs",
     "start": "node scripts/serve.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "version:fix": "node scripts/bump-version.mjs patch",
+    "version:module": "node scripts/bump-version.mjs minor",
+    "version:official": "node scripts/bump-version.mjs major"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

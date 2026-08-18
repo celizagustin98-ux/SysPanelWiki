@@ -117,20 +117,70 @@ type SystemStats = {
   guardias: number;
 };
 
+type SystemInfo = {
+  appVersion: string;
+  displayVersion: string;
+  commit: string | null;
+  commitDate: string | null;
+  buildTime: string | null;
+  environment: string;
+  httpsEnabled: boolean;
+  ultimaRevision: string | null;
+  ultimaActualizacion: string | null;
+  ultimaActualizacionFuente: "commit" | "variable" | "build" | null;
+};
+
 function formatDate(value?: string | null) {
   if (!value) return "Sin registro";
   return new Date(value).toLocaleString("es-AR", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 
 function formatVersion(value?: string | null) {
   const version = (value ?? "").trim();
-  if (!version || version === "v1.0.0" || /^[a-f0-9]{7,40}$/i.test(version)) return "V 0.1 beta";
+  if (!version || /^[a-f0-9]{7,40}$/i.test(version)) return "V 1.0.0 oficial";
   if (/^v\s/i.test(version)) return version.replace(/^v/i, "V");
   if (/^\d/.test(version)) return `V ${version}`;
   return version;
+}
+
+function parseVersion(value?: string | null) {
+  const version = String(value ?? "").trim();
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-beta(?:\.\d+)?)?$/i);
+  if (!match) return { major: 0, minor: 1, patch: 0, beta: true };
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    beta: /beta/i.test(version),
+  };
+}
+
+function versionLabel(major: number, minor: number, patch: number, beta = true) {
+  const base = `${major}.${minor}.${patch}`;
+  return `V ${base}${beta ? " beta" : " oficial"}`;
+}
+
+function getVersionPolicy(version?: string | null) {
+  const current = parseVersion(version);
+  return {
+    fix: versionLabel(current.major, current.minor, current.patch + 1, current.beta),
+    module: versionLabel(current.major, current.minor + 1, 0, current.beta),
+    official: "V 1.0.0 oficial",
+  };
+}
+
+function updateSourceLabel(source?: SystemInfo["ultimaActualizacionFuente"]) {
+  if (source === "commit") return "último commit desplegado";
+  if (source === "variable") return "variable APP_UPDATED_AT";
+  if (source === "build") return "build del servidor";
+  return "registro del sistema";
 }
 
 function ConfiguracionPage() {
@@ -140,6 +190,7 @@ function ConfiguracionPage() {
   const [saving, setSaving] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([]);
   const [systemStats, setSystemStats] = useState<SystemStats>({
     auditoria: 0,
@@ -168,6 +219,11 @@ function ConfiguracionPage() {
       .select("version_actual, ultima_revision, ultima_actualizacion, updated_at")
       .maybeSingle();
     if (data) setSettings(data as Settings);
+    try {
+      setSystemInfo(await api.system.info<SystemInfo>());
+    } catch {
+      setSystemInfo(null);
+    }
   }, []);
 
   const loadSystemStats = useCallback(async () => {
@@ -334,6 +390,8 @@ function ConfiguracionPage() {
     usuarios.forEach((u) => (c[u.role] += 1));
     return c;
   }, [usuarios]);
+  const installedVersion = systemInfo?.appVersion ?? "1.0.0";
+  const versionPolicy = getVersionPolicy(installedVersion);
 
   if (!isAdmin) {
     return (
@@ -380,12 +438,14 @@ function ConfiguracionPage() {
           <div className="grid gap-3 md:grid-cols-3">
             <Card className="panel">
               <CardContent className="py-4">
-                <p className="text-xs font-medium uppercase text-muted-foreground">Versión actual</p>
+                <p className="text-xs font-medium uppercase text-muted-foreground">
+                  Versión actual
+                </p>
                 <p className="mt-2 text-2xl font-semibold">
-                  {formatVersion(settings?.version_actual)}
+                  {systemInfo?.displayVersion ?? "V 1.0.0 oficial"}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Rama beta hasta completar la versión oficial V 1.0.
+                  {systemInfo?.commit ? `Commit ${systemInfo.commit}` : "Versión oficial estable."}
                 </p>
               </CardContent>
             </Card>
@@ -395,7 +455,10 @@ function ConfiguracionPage() {
                   Última actualización
                 </p>
                 <p className="mt-2 text-sm font-medium">
-                  {formatDate(settings?.ultima_actualizacion ?? settings?.updated_at)}
+                  {formatDate(systemInfo?.ultimaActualizacion)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Sale de {updateSourceLabel(systemInfo?.ultimaActualizacionFuente)}. Entorno: {systemInfo?.environment ?? "production"}
                 </p>
               </CardContent>
             </Card>
@@ -408,6 +471,38 @@ function ConfiguracionPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card className="panel">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Settings2 className="size-4" /> Criterio de versión
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <p className="font-semibold text-foreground">Regla automática</p>
+                <p>
+                  La wiki usa formato <span className="font-mono">MAJOR.MINOR.PATCH</span>: el
+                  último número es para arreglos, el segundo para mejoras de módulo o módulos
+                  nuevos, y el primero para versiones mayores.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <p className="font-semibold text-foreground">Parche</p>
+                <p>Corrección chica o bugfix. Próximo fix: {versionPolicy.fix}.</p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <p className="font-semibold text-foreground">Actualización</p>
+                <p>Mejora importante de módulo o módulo nuevo. Próxima mejora: {versionPolicy.module}.</p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <p className="font-semibold text-foreground">Oficial</p>
+                <p>Versión oficial actual: {versionPolicy.official}. El primer número solo sube ante cambios mayores.</p>
+              </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card className="panel">
             <CardHeader className="pb-2">
@@ -455,9 +550,9 @@ function ConfiguracionPage() {
               />
               <SystemStatus
                 icon={<ShieldCheck className="size-4" />}
-                title="Guardias"
-                value={`${systemStats.guardias} turnos`}
-                detail="Períodos y liquidación cargados"
+                title="HTTPS / SSL"
+                value={systemInfo?.httpsEnabled ? "Activo" : "Pendiente"}
+                detail={systemInfo?.httpsEnabled ? "Conexión segura detectada" : "Configurar dominio y certificado en Nginx"}
               />
             </CardContent>
           </Card>
@@ -629,8 +724,8 @@ function ConfiguracionPage() {
                 </p>
               ) : null}
 
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full text-sm">
+              <div className="rounded-lg border border-border">
+                <table className="responsive-table text-sm">
                   <thead className="bg-muted/50 text-left">
                     <tr>
                       <th className="px-4 py-2 font-medium">Módulo</th>
@@ -644,7 +739,7 @@ function ConfiguracionPage() {
                   <tbody className="divide-y divide-border">
                     {rolRows.map((row) => (
                       <tr key={row.modulo}>
-                        <td className="px-4 py-2">
+                        <td className="responsive-cell px-4 py-2">
                           {MODULOS.find((m) => m.key === row.modulo)?.label ?? row.modulo}
                         </td>
                         {ACCIONES.map((a) => (
@@ -704,7 +799,7 @@ function ConfiguracionPage() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="password">Contraseña temporal</Label>
-              <Input id="password" name="password" type="text" required minLength={8} />
+              <Input id="password" name="password" type="text" required minLength={10} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="role">Rol</Label>
@@ -749,7 +844,7 @@ function ConfiguracionPage() {
                 id="e-password"
                 name="password"
                 type="text"
-                minLength={8}
+                minLength={10}
                 placeholder="Dejar vacío para no cambiar"
               />
             </div>
@@ -787,7 +882,6 @@ function SystemStatus({
     </div>
   );
 }
-
 
 function filteredEmpty(rows: UsuarioRow[]) {
   return rows.length === 0;

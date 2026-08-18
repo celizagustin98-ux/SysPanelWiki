@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from "node:crypto";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
@@ -20,6 +20,9 @@ const pool = new Pool({
 });
 const DEFAULT_BRANCH = "main";
 const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 1024 * 1024);
+const packageInfo = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+const buildInfo = readBuildInfo();
+const buildTime = buildInfo.builtAt || new Date().toISOString();
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -79,6 +82,7 @@ function sendJson(res, status, payload) {
   res.statusCode = status;
   setSecurityHeaders(null, res);
   res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
   res.end(JSON.stringify(payload));
 }
 
@@ -109,10 +113,81 @@ function setSecurityHeaders(req, res) {
   res.setHeader("x-frame-options", "DENY");
   res.setHeader("referrer-policy", "same-origin");
   res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
-  res.setHeader("cross-origin-opener-policy", "same-origin");
-  if (req?.headers?.["x-forwarded-proto"] === "https") {
+  const forwardedProto = String(req?.headers?.["x-forwarded-proto"] || "");
+  const isHttps = forwardedProto === "https";
+  if (isHttps) {
+    res.setHeader("cross-origin-opener-policy", "same-origin");
     res.setHeader("strict-transport-security", "max-age=15552000; includeSubDomains");
   }
+}
+
+async function gitShortSha() {
+  try {
+    return (await runCommand("git", ["rev-parse", "--short", "HEAD"], { timeout: 10_000 })).trim();
+  } catch {
+    return process.env.APP_COMMIT || buildInfo.commit || null;
+  }
+}
+
+async function gitCommitDate() {
+  try {
+    return (await runCommand("git", ["log", "-1", "--format=%cI"], { timeout: 10_000 })).trim();
+  } catch {
+    return process.env.APP_UPDATED_AT || buildInfo.commitDate || buildInfo.builtAt || null;
+  }
+}
+
+function readBuildInfo() {
+  try {
+    return JSON.parse(readFileSync(resolve("build-info.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+async function handleSystem(req, res) {
+  if (req.method !== "GET" || !req.url?.startsWith("/api/system/info")) return false;
+
+  try {
+    await requireRequestSession(req);
+    const settings = await one(
+      `select version_actual, ultima_revision, ultima_actualizacion, updated_at
+         from app_settings
+        where singleton = true`,
+    );
+    const commitDate = await gitCommitDate();
+    sendJson(res, 200, {
+      appVersion: packageInfo.version || buildInfo.version || "1.0.0",
+      displayVersion: formatDisplayVersion(packageInfo.version || buildInfo.version || settings?.version_actual || "1.0.0"),
+      commit: await gitShortSha(),
+      commitDate,
+      buildTime,
+      environment: process.env.NODE_ENV || "production",
+      httpsEnabled: req.headers["x-forwarded-proto"] === "https",
+      ultimaRevision: settings?.ultima_revision ?? null,
+      ultimaActualizacion: commitDate ?? process.env.APP_UPDATED_AT ?? buildTime,
+      ultimaActualizacionFuente: commitDate
+        ? "commit"
+        : process.env.APP_UPDATED_AT
+          ? "variable"
+          : "build",
+    });
+    return true;
+  } catch (error) {
+    sendJson(res, error.statusCode || 500, {
+      error: error instanceof Error ? error.message : "Error de servidor",
+    });
+    return true;
+  }
+}
+
+function formatDisplayVersion(version) {
+  const raw = String(version || "").trim();
+  const match = raw.match(/^(\d+)\.(\d+)(?:\.(\d+))?(?:-beta(?:\.(\d+))?)?$/i);
+  if (!match) return raw || "V 1.0.0 oficial";
+  const [, major, minor, patch, beta] = match;
+  const base = `${major}.${minor}.${patch ?? "0"}`;
+  return raw.includes("beta") ? `V ${base} beta${beta && beta !== "0" ? ` ${beta}` : ""}` : `V ${base} oficial`;
 }
 
 function hashToken(token) {
@@ -654,6 +729,7 @@ async function sendWebResponse(res, response) {
 
 const server = createServer(async (req, res) => {
   try {
+    if (await handleSystem(req, res)) return;
     if (await handleUpdates(req, res)) return;
     if (await handleAuth(req, res)) return;
     if (await handleInstructionPdf(req, res)) return;
