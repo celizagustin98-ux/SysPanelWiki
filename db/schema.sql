@@ -115,6 +115,7 @@ alter table inventario add column if not exists tipo text;
 alter table inventario add column if not exists descripcion text;
 alter table inventario add column if not exists cantidad integer not null default 1;
 alter table inventario add column if not exists propiedad text;
+alter table inventario add column if not exists estado text not null default 'operativo';
 alter table inventario add column if not exists ultima_vez_controlada date;
 
 create table if not exists inventario_controles (

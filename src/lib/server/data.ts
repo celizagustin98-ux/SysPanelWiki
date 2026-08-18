@@ -415,7 +415,9 @@ export const apiRpc = createServerFn({ method: "POST" })
       return { data: codes, error: null };
     }
     if (data.name === "controlar_inventario") {
-      await assertCanWrite(session.user.id);
+      if (!(await hasModulePermission(session.user.id, "inventario", "editar"))) {
+        throw new Error("No tenés permiso para controlar inventario");
+      }
       const inventarioId = String(data.args?._inventario_id ?? "");
       if (!inventarioId) throw new Error("Falta el registro de inventario");
       const fechaControl = String(data.args?._fecha_control ?? new Date().toISOString().slice(0, 10));

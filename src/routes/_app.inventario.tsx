@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
-import readExcelFile, { readSheet } from "read-excel-file/browser";
 import { strToU8, zipSync } from "fflate";
 import {
   CheckCircle2,
@@ -584,14 +583,22 @@ async function parseSpreadsheetFile(file: File) {
   }
 
   if (/\.xlsx$/i.test(file.name)) {
-    let rows: unknown;
+    const excel = await import("read-excel-file/browser");
     try {
-      rows = await readSheet(file);
-    } catch {
-      const sheets = await readExcelFile(file);
-      rows = sheets[0]?.data;
+      const rows = await excel.default(file);
+      return parseImportRows(normalizeSpreadsheetRows(rows));
+    } catch (primaryError) {
+      try {
+        const readSheet = (excel as { readSheet?: (input: File) => Promise<unknown> }).readSheet;
+        if (!readSheet) throw primaryError;
+        const rows = await readSheet(file);
+        return parseImportRows(normalizeSpreadsheetRows(rows));
+      } catch {
+        throw new Error(
+          "No se pudo leer el Excel. Verificá que sea .xlsx, que tenga datos en la primera hoja y que la primera fila tenga los encabezados.",
+        );
+      }
     }
-    return parseImportRows(normalizeSpreadsheetRows(rows));
   }
 
   const buffer = await file.arrayBuffer();
@@ -1047,7 +1054,10 @@ function HistorialDialog({ item, trigger }: { item: Item; trigger: React.ReactNo
         .select("*")
         .eq("inventario_id", item.id)
         .order("fecha_control", { ascending: false });
-      if (error) throw error;
+      if (error) {
+        toast.error(error.message || "No se pudo cargar el historial");
+        return [] as Control[];
+      }
       return data as Control[];
     },
   });
