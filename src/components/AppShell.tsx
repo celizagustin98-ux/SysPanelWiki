@@ -1,4 +1,5 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   BookOpen,
   Boxes,
@@ -10,6 +11,8 @@ import {
   LayoutDashboard,
   LogOut,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Printer,
   Settings2,
   ShieldCheck,
@@ -23,13 +26,31 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, modulo: null, adminOnly: false },
-  { to: "/oficina", label: "Oficina", icon: BriefcaseBusiness, modulo: "oficina", adminOnly: false },
-  { to: "/instructivos", label: "Instructivos", icon: BookOpen, modulo: "instructivos", adminOnly: false },
+  {
+    to: "/oficina",
+    label: "Oficina",
+    icon: BriefcaseBusiness,
+    modulo: "oficina",
+    adminOnly: false,
+  },
+  {
+    to: "/instructivos",
+    label: "Instructivos",
+    icon: BookOpen,
+    modulo: "instructivos",
+    adminOnly: false,
+  },
   { to: "/guardias", label: "Guardias", icon: CalendarClock, modulo: "guardias", adminOnly: false },
   { to: "/inventario", label: "Inventario", icon: Boxes, modulo: "inventario", adminOnly: false },
   { to: "/toners", label: "Tóners", icon: Printer, modulo: "toners", adminOnly: false },
   { to: "/tareas", label: "Tareas", icon: KanbanSquare, modulo: "tareas", adminOnly: false },
-  { to: "/credenciales", label: "Credenciales", icon: ShieldCheck, modulo: "credenciales", adminOnly: false },
+  {
+    to: "/credenciales",
+    label: "Credenciales",
+    icon: ShieldCheck,
+    modulo: "credenciales",
+    adminOnly: false,
+  },
   { to: "/auditoria", label: "Auditoría", icon: History, modulo: null, adminOnly: true },
   { to: "/configuracion", label: "Configuración", icon: Settings2, modulo: null, adminOnly: true },
 ] as const;
@@ -39,9 +60,9 @@ export function AppShell() {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const nav = NAV.filter(
-    (item) =>
-      (!item.adminOnly || isAdmin) && (!item.modulo || can(item.modulo as Modulo, "view")),
+    (item) => (!item.adminOnly || isAdmin) && (!item.modulo || can(item.modulo as Modulo, "view")),
   );
 
   const handleSignOut = async () => {
@@ -51,15 +72,29 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen w-full">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 md:flex">
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-[width] duration-200 md:flex",
+          sidebarCollapsed ? "w-[76px]" : "w-64",
+        )}
+      >
         <div className="flex items-center gap-2 px-2 pb-5">
           <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
             <Building2 className="size-5" />
           </div>
-          <div>
+          <div className={cn("min-w-0", sidebarCollapsed && "hidden")}>
             <p className="text-sm font-semibold leading-tight">SysIntranet</p>
             <p className="text-xs text-muted-foreground">Panel operativo</p>
           </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            className={cn("ml-auto size-8", sidebarCollapsed && "mx-auto")}
+            title={sidebarCollapsed ? "Mostrar menú" : "Contraer menú"}
+            onClick={() => setSidebarCollapsed((value) => !value)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </Button>
         </div>
         <nav className="flex flex-1 flex-col gap-1">
           {nav.map((item) => {
@@ -73,32 +108,48 @@ export function AppShell() {
                   active
                     ? "bg-sidebar-accent text-sidebar-primary"
                     : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                  sidebarCollapsed && "justify-center px-2",
                 )}
+                title={sidebarCollapsed ? item.label : undefined}
               >
-                <item.icon className="size-4" />
-                {item.label}
+                <item.icon className="size-4 shrink-0" />
+                <span className={cn(sidebarCollapsed && "sr-only")}>{item.label}</span>
               </Link>
             );
           })}
         </nav>
-        <div className="mt-4 rounded-lg border border-sidebar-border p-3">
-          <p className="truncate text-sm font-medium">{profile?.full_name || user?.email}</p>
-          <Badge variant="secondary" className="mt-1 capitalize">
-            {role ?? "—"}
-          </Badge>
+        <div className={cn("mt-4 rounded-lg border border-sidebar-border p-3", sidebarCollapsed && "px-2")}>
+          <div className={cn(sidebarCollapsed && "hidden")}>
+            <p className="truncate text-sm font-medium">{profile?.full_name || user?.email}</p>
+            <Badge variant="secondary" className="mt-1 capitalize">
+              {role ?? "—"}
+            </Badge>
+          </div>
           <div className="mt-3 grid gap-2">
-            <Button size="sm" variant="ghost" className="justify-start" onClick={toggle}>
+            <Button
+              size={sidebarCollapsed ? "icon" : "sm"}
+              variant="ghost"
+              className={cn(!sidebarCollapsed && "justify-start")}
+              title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
+              onClick={toggle}
+            >
               {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-              <span className="ml-2">{theme === "dark" ? "Modo claro" : "Modo oscuro"}</span>
+              <span className={cn("ml-2", sidebarCollapsed && "sr-only")}>
+                {theme === "dark" ? "Modo claro" : "Modo oscuro"}
+              </span>
             </Button>
             <Button
-              size="sm"
+              size={sidebarCollapsed ? "icon" : "sm"}
               variant="outline"
-              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className={cn(
+                "text-destructive hover:bg-destructive/10 hover:text-destructive",
+                !sidebarCollapsed && "justify-start",
+              )}
+              title="Cerrar sesión"
               onClick={handleSignOut}
             >
               <LogOut className="size-4" />
-              <span className="ml-2">Cerrar sesión</span>
+              <span className={cn("ml-2", sidebarCollapsed && "sr-only")}>Cerrar sesión</span>
             </Button>
           </div>
         </div>

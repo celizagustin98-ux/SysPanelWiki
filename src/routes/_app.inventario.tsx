@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from "react";
 import readExcelFile, { readSheet } from "read-excel-file/browser";
 import {
   CheckCircle2,
+  ClipboardCheck,
   Download,
   FileJson,
   FileSpreadsheet,
@@ -50,6 +51,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
@@ -606,7 +608,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
           <Upload className="size-4" /> Importar
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Importación masiva</DialogTitle>
           <DialogDescription>
@@ -617,11 +619,18 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
           <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
             <div className="flex items-start gap-2 text-sm">
               <Info className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium">Columnas requeridas</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {INVENTARIO_COLUMNS.join(" · ")}
-                </p>
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {INVENTARIO_COLUMNS.map((column) => (
+                    <span
+                      key={column}
+                      className="rounded-md border border-border/70 bg-background px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      {column}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -691,13 +700,13 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             </div>
           )}
         </div>
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+        <DialogFooter className="grid gap-2 sm:flex sm:justify-end">
+          <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>
             Cancelar
           </Button>
           <Button
             type="button"
-            className="font-semibold"
+            className="w-full font-semibold sm:w-auto"
             disabled={records.length === 0 || isImporting || isReading}
             onClick={importRows}
           >
@@ -739,7 +748,7 @@ function FilterSelect({
 }
 
 function InventarioPage() {
-  const { canWrite, isAdmin } = useAuth();
+  const { canWrite, isAdmin, can } = useAuth();
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [planta, setPlanta] = useState("todos");
@@ -767,6 +776,22 @@ function InventarioPage() {
     },
     onSuccess: () => {
       toast.success("Registro eliminado");
+      qc.invalidateQueries({ queryKey: ["inventario"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const controlar = useMutation({
+    mutationFn: async (item: Item) => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { error } = await api
+        .from("inventario")
+        .update({ ultima_vez_controlada: today, estado: item.estado || "en_uso" })
+        .eq("id", item.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Control registrado");
       qc.invalidateQueries({ queryKey: ["inventario"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -803,6 +828,9 @@ function InventarioPage() {
   const sinControl = rows.filter((row) => !row.ultima_vez_controlada).length;
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["inventario"] });
+  const canCreate = can("inventario", "create");
+  const canEdit = can("inventario", "edit");
+  const canDelete = can("inventario", "delete") || isAdmin;
 
   return (
     <div className="space-y-5">
@@ -811,16 +839,18 @@ function InventarioPage() {
         description="Base central de bienes por planta, sector, rubro, tipo, propiedad y control."
         action={
           canWrite ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col">
               <ImportDialog onDone={refresh} />
-              <ItemDialog
-                trigger={
-                  <Button>
-                    <Plus className="size-4" /> Nuevo registro
-                  </Button>
-                }
-                onDone={refresh}
-              />
+              {canCreate && (
+                <ItemDialog
+                  trigger={
+                    <Button>
+                      <Plus className="size-4" /> Nuevo registro
+                    </Button>
+                  }
+                  onDone={refresh}
+                />
+              )}
             </div>
           ) : null
         }
@@ -855,8 +885,8 @@ function InventarioPage() {
 
       <Card className="panel">
         <CardContent className="space-y-4 p-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative min-w-64 flex-1">
+          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-center">
+            <div className="relative min-w-0">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
               <Input
                 className="pl-9"
@@ -865,15 +895,17 @@ function InventarioPage() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <Button variant="outline" onClick={() => exportCsv(rows)}>
-              <Download className="size-4" /> CSV
-            </Button>
-            <Button variant="outline" onClick={() => exportJson(rows)}>
-              <FileJson className="size-4" /> JSON
-            </Button>
-            <Button variant="outline" onClick={() => printRows(rows)}>
-              <Printer className="size-4" /> PDF
-            </Button>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Button variant="outline" onClick={() => exportCsv(rows)}>
+                <Download className="size-4" /> CSV
+              </Button>
+              <Button variant="outline" onClick={() => exportJson(rows)}>
+                <FileJson className="size-4" /> JSON
+              </Button>
+              <Button variant="outline" onClick={() => printRows(rows)}>
+                <Printer className="size-4" /> PDF
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-2 md:grid-cols-5">
@@ -899,7 +931,79 @@ function InventarioPage() {
             <Badge variant="secondary">Columnas normalizadas para importacion</Badge>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-border/70">
+          <div className="grid gap-3 lg:hidden">
+            {rows.map((item) => (
+              <article key={item.id} className="rounded-lg border border-border/70 bg-background p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{item.descripcion || item.nombre}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {[item.planta, item.sector, item.rubro ?? item.categoria, item.tipo ?? item.modelo]
+                        .filter(Boolean)
+                        .join(" · ") || "Sin ubicación"}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    {item.cantidad ?? 0}
+                  </Badge>
+                </div>
+                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  {(["Marca", "N° de serie", "Propiedad", "Ultima vez controlada"] as InventarioColumn[]).map(
+                    (column) => (
+                      <div key={column} className="min-w-0">
+                        <dt className="text-xs text-muted-foreground">{column}</dt>
+                        <dd className="truncate font-medium">{itemField(item, column) || "-"}</dd>
+                      </div>
+                    ),
+                  )}
+                </dl>
+                {canWrite && (
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {canEdit && (
+                      <ItemDialog
+                        item={item}
+                        trigger={
+                          <Button size="sm" variant="outline">
+                            <Pencil className="size-4" /> Modificar
+                          </Button>
+                        }
+                        onDone={refresh}
+                      />
+                    )}
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={controlar.isPending}
+                        onClick={() => controlar.mutate(item)}
+                      >
+                        <ClipboardCheck className="size-4" /> Controlar
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => {
+                          if (confirm("¿Eliminar este registro de inventario?")) del.mutate(item.id);
+                        }}
+                      >
+                        <Trash2 className="size-4" /> Eliminar
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </article>
+            ))}
+            {rows.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border/70 py-12 text-center text-sm text-muted-foreground">
+                No hay registros que coincidan con la busqueda o los filtros.
+              </div>
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto rounded-lg border border-border/70 lg:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -917,7 +1021,10 @@ function InventarioPage() {
                     {INVENTARIO_COLUMNS.map((column) => (
                       <TableCell
                         key={column}
-                        className={column === "Cantidad" ? "text-right tabular-nums" : "min-w-32"}
+                        className={cn(
+                          column === "Cantidad" && "text-right tabular-nums",
+                          column === "Descripcion" ? "min-w-64" : "min-w-28",
+                        )}
                       >
                         {column === "Cantidad" ? (
                           <Badge variant="secondary">{itemField(item, column) || 0}</Badge>
@@ -926,28 +1033,39 @@ function InventarioPage() {
                         )}
                       </TableCell>
                     ))}
-                    <TableCell className="whitespace-nowrap text-right">
-                      {canWrite && (
+                    <TableCell className="min-w-72 whitespace-nowrap text-right">
+                      {canEdit && (
                         <ItemDialog
                           item={item}
                           trigger={
-                            <Button size="icon" variant="ghost" title="Editar registro">
-                              <Pencil className="size-4" />
+                            <Button size="sm" variant="ghost" title="Modificar registro">
+                              <Pencil className="size-4" /> Modificar
                             </Button>
                           }
                           onDone={refresh}
                         />
                       )}
-                      {isAdmin && (
+                      {canEdit && (
                         <Button
-                          size="icon"
+                          size="sm"
+                          variant="ghost"
+                          title="Registrar control"
+                          disabled={controlar.isPending}
+                          onClick={() => controlar.mutate(item)}
+                        >
+                          <ClipboardCheck className="size-4" /> Controlar
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          size="sm"
                           variant="ghost"
                           title="Eliminar registro"
                           onClick={() => {
                             if (confirm("¿Eliminar este registro de inventario?")) del.mutate(item.id);
                           }}
                         >
-                          <Trash2 className="size-4 text-destructive" />
+                          <Trash2 className="size-4 text-destructive" /> Eliminar
                         </Button>
                       )}
                     </TableCell>
