@@ -1,12 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import readXlsxFile from "read-excel-file/browser";
+import { readSheet } from "read-excel-file/browser";
 import {
+  CheckCircle2,
   Download,
   FileJson,
   FileSpreadsheet,
   Filter,
+  Info,
+  Loader2,
   Pencil,
   Plus,
   Printer,
@@ -407,6 +410,18 @@ function parseImportRows(rows: string[][]) {
   });
 }
 
+function normalizeSpreadsheetRows(rows: unknown[][]) {
+  return rows
+    .filter((row): row is unknown[] => Array.isArray(row))
+    .map((row) =>
+      row.map((cell) => {
+        if (cell instanceof Date) return cell.toISOString().slice(0, 10);
+        return text(cell);
+      }),
+    )
+    .filter((row) => row.some((cell) => cell !== ""));
+}
+
 function readTextFromArrayBuffer(buffer: ArrayBuffer) {
   const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
   if (!utf8.includes("\uFFFD")) return utf8;
@@ -419,11 +434,8 @@ async function parseSpreadsheetFile(file: File) {
   }
 
   if (/\.xlsx$/i.test(file.name)) {
-    const rows = await readXlsxFile(file);
-    return parseImportRows(rows.map((row) => row.map((cell) => {
-      if (cell instanceof Date) return cell.toISOString().slice(0, 10);
-      return text(cell);
-    })));
+    const rows = await readSheet(file);
+    return parseImportRows(normalizeSpreadsheetRows(rows));
   }
 
   const buffer = await file.arrayBuffer();
@@ -509,11 +521,15 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
   const [fileName, setFileName] = useState("");
   const [previewCount, setPreviewCount] = useState(0);
   const [records, setRecords] = useState<ItemPayload[]>([]);
+  const [isReading, setIsReading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   const reset = () => {
     setFileName("");
     setPreviewCount(0);
     setRecords([]);
+    setIsReading(false);
+    setIsImporting(false);
   };
 
   const loadFile = async (file: File | undefined) => {
@@ -524,6 +540,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
       return;
     }
     try {
+      setIsReading(true);
       const parsed = await parseSpreadsheetFile(file);
       setFileName(file.name);
       setPreviewCount(parsed.length);
@@ -531,17 +548,24 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
       toast.success(`${parsed.length} registro(s) listos para importar`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo leer el archivo");
+    } finally {
+      setIsReading(false);
     }
   };
 
   const importRows = async () => {
     if (records.length === 0) return toast.error("Primero seleccioná un archivo válido");
-    const { error } = await api.from("inventario").insert(records);
-    if (error) return toast.error(error.message);
-    toast.success(`${records.length} registro(s) importados`);
-    setOpen(false);
-    reset();
-    onDone();
+    setIsImporting(true);
+    try {
+      const { error } = await api.from("inventario").insert(records);
+      if (error) return toast.error(error.message);
+      toast.success(`${records.length} registro(s) importados`);
+      setOpen(false);
+      reset();
+      onDone();
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -558,11 +582,24 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             Subí un Excel .xlsx o CSV con las mismas columnas del módulo. La primera hoja del Excel será importada.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-3">
-          <div className="grid gap-2">
+        <div className="grid gap-4">
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-start gap-2 text-sm">
+              <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div>
+                <p className="font-medium">Columnas requeridas</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {INVENTARIO_COLUMNS.join(" · ")}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
             <Button
               type="button"
               variant="secondary"
+              className="h-11 justify-center gap-2"
               onClick={() =>
                 downloadText(
                   "plantilla-inventario.csv",
@@ -573,25 +610,51 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             >
               <FileSpreadsheet className="size-4" /> Plantilla CSV
             </Button>
+            <Button type="button" variant="outline" className="h-11 justify-center gap-2" asChild>
+              <label>
+                <Upload className="size-4" />
+                Seleccionar archivo
+                <input
+                  className="sr-only"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  type="file"
+                  onChange={(e) => loadFile(e.target.files?.[0])}
+                />
+              </label>
+            </Button>
           </div>
-          <div className="space-y-1.5">
-            <Label>Archivo .xlsx o CSV</Label>
-            <Input
-              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-              type="file"
-              onChange={(e) => loadFile(e.target.files?.[0])}
-            />
+          <div className="rounded-lg border border-dashed border-border/80 bg-background/60 p-4 text-center">
+            <FileSpreadsheet className="mx-auto size-8 text-muted-foreground" />
+            <p className="mt-2 text-sm font-medium">Archivo Excel o CSV</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Formatos admitidos: .xlsx y .csv. Para .xls antiguo, guardalo como .xlsx.
+            </p>
           </div>
+          {isReading && (
+            <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/30 p-3 text-sm">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              Leyendo archivo y validando columnas...
+            </div>
+          )}
           {fileName && (
-            <div className="rounded-lg border border-border/80 bg-muted/30 p-3 text-sm">
-              <p className="font-medium">{fileName}</p>
-              <p className="text-muted-foreground">{previewCount} registro(s) detectados para importar.</p>
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                <div>
+                  <p className="font-medium">{fileName}</p>
+                  <p className="text-muted-foreground">{previewCount} registro(s) detectados para importar.</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
-        <DialogFooter>
-          <Button type="button" disabled={records.length === 0} onClick={importRows}>
-            Importar registros
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancelar
+          </Button>
+          <Button type="button" disabled={records.length === 0 || isImporting || isReading} onClick={importRows}>
+            {isImporting ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+            {isImporting ? "Importando..." : "Importar registros"}
           </Button>
         </DialogFooter>
       </DialogContent>
