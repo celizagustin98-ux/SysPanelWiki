@@ -150,6 +150,45 @@
     font-family:
       "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
+
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    min-width: 0;
+  }
+
+  table {
+    width: 100%;
+  }
+}
+
+@layer components {
+  .responsive-actions {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .responsive-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+  }
+
+  .no-horizontal-scroll {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
 }
 
 @utility panel {
@@ -224,4 +263,3 @@
   color: var(--color-primary);
   text-decoration: underline;
 }
-

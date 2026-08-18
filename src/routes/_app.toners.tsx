@@ -346,11 +346,11 @@ function TonersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="overflow-x-auto">
-                <Table className="min-w-[980px]">
+              <div className="overflow-hidden">
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow className="border-b border-border/70 bg-muted/45 hover:bg-muted/45">
-                      <TableHead className="h-11 min-w-[330px] px-5 text-xs font-semibold uppercase text-muted-foreground">
+                      <TableHead className="h-11 px-5 text-xs font-semibold uppercase text-muted-foreground">
                         <div className="flex items-center gap-2">
                           Modelo
                           <ListFilter className="size-3.5" />
@@ -362,7 +362,7 @@ function TonersPage() {
                       <TableHead className="h-11 w-[170px] px-4 text-xs font-semibold uppercase text-muted-foreground">
                         Cantidad mínima
                       </TableHead>
-                      <TableHead className="h-11 min-w-[250px] px-4 text-xs font-semibold uppercase text-muted-foreground">
+                      <TableHead className="h-11 px-4 text-xs font-semibold uppercase text-muted-foreground">
                         Último control
                       </TableHead>
                       {canWrite && (
@@ -581,7 +581,7 @@ function TonersPage() {
                 />
               </div>
               <div className="overflow-x-auto">
-              <Table className="min-w-[820px]">
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>

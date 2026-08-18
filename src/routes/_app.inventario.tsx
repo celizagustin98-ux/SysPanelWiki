@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useState } from "react";
 import { strToU8, zipSync } from "fflate";
 import {
   CheckCircle2,
@@ -21,6 +21,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -141,6 +151,7 @@ type Control = {
 };
 
 const ESTADOS = ["operativo", "observado", "reparacion", "baja"] as const;
+const PAGE_SIZES = [25, 50, 100, 200] as const;
 
 function estadoLabel(value: string | null | undefined) {
   const labels: Record<string, string> = {
@@ -808,21 +819,6 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const updatePreviewCell = (rowIndex: number, column: InventarioColumn, value: string) => {
-    setRecords((current) =>
-      current.map((record, index) => {
-        if (index !== rowIndex) return record;
-        const nextRecord = payloadToRecord(record);
-        nextRecord[column] = value;
-        try {
-          return makePayload(nextRecord, rowIndex);
-        } catch {
-          return record;
-        }
-      }),
-    );
-  };
-
   return (
     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) reset(); }}>
       <DialogTrigger asChild>
@@ -830,7 +826,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
           <Upload className="size-4" /> Importar
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Importación masiva</DialogTitle>
           <DialogDescription>
@@ -922,57 +918,50 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             </div>
           )}
           {records.length > 0 && (
-            <div className="rounded-lg border border-border/70">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-2">
+            <div className="grid gap-3 rounded-lg border border-border/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold">Vista previa editable</p>
+                  <p className="text-sm font-semibold">Archivo validado</p>
                   <p className="text-xs text-muted-foreground">
-                    Revisá los primeros registros antes de confirmar la importación.
+                    Si la cantidad coincide, importá los registros. No hace falta revisar una tabla ancha.
                   </p>
                 </div>
                 <Badge variant="secondary">{records.length} registro(s)</Badge>
               </div>
-              <div className="max-h-80 overflow-auto">
-                <table className="min-w-[1100px] text-xs">
-                  <thead className="sticky top-0 bg-muted">
-                    <tr>
-                      <th className="w-10 border-b border-r border-border/70 px-2 py-2 text-left">#</th>
-                      {INVENTARIO_COLUMNS.map((column) => (
-                        <th key={column} className="border-b border-r border-border/70 px-2 py-2 text-left">
-                          {column}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.slice(0, 50).map((record, index) => {
-                      const preview = payloadToRecord(record);
-                      return (
-                        <tr key={index}>
-                          <td className="border-b border-r border-border/60 px-2 py-1 text-muted-foreground">
-                            {index + 1}
-                          </td>
-                          {INVENTARIO_COLUMNS.map((column) => (
-                            <td key={column} className="border-b border-r border-border/60 p-1">
-                              <Input
-                                className="h-8 min-w-28 border-0 bg-transparent px-2 text-xs shadow-none focus-visible:ring-1"
-                                type={column === "Cantidad" ? "number" : column === "Ultima vez controlada" ? "date" : "text"}
-                                value={preview[column]}
-                                onChange={(e) => updatePreviewCell(index, column, e.target.value)}
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-lg bg-muted/35 p-3">
+                  <p className="text-xs text-muted-foreground">Primera planta</p>
+                  <p className="truncate text-sm font-semibold">{records[0]?.planta || "-"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/35 p-3">
+                  <p className="text-xs text-muted-foreground">Primer sector</p>
+                  <p className="truncate text-sm font-semibold">{records[0]?.sector || "-"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/35 p-3">
+                  <p className="text-xs text-muted-foreground">Primer rubro</p>
+                  <p className="truncate text-sm font-semibold">{records[0]?.rubro || "-"}</p>
+                </div>
               </div>
-              {records.length > 50 && (
-                <p className="border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
-                  Se muestran 50 filas para revisión rápida. Al importar se guardan las {records.length} filas.
-                </p>
-              )}
+              <div className="grid gap-2">
+                {records.slice(0, 5).map((record, index) => (
+                  <div key={`${record.codigo}-${index}`} className="rounded-lg border border-border/70 bg-background p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="min-w-0 truncate text-sm font-semibold">{record.descripcion}</p>
+                      <Badge variant="outline">Fila {index + 2}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {[record.planta, record.sector, record.rubro, record.tipo, record.numero_serie]
+                        .filter(Boolean)
+                        .join(" · ") || "Sin detalle adicional"}
+                    </p>
+                  </div>
+                ))}
+                {records.length > 5 && (
+                  <p className="text-xs text-muted-foreground">
+                    Se muestran 5 ejemplos. Al importar se guardan los {records.length} registros validados.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1183,17 +1172,25 @@ function InventarioPage() {
   const [estado, setEstado] = useState("todos");
   const [control, setControl] = useState("todos");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const deferredQ = useDeferredValue(q);
 
-  const { data = [] } = useQuery({
+  const { data = [], isFetching } = useQuery({
     queryKey: ["inventario"],
     queryFn: async () => {
       const { data, error } = await api
         .from("inventario")
-        .select("*")
-        .order("updated_at", { ascending: false });
+        .select(
+          "id,codigo,nombre,categoria,planta,sector,rubro,tipo,descripcion,cantidad,marca,modelo,numero_serie,propiedad,estado,ultima_vez_controlada,asignado_a,notas,created_at,updated_at",
+        )
+        .order("updated_at", { ascending: false })
+        .limit(5000);
       if (error) throw error;
       return (data as Item[]).map(normalizeItem);
     },
+    staleTime: 30_000,
   });
 
   const deleteInventoryItem = async (id: string) => {
@@ -1255,7 +1252,7 @@ function InventarioPage() {
           (control === "vencido_90" && (days === null || days > 90)) ||
           (control === "vencido_180" && (days === null || days > 180));
         return (
-          searchable.toLowerCase().includes(q.toLowerCase()) &&
+          searchable.toLowerCase().includes(deferredQ.toLowerCase()) &&
           (planta === "todos" || item.planta === planta) &&
           (sector === "todos" || item.sector === sector) &&
           (rubro === "todos" || (item.rubro ?? item.categoria) === rubro) &&
@@ -1265,11 +1262,14 @@ function InventarioPage() {
           controlMatch
         );
       }),
-    [data, q, planta, sector, rubro, tipo, propiedad, estado, control],
+    [data, deferredQ, planta, sector, rubro, tipo, propiedad, estado, control],
   );
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginatedRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedRows = rows.filter((row) => selectedIds.has(row.id));
-  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.id));
+  const allVisibleSelected = paginatedRows.length > 0 && paginatedRows.every((row) => selectedIds.has(row.id));
   const toggleSelected = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -1281,7 +1281,7 @@ function InventarioPage() {
   const toggleAllVisible = (checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      for (const row of rows) {
+      for (const row of paginatedRows) {
         if (checked) next.add(row.id);
         else next.delete(row.id);
       }
@@ -1307,6 +1307,14 @@ function InventarioPage() {
   const canCreate = can("inventario", "create");
   const canEdit = can("inventario", "edit");
   const canDelete = can("inventario", "delete") || isAdmin;
+
+  useEffect(() => {
+    setPage(1);
+  }, [deferredQ, planta, sector, rubro, tipo, propiedad, estado, control]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   return (
     <div className="space-y-5">
@@ -1375,7 +1383,10 @@ function InventarioPage() {
                 className="pl-9"
                 placeholder="Buscar por planta, sector, descripcion, marca, serie o propiedad"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setPage(1);
+                }}
               />
             </div>
             <div className="grid gap-2 sm:grid-cols-4">
@@ -1406,7 +1417,7 @@ function InventarioPage() {
               options={options.propiedades}
             />
             <FilterSelect label="Todos los estados" value={estado} onChange={setEstado} options={options.estados} />
-            <Select value={control} onValueChange={setControl}>
+            <Select value={control} onValueChange={(value) => { setControl(value); setPage(1); }}>
               <SelectTrigger className="w-full md:w-44">
                 <SelectValue placeholder="Control" />
               </SelectTrigger>
@@ -1423,8 +1434,9 @@ function InventarioPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Filter className="size-4" />
               <span>
-                Mostrando {rows.length} de {data.length} registro(s)
+                Mostrando {paginatedRows.length} de {rows.length} filtrado(s), {data.length} total(es)
               </span>
+              {isFetching && <Badge variant="outline">Actualizando...</Badge>}
               {canDelete && selectedRows.length > 0 && (
                 <Badge variant="secondary">{selectedRows.length} seleccionado(s)</Badge>
               )}
@@ -1436,11 +1448,7 @@ function InventarioPage() {
                   variant="outline"
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                   disabled={bulkDelete.isPending}
-                  onClick={() => {
-                    if (confirm(`¿Eliminar ${selectedRows.length} registro(s) de inventario?`)) {
-                      bulkDelete.mutate(selectedRows.map((row) => row.id));
-                    }
-                  }}
+                  onClick={() => setPendingDeleteIds(selectedRows.map((row) => row.id))}
                 >
                   <Trash2 className="size-4" />
                   {bulkDelete.isPending ? "Eliminando..." : "Eliminar seleccionados"}
@@ -1450,8 +1458,45 @@ function InventarioPage() {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+            <div className="text-muted-foreground">
+              Página {safePage} de {totalPages}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => {
+                  setPageSize(Number(value) as typeof pageSize);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      {value} por página
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage((p) => p - 1)}>
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Siguiente
+              </Button>
+            </div>
+          </div>
+
           <div className="grid gap-3 lg:hidden">
-            {rows.map((item) => (
+            {paginatedRows.map((item) => (
               <article key={item.id} className="rounded-lg border border-border/70 bg-background p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
@@ -1528,9 +1573,7 @@ function InventarioPage() {
                         size="sm"
                         variant="outline"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => {
-                          if (confirm("¿Eliminar este registro de inventario?")) del.mutate(item.id);
-                        }}
+                        onClick={() => setPendingDeleteIds([item.id])}
                       >
                         <Trash2 className="size-4" /> Eliminar
                       </Button>
@@ -1546,8 +1589,8 @@ function InventarioPage() {
             )}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-lg border border-border/70 lg:block">
-            <Table>
+          <div className="hidden overflow-hidden rounded-lg border border-border/70 lg:block">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   {canDelete && (
@@ -1560,15 +1603,15 @@ function InventarioPage() {
                     </TableHead>
                   )}
                   {INVENTARIO_COLUMNS.map((column) => (
-                    <TableHead key={column} className="whitespace-nowrap">
+                    <TableHead key={column} className="whitespace-normal break-words text-xs">
                       {column}
                     </TableHead>
                   ))}
-                  <TableHead className="text-right">Acciones</TableHead>
+                  <TableHead className="w-64 text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((item) => (
+                {paginatedRows.map((item) => (
                   <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined}>
                     {canDelete && (
                       <TableCell>
@@ -1583,8 +1626,9 @@ function InventarioPage() {
                       <TableCell
                         key={column}
                         className={cn(
+                          "max-w-0 break-words text-xs",
                           column === "Cantidad" && "text-right tabular-nums",
-                          column === "Descripcion" ? "min-w-64" : "min-w-28",
+                          column === "Descripcion" && "text-sm font-medium",
                         )}
                       >
                         {column === "Cantidad" ? (
@@ -1600,7 +1644,8 @@ function InventarioPage() {
                         )}
                       </TableCell>
                     ))}
-                    <TableCell className="min-w-96 whitespace-nowrap text-right">
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap justify-end gap-1">
                       {canEdit && (
                         <ItemDialog
                           item={item}
@@ -1636,13 +1681,12 @@ function InventarioPage() {
                           size="sm"
                           variant="ghost"
                           title="Eliminar registro"
-                          onClick={() => {
-                            if (confirm("¿Eliminar este registro de inventario?")) del.mutate(item.id);
-                          }}
+                          onClick={() => setPendingDeleteIds([item.id])}
                         >
                           <Trash2 className="size-4 text-destructive" /> Eliminar
                         </Button>
                       )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1661,6 +1705,33 @@ function InventarioPage() {
           </div>
         </CardContent>
       </Card>
+      <AlertDialog open={pendingDeleteIds.length > 0} onOpenChange={(open) => !open && setPendingDeleteIds([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingDeleteIds.length > 1 ? "Eliminar registros seleccionados" : "Eliminar registro"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción elimina {pendingDeleteIds.length} registro(s) de inventario y su historial de controles.
+              No se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const ids = pendingDeleteIds;
+                setPendingDeleteIds([]);
+                if (ids.length === 1) del.mutate(ids[0]);
+                else bulkDelete.mutate(ids);
+              }}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

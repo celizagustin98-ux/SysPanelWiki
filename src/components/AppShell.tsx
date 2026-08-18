@@ -174,13 +174,13 @@ export function AppShell() {
               <span className="ml-2">Cerrar sesión</span>
             </Button>
           </div>
-          <nav className="flex items-center gap-2 overflow-x-auto px-3 pb-2">
+          <nav className="flex flex-wrap items-center gap-2 px-3 pb-2">
             {nav.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium",
+                  "rounded-md px-3 py-1.5 text-xs font-medium",
                   pathname.startsWith(item.to)
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground",
