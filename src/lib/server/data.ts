@@ -80,7 +80,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
   inventario: {
     modulo: "inventario",
-    fields: ["codigo", "nombre", "marca", "modelo", "numero_serie"],
+    fields: ["planta", "sector", "descripcion", "numero_serie"],
   },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },

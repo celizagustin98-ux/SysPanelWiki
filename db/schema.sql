@@ -91,16 +91,45 @@ create table if not exists inventario (
   codigo text not null,
   nombre text not null,
   categoria text not null default 'hardware',
+  planta text,
   marca text,
   modelo text,
   numero_serie text,
   estado text not null default 'nuevo',
   asignado_a text,
   sector text,
+  rubro text,
+  tipo text,
+  descripcion text,
+  cantidad integer not null default 1,
+  propiedad text,
+  ultima_vez_controlada date,
   notas text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table inventario add column if not exists planta text;
+alter table inventario add column if not exists rubro text;
+alter table inventario add column if not exists tipo text;
+alter table inventario add column if not exists descripcion text;
+alter table inventario add column if not exists cantidad integer not null default 1;
+alter table inventario add column if not exists propiedad text;
+alter table inventario add column if not exists ultima_vez_controlada date;
+
+update inventario
+   set descripcion = coalesce(nullif(descripcion, ''), nombre),
+       rubro = coalesce(nullif(rubro, ''), categoria),
+       tipo = coalesce(nullif(tipo, ''), modelo),
+       cantidad = greatest(1, coalesce(cantidad, 1))
+ where descripcion is null
+    or rubro is null
+    or tipo is null
+    or cantidad is null
+    or cantidad < 1;
+
+create index if not exists inventario_busqueda_idx
+  on inventario (planta, sector, rubro, tipo, propiedad);
 
 create table if not exists toner_modelos (
   id uuid primary key default gen_random_uuid(),
@@ -278,7 +307,7 @@ insert into role_permissions (role, modulo, can_view, can_create, can_edit, can_
 select r.role::app_role, m.modulo, true, true, true, true
 from (values ('administrador')) r(role)
 cross join (values
-  ('instructivos'), ('guardias'), ('inventario'), ('toners'), ('tareas'), ('credenciales'), ('usuarios')
+  ('instructivos'), ('guardias'), ('inventario'), ('toners'), ('tareas'), ('credenciales'), ('oficina'), ('usuarios')
 ) m(modulo)
 on conflict (role, modulo) do nothing;
 
@@ -286,7 +315,7 @@ insert into role_permissions (role, modulo, can_view, can_create, can_edit, can_
 select r.role::app_role, m.modulo, true, true, true, false
 from (values ('tecnico')) r(role)
 cross join (values
-  ('instructivos'), ('guardias'), ('inventario'), ('toners'), ('tareas'), ('credenciales')
+  ('instructivos'), ('guardias'), ('inventario'), ('toners'), ('tareas'), ('credenciales'), ('oficina')
 ) m(modulo)
 on conflict (role, modulo) do nothing;
 
@@ -294,6 +323,6 @@ insert into role_permissions (role, modulo, can_view, can_create, can_edit, can_
 select r.role::app_role, m.modulo, true, false, false, false
 from (values ('consulta')) r(role)
 cross join (values
-  ('instructivos'), ('guardias'), ('inventario'), ('toners'), ('tareas')
+  ('instructivos'), ('guardias'), ('inventario'), ('toners'), ('tareas'), ('oficina')
 ) m(modulo)
 on conflict (role, modulo) do nothing;
