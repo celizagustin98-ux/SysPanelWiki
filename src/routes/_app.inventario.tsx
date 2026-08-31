@@ -907,9 +907,9 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             </div>
           )}
           {fileName && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
+            <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm">
               <div className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
                 <div>
                   <p className="font-medium">{fileName}</p>
                   <p className="text-muted-foreground">{previewCount} registro(s) detectados para importar.</p>

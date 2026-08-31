@@ -457,7 +457,7 @@ function GuardiasPage() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Turno actual</p>
-                      {actual && <Badge className="bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15">En curso</Badge>}
+                      {actual && <Badge variant="success">En curso</Badge>}
                     </div>
                     <h2 className="mt-1 text-2xl font-semibold tracking-tight">
                       {actual ? actual.operador_nombre : "Sin guardia activa"}
@@ -471,7 +471,7 @@ function GuardiasPage() {
                 </div>
                 <div className="rounded-xl border border-border/60 bg-background/60 px-4 py-3 text-sm">
                   <p className="text-xs text-muted-foreground">Estado de cobertura</p>
-                  <p className={cn("mt-1 font-semibold", actual ? "text-emerald-300" : "text-amber-300")}>
+                  <p className={cn("mt-1 font-semibold", actual ? "text-success" : "text-warning")}>
                     {actual ? "Operativa" : "Sin cobertura"}
                   </p>
                 </div>
@@ -756,7 +756,7 @@ function GuardiaSheetView({
                           key={day.toISOString()}
                           className={cn(
                             "min-w-10 border-l border-border/50 px-1 text-center",
-                            feriado ? "bg-rose-500/15 text-rose-300" : "bg-muted/60",
+                            feriado ? "bg-destructive/12 text-destructive" : "bg-muted/60",
                           )}
                           title={feriado ? getHolidayName(day) || "Fin de semana" : undefined}
                         >
@@ -791,7 +791,7 @@ function GuardiaSheetView({
                             key={key}
                             className={cn(
                               "border-l border-border/50 px-1 text-center font-semibold",
-                              cell === "feriado" && "bg-rose-500/15 text-rose-300",
+                              cell === "feriado" && "bg-destructive/12 text-destructive",
                               cell === "guardia" && "bg-primary/10 text-primary",
                             )}
                           >
@@ -818,8 +818,8 @@ function GuardiaSheetView({
                     <span className="truncate text-xs font-medium">{operador.nombre}</span>
                   </div>
                 ))}
-                <div className="flex items-center gap-2 rounded-lg border border-rose-500/25 bg-rose-500/10 p-2 text-rose-200">
-                  <span className="grid size-7 place-items-center rounded-md bg-rose-400/80 text-xs font-bold text-rose-950">F</span>
+                <div className="flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/10 p-2 text-destructive">
+                  <span className="grid size-7 place-items-center rounded-md bg-destructive text-xs font-bold text-destructive-foreground">F</span>
                   <span className="text-xs font-medium">Feriado / finde</span>
                 </div>
               </div>
@@ -856,7 +856,7 @@ function GuardiaSheetView({
 
 function LiquidacionStat({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
   return (
-    <div className={cn("rounded-md border border-border/50 bg-background/60 px-2 py-2", highlight && "border-rose-500/25 bg-rose-500/10")}>
+    <div className={cn("rounded-md border border-border/50 bg-background/60 px-2 py-2", highlight && "border-destructive/25 bg-destructive/10")}>
       <p className="text-sm font-semibold leading-none">{value}</p>
       <p className="mt-1 truncate text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
     </div>
