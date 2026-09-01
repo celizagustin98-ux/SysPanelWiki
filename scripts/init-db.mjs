@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import pg from "pg";
 
@@ -20,6 +20,21 @@ try {
   await client.connect();
   const schema = await readFile(resolve("db/schema.sql"), "utf8");
   await client.query(schema);
+
+  const migrationsDir = resolve("db/migrations");
+  try {
+    const files = (await readdir(migrationsDir)).filter((f) => f.endsWith(".sql")).sort();
+    for (const file of files) {
+      const sql = await readFile(resolve(migrationsDir, file), "utf8");
+      await client.query(sql);
+      console.log(`Migración aplicada: ${file}`);
+    }
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
   console.log("Base PostgreSQL inicializada correctamente.");
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
