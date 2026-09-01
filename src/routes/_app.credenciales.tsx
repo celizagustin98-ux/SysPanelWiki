@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Copy, Eye, EyeOff, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Copy, Eye, EyeOff, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,7 @@ type Cred = {
   categoria: string;
   usuario: string | null;
   secreto: string | null;
+  has_secreto?: boolean;
   ip: string | null;
   url: string | null;
   notas: string | null;
@@ -49,7 +50,9 @@ type Cred = {
 function CredencialesPage() {
   const { canWrite, isAdmin, user } = useAuth();
   const qc = useQueryClient();
-  const [visible, setVisible] = useState<Record<string, boolean>>({});
+  const [visible, setVisible] = useState<Record<string, string>>({});
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [q, setQ] = useState("");
 
   const { data = [], isError } = useQuery({
     queryKey: ["credenciales"],
@@ -59,6 +62,27 @@ function CredencialesPage() {
       return data as Cred[];
     },
   });
+
+  const filtered = data.filter((c) => {
+    const term = q.trim().toLowerCase();
+    if (!term) return true;
+    return [c.servicio, c.categoria, c.usuario, c.ip, c.url, c.notas]
+      .filter(Boolean)
+      .some((v) => String(v).toLowerCase().includes(term));
+  });
+
+  const revelar = async (id: string, via: "ver" | "copiar") => {
+    setLoadingId(id);
+    const { data: revealed, error } = await api.rpc("revelar_credencial", { _id: id, _via: via });
+    setLoadingId(null);
+    if (error) {
+      toast.error(error.message);
+      return null;
+    }
+    const secreto = (revealed as { secreto?: string } | null)?.secreto ?? "";
+    if (via === "ver") setVisible((v) => ({ ...v, [id]: secreto }));
+    return secreto;
+  };
 
   if (!canWrite) {
     return (
@@ -80,11 +104,19 @@ function CredencialesPage() {
     <div>
       <PageHeader
         title="Credenciales"
-        description="Accesos, IPs y servicios de infraestructura. Visible solo para Técnicos y Administradores."
+        description="Secretos cifrados en reposo. Ver o copiar registra auditoría."
         action={
           <CredDialog userId={user?.id} onDone={() => qc.invalidateQueries({ queryKey: ["credenciales"] })} />
         }
       />
+      <div className="mb-4">
+        <Input
+          className="max-w-md"
+          placeholder="Buscar servicio, IP, usuario…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
       <Card className="panel">
         <CardContent className="overflow-x-auto p-4">
           <Table>
@@ -99,7 +131,7 @@ function CredencialesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.map((c) => (
+              {filtered.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-medium">{c.servicio}</TableCell>
                   <TableCell>
@@ -109,7 +141,7 @@ function CredencialesPage() {
                   </TableCell>
                   <TableCell className="font-mono text-xs">{c.usuario || "—"}</TableCell>
                   <TableCell className="font-mono text-xs">
-                    {visible[c.id] ? c.secreto : "••••••••"}
+                    {visible[c.id] ?? (c.has_secreto || c.secreto ? "••••••••" : "—")}
                   </TableCell>
                   <TableCell className="text-xs">
                     {c.ip || "—"}
@@ -119,20 +151,39 @@ function CredencialesPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => setVisible((v) => ({ ...v, [c.id]: !v[c.id] }))}
+                      disabled={loadingId === c.id}
+                      onClick={async () => {
+                        if (visible[c.id]) {
+                          setVisible((v) => {
+                            const next = { ...v };
+                            delete next[c.id];
+                            return next;
+                          });
+                          return;
+                        }
+                        await revelar(c.id, "ver");
+                      }}
                     >
                       {visible[c.id] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                     </Button>
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => {
-                        navigator.clipboard.writeText(c.secreto ?? "");
-                        toast.success("Copiado al portapapeles");
+                      disabled={loadingId === c.id}
+                      onClick={async () => {
+                        const secreto = visible[c.id] ?? (await revelar(c.id, "copiar"));
+                        if (secreto == null) return;
+                        await navigator.clipboard.writeText(secreto);
+                        toast.success("Copiado (queda registrado en auditoría)");
                       }}
                     >
                       <Copy className="size-4" />
                     </Button>
+                    <CredDialog
+                      userId={user?.id}
+                      existing={c}
+                      onDone={() => qc.invalidateQueries({ queryKey: ["credenciales"] })}
+                    />
                     {isAdmin && (
                       <Button
                         size="icon"
@@ -150,7 +201,7 @@ function CredencialesPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {(data.length === 0 || isError) && (
+              {(filtered.length === 0 || isError) && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                     Sin credenciales cargadas.
@@ -165,25 +216,40 @@ function CredencialesPage() {
   );
 }
 
-function CredDialog({ userId, onDone }: { userId?: string; onDone: () => void }) {
+function CredDialog({
+  userId,
+  onDone,
+  existing,
+}: {
+  userId?: string;
+  onDone: () => void;
+  existing?: Cred;
+}) {
   const [open, setOpen] = useState(false);
+  const isEdit = !!existing;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <Plus className="size-4" /> Nueva credencial
-        </Button>
+        {isEdit ? (
+          <Button size="icon" variant="ghost">
+            <Pencil className="size-4" />
+          </Button>
+        ) : (
+          <Button>
+            <Plus className="size-4" /> Nueva credencial
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Nueva credencial</DialogTitle>
+          <DialogTitle>{isEdit ? "Editar credencial" : "Nueva credencial"}</DialogTitle>
         </DialogHeader>
         <form
           className="grid gap-3"
           onSubmit={async (e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            const { error } = await api.from("credenciales").insert({
+            const payload = {
               servicio: String(fd.get("servicio")),
               categoria: String(fd.get("categoria") || "infraestructura"),
               usuario: String(fd.get("usuario") || ""),
@@ -192,9 +258,17 @@ function CredDialog({ userId, onDone }: { userId?: string; onDone: () => void })
               url: String(fd.get("url") || ""),
               notas: String(fd.get("notas") || ""),
               created_by: userId ?? null,
-            });
-            if (error) return toast.error(error.message);
-            toast.success("Credencial guardada");
+            };
+            if (isEdit) {
+              if (!payload.secreto) delete (payload as { secreto?: string }).secreto;
+              const { error } = await api.from("credenciales").update(payload).eq("id", existing!.id);
+              if (error) return toast.error(error.message);
+              toast.success("Credencial actualizada");
+            } else {
+              const { error } = await api.from("credenciales").insert(payload);
+              if (error) return toast.error(error.message);
+              toast.success("Credencial guardada (cifrada)");
+            }
             setOpen(false);
             onDone();
           }}
@@ -202,35 +276,35 @@ function CredDialog({ userId, onDone }: { userId?: string; onDone: () => void })
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Servicio</Label>
-              <Input name="servicio" required />
+              <Input name="servicio" required defaultValue={existing?.servicio} />
             </div>
             <div className="space-y-1.5">
               <Label>Categoría</Label>
-              <Input name="categoria" defaultValue="infraestructura" />
+              <Input name="categoria" defaultValue={existing?.categoria || "infraestructura"} />
             </div>
             <div className="space-y-1.5">
               <Label>Usuario</Label>
-              <Input name="usuario" />
+              <Input name="usuario" defaultValue={existing?.usuario ?? ""} />
             </div>
             <div className="space-y-1.5">
-              <Label>Secreto</Label>
-              <Input name="secreto" type="password" />
+              <Label>Secreto{isEdit ? " (vacío = no cambiar)" : ""}</Label>
+              <Input name="secreto" type="password" required={!isEdit} autoComplete="new-password" />
             </div>
             <div className="space-y-1.5">
               <Label>IP</Label>
-              <Input name="ip" />
+              <Input name="ip" defaultValue={existing?.ip ?? ""} />
             </div>
             <div className="space-y-1.5">
               <Label>URL</Label>
-              <Input name="url" />
+              <Input name="url" defaultValue={existing?.url ?? ""} />
             </div>
           </div>
           <div className="space-y-1.5">
             <Label>Notas</Label>
-            <Textarea name="notas" />
+            <Textarea name="notas" defaultValue={existing?.notas ?? ""} />
           </div>
           <DialogFooter>
-            <Button type="submit">Guardar</Button>
+            <Button type="submit">{isEdit ? "Guardar cambios" : "Guardar"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
