@@ -7,7 +7,6 @@ import {
   Building2,
   CalendarClock,
   History,
-  KanbanSquare,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -17,6 +16,7 @@ import {
   Settings2,
   ShieldCheck,
   Sun,
+  Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,7 @@ const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, modulo: null, adminOnly: false },
   {
     to: "/oficina",
-    label: "Oficina",
+    label: "Directorio",
     icon: BriefcaseBusiness,
     modulo: "oficina",
     adminOnly: false,
@@ -43,7 +43,7 @@ const NAV = [
   { to: "/guardias", label: "Guardias", icon: CalendarClock, modulo: "guardias", adminOnly: false },
   { to: "/inventario", label: "Inventario", icon: Boxes, modulo: "inventario", adminOnly: false },
   { to: "/toners", label: "Tóners", icon: Printer, modulo: "toners", adminOnly: false },
-  { to: "/tareas", label: "Tareas", icon: KanbanSquare, modulo: "tareas", adminOnly: false },
+  { to: "/tareas", label: "Tickets", icon: Ticket, modulo: "tareas", adminOnly: false },
   {
     to: "/credenciales",
     label: "Credenciales",
