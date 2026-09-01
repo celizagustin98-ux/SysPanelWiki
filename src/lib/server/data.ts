@@ -87,7 +87,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   inventario_controles: { modulo: "inventario", fields: ["fecha_control", "estado", "observacion"] },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
-  tareas: { modulo: "tareas", fields: ["titulo", "estado", "prioridad"] },
+  tareas: { modulo: "tareas", fields: ["numero", "titulo", "estado", "prioridad"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -175,6 +175,26 @@ async function snapshotWikiDoc(sessionUserId: string, filters: Filter[] | undefi
       /* migration may not be applied yet */
     }
   }
+}
+
+async function assignTicketNumero(row: Record<string, unknown>) {
+  const next = { ...row };
+  if (next.numero == null) {
+    try {
+      const seq = await one<{ n: number }>(`select nextval('ticket_numero_seq')::int as n`);
+      next.numero = seq?.n ?? null;
+    } catch {
+      try {
+        const max = await one<{ n: number }>(`select coalesce(max(numero), 1000)::int + 1 as n from tareas`);
+        next.numero = max?.n ?? 1001;
+      } catch {
+        /* column may not exist until migration */
+      }
+    }
+  }
+  if (!next.estado) next.estado = "nuevo";
+  if (!next.tipo) next.tipo = "pedido";
+  return next;
 }
 
 async function assertWriteAccess(userId: string, table: string) {
@@ -299,6 +319,11 @@ export const apiMutate = createServerFn({ method: "POST" })
     let rows = Array.isArray(data.values) ? data.values : [data.values as Record<string, unknown>];
     if (!rows.length || !rows[0]) throw new Error("Sin datos para insertar");
     if (table === "credenciales") rows = rows.map((row) => prepareCredentialPayload(row));
+    if (table === "tareas") {
+      const prepared: Record<string, unknown>[] = [];
+      for (const row of rows) prepared.push(await assignTicketNumero(row));
+      rows = prepared;
+    }
     const cols = Object.keys(rows[0]).map(cleanIdentifier);
     const placeholders = rows.map((row) => {
       const parts = cols.map((col) => {
