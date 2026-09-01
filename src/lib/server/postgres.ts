@@ -135,6 +135,37 @@ export async function assertAdmin(userId: string) {
   if (!(await isAdmin(userId))) throw new Error("Solo un administrador puede realizar esta acción");
 }
 
+export async function hasModulePermission(
+  userId: string,
+  modulo: string,
+  accion: "ver" | "crear" | "editar" | "eliminar",
+) {
+  if (await isAdmin(userId)) return true;
+  const roleRow = await one<{ role: AppRole }>(
+    `select role from user_roles where user_id = $1
+     order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end
+     limit 1`,
+    [userId],
+  );
+  if (!roleRow?.role) return false;
+  const col =
+    accion === "ver"
+      ? "can_view"
+      : accion === "crear"
+        ? "can_create"
+        : accion === "editar"
+          ? "can_edit"
+          : "can_delete";
+  const row = await one<{ ok: boolean }>(
+    `select exists(
+        select 1 from role_permissions
+         where role = $1 and modulo = $2 and ${col} = true
+      ) as ok`,
+    [roleRow.role, modulo],
+  );
+  return !!row?.ok;
+}
+
 export function cleanIdentifier(value: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) throw new Error("Identificador inválido");
   return value;
