@@ -55,6 +55,8 @@ const TABLES = new Set([
   "tareas",
   "toner_modelos",
   "toner_movimientos",
+  "toner_pedido_items",
+  "toner_pedidos",
   "toner_unidades",
   "user_roles",
   "wiki_attachments",
@@ -73,6 +75,8 @@ const WRITABLE_BY_TECH = new Set([
   "tareas",
   "toner_modelos",
   "toner_movimientos",
+  "toner_pedido_items",
+  "toner_pedidos",
   "toner_unidades",
   "wiki_attachments",
   "wiki_docs",
@@ -94,6 +98,8 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   toner_modelos: { modulo: "toners", fields: ["nombre", "marca", "prefijo"] },
   toner_movimientos: { modulo: "toners", fields: ["tipo", "cantidad", "responsable", "sector", "toner_entra"] },
   toner_unidades: { modulo: "toners", fields: ["codigo", "estado"] },
+  toner_pedidos: { modulo: "toners", fields: ["numero", "estado", "proveedor"] },
+  toner_pedido_items: { modulo: "toners", fields: ["pedido_id", "modelo_id", "cantidad"] },
   user_roles: { modulo: "usuarios", fields: ["user_id", "role"] },
   wiki_attachments: { modulo: "instructivos", fields: ["file_name", "doc_id"] },
   wiki_docs: { modulo: "instructivos", fields: ["title"] },
@@ -245,7 +251,7 @@ async function assertReadAccess(userId: string, table: string, filters: Filter[]
 
 function withJoinedModels(table: string, rows: any[]) {
   return async () => {
-    if (!["toner_movimientos", "toner_unidades"].includes(table) || rows.length === 0) return rows;
+    if (!["toner_movimientos", "toner_unidades", "toner_pedido_items"].includes(table) || rows.length === 0) return rows;
     const ids = [...new Set(rows.map((r) => r.modelo_id).filter(Boolean))];
     if (ids.length === 0) return rows;
     const models = await query<{ id: string; nombre: string }>(`select id, nombre from toner_modelos where id = any($1::uuid[])`, [ids]);
@@ -296,6 +302,10 @@ export const apiMutate = createServerFn({ method: "POST" })
       if (table === "inventario" && before.rows.length > 0) {
         const ids = before.rows.map((row) => row.id).filter(Boolean).map(String);
         if (ids.length > 0) await query(`delete from inventario_controles where inventario_id = any($1::uuid[])`, [ids]);
+      }
+      if (table === "toner_pedidos" && before.rows.length > 0) {
+        const ids = before.rows.map((row) => row.id).filter(Boolean).map(String);
+        if (ids.length > 0) await query(`delete from toner_pedido_items where pedido_id = any($1::uuid[])`, [ids]);
       }
       await query(`delete from ${table}${where}`, values);
       await writeAudit(session.user.id, table, "eliminar", before.rows);
