@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -8,6 +8,7 @@ import {
   Copy,
   Download,
   Edit3,
+  FileText,
   ListChecks,
   PackageCheck,
   PackageMinus,
@@ -52,6 +53,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
+import { abrirPdfPedido } from "@/lib/toner-pedido-pdf";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/toners")({
@@ -124,6 +126,10 @@ type PedidoItem = {
   cantidad_recibida: number;
   toner_modelos: { nombre: string } | null;
 };
+
+function sugerida(m: Modelo) {
+  return Math.max(m.stock_minimo * 2 - m.stock, m.stock_minimo, 1);
+}
 
 function TonersPage() {
   const { canWrite, profile, user } = useAuth();
@@ -263,6 +269,30 @@ function TonersPage() {
     }
     return map;
   }, [movimientos]);
+
+  const descargarPdfPedido = (p: Pedido, items: PedidoItem[]) => {
+    try {
+      abrirPdfPedido({
+        numero: p.numero,
+        proveedor: p.proveedor,
+        notas: p.notas,
+        solicitante: p.created_by_nombre || responsableDefault,
+        fecha: new Date(p.created_at),
+        lineas: items.map((i) => {
+          const mod = modelos.find((m) => m.id === i.modelo_id);
+          return {
+            nombre: i.toner_modelos?.nombre ?? mod?.nombre ?? i.modelo_id,
+            marca: mod?.marca,
+            stock: i.stock_al_pedir ?? mod?.stock ?? null,
+            minimo: mod?.stock_minimo ?? null,
+            cantidad: i.cantidad,
+          };
+        }),
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo abrir el PDF");
+    }
+  };
 
   return (
     <div>
@@ -477,11 +507,9 @@ function TonersPage() {
         <TabsContent value="movimientos" className="mt-4">
           <Card className="panel">
             <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <ListChecks className="size-4 text-primary" /> Kardex de movimientos
-                </CardTitle>
-              </div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListChecks className="size-4 text-primary" /> Kardex de movimientos
+              </CardTitle>
               <Button
                 type="button"
                 variant="outline"
@@ -570,7 +598,7 @@ function TonersPage() {
                   <ShoppingCart className="size-4 text-primary" /> Pedidos al proveedor
                 </CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Armá el pedido con los tóners en rojo y exportalo para el proveedor.
+                  Elegí qué tóners pedir, la cantidad y generá el PDF de solicitud.
                 </p>
               </div>
               {canWrite && (
@@ -586,136 +614,173 @@ function TonersPage() {
             <CardContent className="space-y-4">
               {criticos.length > 0 && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-destructive">
-                    Sugeridos para pedido ({criticos.length})
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {criticos.map((m) => {
-                      const sugerido = Math.max(m.stock_minimo * 2 - m.stock, m.stock_minimo, 1);
-                      return (
-                        <Badge key={m.id} variant="outline" className="font-normal">
-                          {m.nombre}: stock {m.stock} → pedir ~{sugerido}
-                        </Badge>
-                      );
-                    })}
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+                      Stock crítico · sugeridos ({criticos.length})
+                    </p>
+                    {canWrite && (
+                      <span className="text-xs text-muted-foreground">
+                        Usá «Nuevo pedido» para seleccionar y generar el PDF
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {criticos.map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{m.nombre}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Stock {m.stock} · mín {m.stock_minimo}
+                          </p>
+                        </div>
+                        <Badge variant="outline">pedir ~{sugerida(m)}</Badge>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nº</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead>Proveedor</TableHead>
-                      <TableHead>Ítems</TableHead>
-                      <TableHead>Creado</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pedidos.map((p) => {
-                      const items = pedidoItems.filter((i) => i.pedido_id === p.id);
-                      const total = items.reduce((s, i) => s + i.cantidad, 0);
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-mono font-semibold">PED-{p.numero}</TableCell>
-                          <TableCell>
-                            <Badge variant={pedidoEstadoVariant(p.estado)} className="capitalize">
-                              {p.estado}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{p.proveedor || "—"}</TableCell>
-                          <TableCell className="text-sm">
-                            {items.length} modelo(s) · {total} u.
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {new Date(p.created_at).toLocaleString("es-AR")}
-                            {p.created_by_nombre ? ` · ${p.created_by_nombre}` : ""}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex flex-wrap justify-end gap-1">
-                              <Button size="sm" variant="outline" onClick={() => exportPedido(p, items)}>
-                                <Download className="size-3.5" /> Exportar
-                              </Button>
-                              {canWrite && p.estado === "borrador" && (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={async () => {
-                                    const { error } = await api
-                                      .from("toner_pedidos")
-                                      .update({ estado: "enviado", enviado_at: new Date().toISOString() })
-                                      .eq("id", p.id);
-                                    if (error) return toast.error(error.message);
-                                    toast.success("Pedido marcado como enviado");
-                                    refresh();
-                                  }}
-                                >
-                                  Marcar enviado
-                                </Button>
-                              )}
-                              {canWrite && (p.estado === "enviado" || p.estado === "borrador") && (
-                                <Button
-                                  size="sm"
-                                  onClick={async () => {
-                                    for (const item of items) {
-                                      const { error } = await api.from("toner_movimientos").insert({
-                                        modelo_id: item.modelo_id,
-                                        tipo: "ingreso",
-                                        cantidad: item.cantidad,
-                                        responsable: responsableDefault,
-                                        notas: `Recepcion PED-${p.numero}`,
-                                      });
-                                      if (error) return toast.error(error.message);
-                                      await api
-                                        .from("toner_pedido_items")
-                                        .update({ cantidad_recibida: item.cantidad })
-                                        .eq("id", item.id);
-                                    }
-                                    const { error } = await api
-                                      .from("toner_pedidos")
-                                      .update({ estado: "recibido", recibido_at: new Date().toISOString() })
-                                      .eq("id", p.id);
-                                    if (error) return toast.error(error.message);
-                                    toast.success("Pedido recibido · stock actualizado");
-                                    refresh();
-                                  }}
-                                >
-                                  <PackagePlus className="size-3.5" /> Recibir en depósito
-                                </Button>
-                              )}
-                              {canWrite && p.estado === "borrador" && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="size-8 text-destructive"
-                                  onClick={async () => {
-                                    const { error } = await api.from("toner_pedidos").delete().eq("id", p.id);
-                                    if (error) return toast.error(error.message);
-                                    toast.success("Pedido eliminado");
-                                    refresh();
-                                  }}
-                                >
-                                  <Trash2 className="size-4" />
-                                </Button>
-                              )}
+
+              {pedidos.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/70 py-14 text-center">
+                  <ClipboardList className="mx-auto mb-3 size-10 text-muted-foreground/50" />
+                  <p className="font-medium text-foreground">Todavía no hay pedidos</p>
+                  <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                    Creá un pedido eligiendo los modelos y cantidades. Al guardar se abre el PDF de solicitud.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pedidos.map((p) => {
+                    const items = pedidoItems.filter((i) => i.pedido_id === p.id);
+                    const total = items.reduce((s, i) => s + i.cantidad, 0);
+                    return (
+                      <div
+                        key={p.id}
+                        className="rounded-xl border border-border/70 bg-card/40 p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-base font-bold">PED-{p.numero}</span>
+                              <Badge variant={pedidoEstadoVariant(p.estado)} className="capitalize">
+                                {p.estado}
+                              </Badge>
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {pedidos.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
-                          <ClipboardList className="mx-auto mb-2 size-8 opacity-40" />
-                          Todavía no hay pedidos. Generá uno desde los críticos.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                            <p className="text-sm text-muted-foreground">
+                              {p.proveedor || "Sin proveedor"} · {items.length} modelo(s) · {total} u.
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(p.created_at).toLocaleString("es-AR")}
+                              {p.created_by_nombre ? ` · ${p.created_by_nombre}` : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <Button size="sm" variant="default" onClick={() => descargarPdfPedido(p, items)}>
+                              <FileText className="size-3.5" /> PDF
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => exportPedidoCsv(p, items)}>
+                              <Download className="size-3.5" /> CSV
+                            </Button>
+                            {canWrite && p.estado === "borrador" && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={async () => {
+                                  const { error } = await api
+                                    .from("toner_pedidos")
+                                    .update({ estado: "enviado", enviado_at: new Date().toISOString() })
+                                    .eq("id", p.id);
+                                  if (error) return toast.error(error.message);
+                                  toast.success("Marcado como enviado");
+                                  refresh();
+                                }}
+                              >
+                                Enviado
+                              </Button>
+                            )}
+                            {canWrite && (p.estado === "enviado" || p.estado === "borrador") && (
+                              <Button
+                                size="sm"
+                                onClick={async () => {
+                                  for (const item of items) {
+                                    const { error } = await api.from("toner_movimientos").insert({
+                                      modelo_id: item.modelo_id,
+                                      tipo: "ingreso",
+                                      cantidad: item.cantidad,
+                                      responsable: responsableDefault,
+                                      notas: `Recepcion PED-${p.numero}`,
+                                    });
+                                    if (error) return toast.error(error.message);
+                                    await api
+                                      .from("toner_pedido_items")
+                                      .update({ cantidad_recibida: item.cantidad })
+                                      .eq("id", item.id);
+                                  }
+                                  const { error } = await api
+                                    .from("toner_pedidos")
+                                    .update({ estado: "recibido", recibido_at: new Date().toISOString() })
+                                    .eq("id", p.id);
+                                  if (error) return toast.error(error.message);
+                                  toast.success("Recibido · stock actualizado");
+                                  refresh();
+                                }}
+                              >
+                                <PackagePlus className="size-3.5" /> Recibir
+                              </Button>
+                            )}
+                            {canWrite && p.estado === "borrador" && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-8 text-destructive"
+                                onClick={async () => {
+                                  const { error } = await api.from("toner_pedidos").delete().eq("id", p.id);
+                                  if (error) return toast.error(error.message);
+                                  toast.success("Pedido eliminado");
+                                  refresh();
+                                }}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        {items.length > 0 && (
+                          <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-muted/30">
+                                  <TableHead>Modelo</TableHead>
+                                  <TableHead className="w-24 text-right">Cant.</TableHead>
+                                  <TableHead className="w-28 text-right">Stock al pedir</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {items.map((i) => (
+                                  <TableRow key={i.id}>
+                                    <TableCell className="text-sm">
+                                      {i.toner_modelos?.nombre ?? i.modelo_id}
+                                    </TableCell>
+                                    <TableCell className="text-right font-mono tabular-nums">
+                                      {i.cantidad}
+                                    </TableCell>
+                                    <TableCell className="text-right font-mono text-muted-foreground tabular-nums">
+                                      {i.stock_al_pedir ?? "—"}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -723,9 +788,7 @@ function TonersPage() {
         <TabsContent value="codigos" className="mt-4">
           <Card className="panel">
             <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-              <div>
-                <CardTitle className="text-base">Códigos de etiqueta</CardTitle>
-              </div>
+              <CardTitle className="text-base">Códigos de etiqueta</CardTitle>
               {canWrite && (
                 <Button onClick={() => setGenOpen(true)}>
                   <Wand2 className="size-4" /> Generar códigos
@@ -801,7 +864,7 @@ function Kpi({
 }: {
   label: string;
   value: number;
-  icon: React.ReactNode;
+  icon: ReactNode;
   danger?: boolean;
 }) {
   return (
@@ -835,7 +898,7 @@ function IngresoDialog({
   modeloFijo?: Modelo;
   responsableDefault: string;
   onDone: () => void;
-  trigger?: React.ReactNode;
+  trigger?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -939,7 +1002,7 @@ function UsoDialog({
   modeloFijo?: Modelo;
   responsableDefault: string;
   onDone: () => void;
-  trigger?: React.ReactNode;
+  trigger?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1057,6 +1120,7 @@ function UsoDialog({
   );
 }
 
+/** Dialog de pedido: checklist de modelos + cantidades + PDF al crear */
 function PedidoDialog({
   modelos,
   criticos,
@@ -1072,19 +1136,50 @@ function PedidoDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [lineas, setLineas] = useState<{ modelo_id: string; cantidad: number }[]>([]);
+  const [proveedor, setProveedor] = useState("");
+  const [notas, setNotas] = useState("");
+  const [filtro, setFiltro] = useState("");
+  /** mapa modelo_id → cantidad (0 = no incluido) */
+  const [cantidades, setCantidades] = useState<Record<string, number>>({});
+
+  const precargarCriticos = () => {
+    const next: Record<string, number> = {};
+    for (const m of criticos) next[m.id] = sugerida(m);
+    setCantidades(next);
+  };
 
   const abrir = (o: boolean) => {
     setOpen(o);
     if (o) {
-      setLineas(
-        criticos.map((m) => ({
-          modelo_id: m.id,
-          cantidad: Math.max(m.stock_minimo * 2 - m.stock, m.stock_minimo, 1),
-        })),
-      );
+      setProveedor("");
+      setNotas("");
+      setFiltro("");
+      precargarCriticos();
     }
   };
+
+  const seleccionados = modelos
+    .filter((m) => (cantidades[m.id] ?? 0) > 0)
+    .map((m) => ({ modelo: m, cantidad: cantidades[m.id] }));
+
+  const totalUnidades = seleccionados.reduce((s, x) => s + x.cantidad, 0);
+
+  const modelosVisibles = useMemo(() => {
+    const q = filtro.trim().toLowerCase();
+    const list = [...modelos].sort((a, b) => {
+      const ac = a.stock <= a.stock_minimo ? 0 : 1;
+      const bc = b.stock <= b.stock_minimo ? 0 : 1;
+      if (ac !== bc) return ac - bc;
+      return a.nombre.localeCompare(b.nombre, "es");
+    });
+    if (!q) return list;
+    return list.filter(
+      (m) =>
+        m.nombre.toLowerCase().includes(q) ||
+        (m.marca ?? "").toLowerCase().includes(q) ||
+        m.prefijo.toLowerCase().includes(q),
+    );
+  }, [modelos, filtro]);
 
   return (
     <Dialog open={open} onOpenChange={abrir}>
@@ -1093,120 +1188,191 @@ function PedidoDialog({
           <Plus className="size-4" /> Nuevo pedido
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Pedido a proveedor</DialogTitle>
-          <DialogDescription>Se precargan los modelos en stock crítico.</DialogDescription>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border/70 px-5 py-4">
+          <DialogTitle>Nuevo pedido a proveedor</DialogTitle>
+          <DialogDescription>
+            Marcá los tóners, definí cantidades y generá el PDF de solicitud.
+          </DialogDescription>
         </DialogHeader>
-        <form
-          className="grid gap-3"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (saving) return;
-            const fd = new FormData(e.currentTarget);
-            const validas = lineas.filter((l) => l.modelo_id && l.cantidad > 0);
-            if (!validas.length) return toast.error("Agregá al menos un ítem");
-            setSaving(true);
-            const { data: pedido, error } = await api.from("toner_pedidos").insert({
-              estado: "borrador",
-              proveedor: String(fd.get("proveedor") || "").trim() || null,
-              notas: String(fd.get("notas") || "").trim() || null,
-              created_by: userId ?? null,
-              created_by_nombre: userName ?? null,
-            });
-            if (error || !pedido) {
-              setSaving(false);
-              return toast.error(error?.message || "No se pudo crear el pedido");
-            }
-            const pedidoRow = pedido as Pedido;
-            for (const linea of validas) {
-              const modelo = modelos.find((m) => m.id === linea.modelo_id);
-              const { error: itemErr } = await api.from("toner_pedido_items").insert({
-                pedido_id: pedidoRow.id,
-                modelo_id: linea.modelo_id,
-                cantidad: linea.cantidad,
-                stock_al_pedir: modelo?.stock ?? null,
-              });
-              if (itemErr) {
-                setSaving(false);
-                return toast.error(itemErr.message);
-              }
-            }
-            setSaving(false);
-            toast.success(`Pedido PED-${pedidoRow.numero} creado`);
-            setOpen(false);
-            onDone();
-          }}
-        >
-          <div className="space-y-1.5">
-            <Label>Proveedor</Label>
-            <Input name="proveedor" placeholder="Nombre del proveedor" />
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Ítems</Label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setLineas((prev) => [...prev, { modelo_id: modelos[0]?.id ?? "", cantidad: 1 }])}
-              >
-                <Plus className="size-3.5" /> Línea
-              </Button>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Proveedor</Label>
+              <Input
+                value={proveedor}
+                onChange={(e) => setProveedor(e.target.value)}
+                placeholder="Nombre del proveedor"
+              />
             </div>
-            {lineas.map((linea, idx) => (
-              <div key={idx} className="flex gap-2">
-                <Select
-                  value={linea.modelo_id}
-                  onValueChange={(v) =>
-                    setLineas((prev) => prev.map((l, i) => (i === idx ? { ...l, modelo_id: v } : l)))
-                  }
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Modelo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelos.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.nombre} (stock {m.stock})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  className="w-20"
-                  min={1}
-                  value={linea.cantidad}
-                  onChange={(e) =>
-                    setLineas((prev) =>
-                      prev.map((l, i) =>
-                        i === idx ? { ...l, cantidad: Math.max(1, Number(e.target.value) || 1) } : l,
-                      ),
-                    )
-                  }
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setLineas((prev) => prev.filter((_, i) => i !== idx))}
-                >
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
-              </div>
-            ))}
+            <div className="space-y-1.5">
+              <Label>Notas / urgencia</Label>
+              <Input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Opcional" />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Notas</Label>
-            <Textarea name="notas" rows={2} />
-          </div>
-          <DialogFooter>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Creando…" : "Crear pedido"}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                placeholder="Filtrar modelos…"
+              />
+            </div>
+            <Button type="button" size="sm" variant="secondary" onClick={precargarCriticos}>
+              Precargar críticos
             </Button>
-          </DialogFooter>
-        </form>
+            <Button type="button" size="sm" variant="outline" onClick={() => setCantidades({})}>
+              Limpiar
+            </Button>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-border/70">
+            <div className="grid grid-cols-[auto_1fr_72px_88px] gap-2 border-b border-border/70 bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span />
+              <span>Modelo</span>
+              <span className="text-right">Stock</span>
+              <span className="text-right">Cant. pedir</span>
+            </div>
+            <div className="max-h-[38vh] overflow-y-auto">
+              {modelosVisibles.map((m) => {
+                const critico = m.stock <= m.stock_minimo;
+                const qty = cantidades[m.id] ?? 0;
+                const checked = qty > 0;
+                return (
+                  <label
+                    key={m.id}
+                    className={cn(
+                      "grid cursor-pointer grid-cols-[auto_1fr_72px_88px] items-center gap-2 border-b border-border/50 px-3 py-2.5 hover:bg-muted/25",
+                      checked && "bg-primary/5",
+                      critico && "bg-destructive/[0.04]",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-teal-500"
+                      checked={checked}
+                      onChange={(e) => {
+                        setCantidades((prev) => {
+                          const next = { ...prev };
+                          if (e.target.checked) next[m.id] = sugerida(m);
+                          else delete next[m.id];
+                          return next;
+                        });
+                      }}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{m.nombre}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {m.marca || "Sin marca"}
+                        {critico && <span className="ml-2 text-destructive">· crítico</span>}
+                      </p>
+                    </div>
+                    <span className="text-right font-mono text-sm tabular-nums">
+                      {m.stock}
+                      <span className="text-muted-foreground">/{m.stock_minimo}</span>
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      className="h-8 text-right"
+                      value={qty || ""}
+                      placeholder="0"
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const n = Math.max(0, Number(e.target.value) || 0);
+                        setCantidades((prev) => {
+                          const next = { ...prev };
+                          if (n <= 0) delete next[m.id];
+                          else next[m.id] = n;
+                          return next;
+                        });
+                      }}
+                    />
+                  </label>
+                );
+              })}
+              {modelosVisibles.length === 0 && (
+                <p className="px-3 py-8 text-center text-sm text-muted-foreground">Sin modelos.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2 text-sm">
+            <span>
+              Seleccionados: <strong>{seleccionados.length}</strong> modelo(s)
+            </span>
+            <span>
+              Total unidades: <strong className="font-mono">{totalUnidades}</strong>
+            </span>
+          </div>
+        </div>
+
+        <DialogFooter className="border-t border-border/70 px-5 py-3">
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={saving || seleccionados.length === 0}
+            onClick={async () => {
+              if (saving) return;
+              if (!seleccionados.length) return toast.error("Seleccioná al menos un tóner");
+              setSaving(true);
+              const { data: pedido, error } = await api.from("toner_pedidos").insert({
+                estado: "borrador",
+                proveedor: proveedor.trim() || null,
+                notas: notas.trim() || null,
+                created_by: userId ?? null,
+                created_by_nombre: userName ?? null,
+              });
+              if (error || !pedido) {
+                setSaving(false);
+                return toast.error(error?.message || "No se pudo crear el pedido");
+              }
+              const pedidoRow = pedido as Pedido;
+              for (const { modelo, cantidad } of seleccionados) {
+                const { error: itemErr } = await api.from("toner_pedido_items").insert({
+                  pedido_id: pedidoRow.id,
+                  modelo_id: modelo.id,
+                  cantidad,
+                  stock_al_pedir: modelo.stock,
+                });
+                if (itemErr) {
+                  setSaving(false);
+                  return toast.error(itemErr.message);
+                }
+              }
+              setSaving(false);
+              toast.success(`Pedido PED-${pedidoRow.numero} creado`);
+              setOpen(false);
+              onDone();
+              try {
+                abrirPdfPedido({
+                  numero: pedidoRow.numero,
+                  proveedor: proveedor.trim() || null,
+                  notas: notas.trim() || null,
+                  solicitante: userName ?? null,
+                  lineas: seleccionados.map(({ modelo, cantidad }) => ({
+                    nombre: modelo.nombre,
+                    marca: modelo.marca,
+                    stock: modelo.stock,
+                    minimo: modelo.stock_minimo,
+                    cantidad,
+                  })),
+                });
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Pedido creado, pero no se abrió el PDF");
+              }
+            }}
+          >
+            <FileText className="size-4" />
+            {saving ? "Creando…" : "Crear y generar PDF"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -1461,10 +1627,9 @@ function pedidoEstadoVariant(estado: string): "secondary" | "outline" | "destruc
   return "outline";
 }
 
-function exportPedido(p: Pedido, items: PedidoItem[]) {
-  const fileName = "pedido-PED-" + p.numero + ".csv";
+function exportPedidoCsv(p: Pedido, items: PedidoItem[]) {
   exportCsv(
-    fileName,
+    "pedido-PED-" + p.numero + ".csv",
     ["Pedido", "Estado", "Proveedor", "Modelo", "Cantidad", "Stock al pedir"],
     items.map((i) => [
       "PED-" + p.numero,
@@ -1475,7 +1640,7 @@ function exportPedido(p: Pedido, items: PedidoItem[]) {
       i.stock_al_pedir ?? "",
     ]),
   );
-  toast.success("Pedido exportado");
+  toast.success("CSV exportado");
 }
 
 function exportCsv(fileName: string, headers: string[], rows: Array<Array<string | number>>) {
@@ -1523,7 +1688,9 @@ function agruparCodigosGenerados(unidades: Unidad[]): LoteCodigos[] {
         modelo: primero.toner_modelos?.nombre ?? "—",
         cantidad: ordenados.length,
         generadoPor: primero.generado_por_nombre || "—",
-        fechaGenerado: new Date(primero.created_at).toLocaleString("es-AR"),
+        fechaGenerado: new Date(primero.created_at).getTime()
+          ? new Date(primero.created_at).toLocaleString("es-AR")
+          : "—",
         sortDate: new Date(primero.created_at).getTime(),
       };
     })
