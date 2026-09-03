@@ -1,4 +1,4 @@
-/** Genera una solicitud de pedido en HTML lista para imprimir / guardar como PDF. */
+/** Solicitud de pedido imprimible / PDF (sin pop-ups). */
 
 export type PdfPedidoLinea = {
   nombre: string;
@@ -25,7 +25,7 @@ function esc(value: unknown) {
     .replace(/"/g, "&quot;");
 }
 
-export function abrirPdfPedido(input: PdfPedidoInput) {
+function buildHtml(input: PdfPedidoInput) {
   const fecha = input.fecha ?? new Date();
   const fechaStr = fecha.toLocaleDateString("es-AR", {
     day: "2-digit",
@@ -51,7 +51,7 @@ export function abrirPdfPedido(input: PdfPedidoInput) {
     )
     .join("");
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8" />
@@ -138,42 +138,12 @@ export function abrirPdfPedido(input: PdfPedidoInput) {
     color: #94a3b8;
     text-align: center;
   }
-  .actions {
-    position: sticky;
-    top: 0;
-    background: #0f172a;
-    color: #fff;
-    padding: 10px 16px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    justify-content: space-between;
-    margin: -24px -24px 20px;
-  }
-  .actions button {
-    background: #14b8a6;
-    color: #042f2e;
-    border: 0;
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  .actions button.secondary { background: #334155; color: #fff; }
   @media print {
-    .actions { display: none !important; }
     body { padding: 0; }
   }
 </style>
 </head>
 <body>
-  <div class="actions">
-    <span>Solicitud PED-${esc(input.numero)} · usá «Imprimir» y elegí Guardar como PDF</span>
-    <div>
-      <button class="secondary" onclick="window.close()">Cerrar</button>
-      <button onclick="window.print()">Imprimir / PDF</button>
-    </div>
-  </div>
   <div class="sheet">
     <div class="header">
       <div>
@@ -237,15 +207,78 @@ export function abrirPdfPedido(input: PdfPedidoInput) {
 
     <div class="footer">Documento generado automáticamente por SysPanelWiki · Tóners</div>
   </div>
-  <script>setTimeout(function(){ try { window.print(); } catch(e){} }, 250);</script>
 </body>
 </html>`;
+}
 
-  const win = window.open("", "_blank", "noopener,noreferrer,width=900,height=1000");
-  if (!win) {
-    throw new Error("El navegador bloqueó la ventana del PDF. Permití pop-ups e intentá de nuevo.");
+/**
+ * Abre el diálogo de impresión del navegador (Guardar como PDF)
+ * usando un iframe oculto — no depende de pop-ups.
+ */
+export function abrirPdfPedido(input: PdfPedidoInput) {
+  const html = buildHtml(input);
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("title", `PED-${input.numero}`);
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.style.pointerEvents = "none";
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!doc) {
+    document.body.removeChild(iframe);
+    // Fallback: descargar HTML
+    descargarHtmlPedido(input);
+    return;
   }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  const cleanup = () => {
+    try {
+      document.body.removeChild(iframe);
+    } catch {
+      /* already removed */
+    }
+  };
+
+  const doPrint = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch {
+      descargarHtmlPedido(input);
+    }
+    // dejar un poco de tiempo por si el diálogo de impresión tarda
+    setTimeout(cleanup, 1500);
+  };
+
+  // Esperar a que el documento cargue estilos
+  if (iframe.contentWindow?.document.readyState === "complete") {
+    setTimeout(doPrint, 100);
+  } else {
+    iframe.onload = () => setTimeout(doPrint, 100);
+    setTimeout(doPrint, 400);
+  }
+}
+
+/** Descarga el HTML de la solicitud (alternativa si print falla). */
+export function descargarHtmlPedido(input: PdfPedidoInput) {
+  const html = buildHtml(input);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `solicitud-PED-${input.numero}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
