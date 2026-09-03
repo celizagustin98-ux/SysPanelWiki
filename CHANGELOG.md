@@ -16,27 +16,27 @@ Reglas:
 2. Un minor por entrega de módulo coherente.
 3. Major solo para hitos o cambios que rompen compatibilidad.
 4. La versión vive en `package.json` y se graba en `build-info.json` al hacer `npm run build`.
+5. `npm run version:*` actualiza `package.json` **y crea un commit** con el mensaje `chore(release): vX.Y.Z (patch|minor|major)`.
 
-## [1.3.0] — oficial actual
+## [1.4.0] — 2026-09-03
 
-Base estable del panel interno (dashboard, tickets, tóners, instructivos, inventario, etc.).
+### Added / Changed
+- **Tickets**: cola prioritaria, detalle al click, filtros compactos.
+- **Instructivos**: wiki operativa, create optimista, tabs Contenido/PDF, recientes.
+- **Configuración**: versión del sistema visible (commit + build), criterio SemVer con próximos patch/minor/major.
+- **Versionado**: `bump-version.mjs` genera commit automático con la versión en el mensaje.
 
-### Incluye (ciclo reciente)
+### Tóners (ciclo 1.3.x → 1.4.0)
+- Inventario en tiempo real, pedidos a proveedor, PDF, recepción con confirmación/parcial.
 
-- Tóners: inventario en tiempo real, pedidos a proveedor, PDF de solicitud, recepción con confirmación/cantidades parciales.
-- Tickets: rediseño tipo mesa de sistemas (cola prioritaria, detalle al click).
-- Instructivos: rediseño wiki operativa, create optimista, tabs contenido/PDF.
+## [1.3.0] — oficial previa
+
+Base estable del panel interno.
 
 ### Cómo publicar la próxima
 
 ```bash
-# patch 1.3.0 → 1.3.1
-npm run version:fix
-
-# minor 1.3.0 → 1.4.0
-npm run version:module
-
-git add package.json CHANGELOG.md
-git commit -m "chore: release X.Y.Z"
+npm run version:fix    # o version:module / version:official
 git push
+# en servidor: git pull / reset + npm run build + restart
 ```
