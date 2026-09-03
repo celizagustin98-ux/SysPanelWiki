@@ -2,20 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   CheckCircle2,
-  Database,
-  HardDrive,
-  KeyRound,
   Loader2,
   Pencil,
-  Printer,
   Search,
-  Server,
-  Settings2,
   ShieldCheck,
   Trash2,
   UserPlus,
-  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
@@ -48,19 +42,11 @@ import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/lib/usuarios
 export const Route = createFileRoute("/_app/configuracion")({
   head: () => ({
     meta: [
-      { title: "Configuración | SysIntranet | Área Wiki" },
+      { title: "Configuración | SysPanelWiki" },
       {
         name: "description",
-        content:
-          "Administración general, usuarios, roles, permisos y estado de versión de SysIntranet | Área Wiki.",
+        content: "Usuarios, roles, permisos, estado del sistema y auditoría.",
       },
-      { property: "og:title", content: "Configuración | SysIntranet | Área Wiki" },
-      {
-        property: "og:description",
-        content: "Centro administrativo de usuarios, roles, permisos y estado de la wiki.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: ConfiguracionPage,
@@ -78,11 +64,7 @@ const MODULOS: { key: string; label: string }[] = [
 ];
 
 const ROLES: { value: AppRole; label: string; hint: string }[] = [
-  {
-    value: "administrador",
-    label: "Administrador",
-    hint: "Control total del sistema.",
-  },
+  { value: "administrador", label: "Administrador", hint: "Control total del sistema." },
   { value: "tecnico", label: "Técnico", hint: "Operación diaria del área." },
   { value: "consulta", label: "Consulta", hint: "Solo lectura y consulta." },
 ];
@@ -96,25 +78,11 @@ const ACCIONES = [
 
 type AccionKey = (typeof ACCIONES)[number]["key"];
 
-type Settings = {
-  version_actual: string;
-  ultima_revision: string | null;
-  ultima_actualizacion: string | null;
-  updated_at: string | null;
-};
-
 type UsuarioRow = {
   id: string;
   full_name: string;
   email: string;
   role: AppRole;
-};
-
-type SystemStats = {
-  auditoria: number;
-  instructivos: number;
-  toners: number;
-  guardias: number;
 };
 
 type SystemInfo = {
@@ -130,8 +98,21 @@ type SystemInfo = {
   ultimaActualizacionFuente: "commit" | "variable" | "build" | null;
 };
 
+type AuditRow = {
+  id: string;
+  actor_id: string | null;
+  actor_nombre: string | null;
+  actor_email: string | null;
+  modulo: string;
+  accion: string;
+  entidad_id: string | null;
+  entidad_desc: string | null;
+  detalle: Record<string, unknown>;
+  created_at: string;
+};
+
 function formatDate(value?: string | null) {
-  if (!value) return "Sin registro";
+  if (!value) return "—";
   return new Date(value).toLocaleString("es-AR", {
     day: "2-digit",
     month: "2-digit",
@@ -144,42 +125,10 @@ function formatDate(value?: string | null) {
 
 function formatVersion(value?: string | null) {
   const version = (value ?? "").trim();
-  if (!version || /^[a-f0-9]{7,40}$/i.test(version)) return "V 1.3.0";
+  if (!version || /^[a-f0-9]{7,40}$/i.test(version)) return "V 1.4.0";
   if (/^v\s/i.test(version)) return version.replace(/^v/i, "V");
   if (/^\d/.test(version)) return `V ${version}`;
   return version;
-}
-
-function parseVersion(value?: string | null) {
-  const version = String(value ?? "").trim().replace(/^v\s*/i, "");
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/);
-  if (!match) return { major: 1, minor: 3, patch: 0 };
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-  };
-}
-
-function versionLabel(major: number, minor: number, patch: number) {
-  return `V ${major}.${minor}.${patch}`;
-}
-
-function getVersionPolicy(version?: string | null) {
-  const current = parseVersion(version);
-  return {
-    current: versionLabel(current.major, current.minor, current.patch),
-    patch: versionLabel(current.major, current.minor, current.patch + 1),
-    minor: versionLabel(current.major, current.minor + 1, 0),
-    major: versionLabel(current.major + 1, 0, 0),
-  };
-}
-
-function updateSourceLabel(source?: SystemInfo["ultimaActualizacionFuente"]) {
-  if (source === "commit") return "último commit desplegado";
-  if (source === "variable") return "variable APP_UPDATED_AT";
-  if (source === "build") return "build del servidor";
-  return "registro del sistema";
 }
 
 function ConfiguracionPage() {
@@ -188,21 +137,19 @@ function ConfiguracionPage() {
   const [rows, setRows] = useState<PermRow[]>(perms);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const [settings, setSettings] = useState<Settings | null>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([]);
-  const [systemStats, setSystemStats] = useState<SystemStats>({
-    auditoria: 0,
-    instructivos: 0,
-    toners: 0,
-    guardias: 0,
-  });
   const [cargandoUsuarios, setCargandoUsuarios] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [editando, setEditando] = useState<UsuarioRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [cambiandoRol, setCambiandoRol] = useState<string | null>(null);
+
+  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditModulo, setAuditModulo] = useState<string>("all");
+  const [auditQ, setAuditQ] = useState("");
 
   const crear = useServerFn(crearUsuario);
   const borrar = useServerFn(eliminarUsuario);
@@ -212,32 +159,12 @@ function ConfiguracionPage() {
     setRows(perms);
   }, [perms]);
 
-  const loadSettings = useCallback(async () => {
-    const { data } = await api
-      .from("app_settings")
-      .select("version_actual, ultima_revision, ultima_actualizacion, updated_at")
-      .maybeSingle();
-    if (data) setSettings(data as Settings);
+  const loadSystemInfo = useCallback(async () => {
     try {
       setSystemInfo(await api.system.info<SystemInfo>());
     } catch {
       setSystemInfo(null);
     }
-  }, []);
-
-  const loadSystemStats = useCallback(async () => {
-    const [auditoria, instructivos, toners, guardias] = await Promise.all([
-      api.from("audit_log").select("id", { count: "exact", head: true }),
-      api.from("wiki_docs").select("id", { count: "exact", head: true }),
-      api.from("toner_modelos").select("id", { count: "exact", head: true }),
-      api.from("guardias").select("id", { count: "exact", head: true }),
-    ]);
-    setSystemStats({
-      auditoria: auditoria.count ?? 0,
-      instructivos: instructivos.count ?? 0,
-      toners: toners.count ?? 0,
-      guardias: guardias.count ?? 0,
-    });
   }, []);
 
   const cargarUsuarios = useCallback(async () => {
@@ -259,10 +186,26 @@ function ConfiguracionPage() {
     setCargandoUsuarios(false);
   }, []);
 
+  const loadAudit = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const { data, error } = await api
+        .from("audit_log")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const list = (data as AuditRow[]) ?? [];
+      setAuditRows(list.slice(0, 100));
+    } catch {
+      setAuditRows([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void loadSettings();
-    void loadSystemStats();
-  }, [loadSettings, loadSystemStats]);
+    void loadSystemInfo();
+  }, [loadSystemInfo]);
 
   useEffect(() => {
     if (isAdmin) void cargarUsuarios();
@@ -305,6 +248,16 @@ function ConfiguracionPage() {
   };
 
   const cambiarRol = async (usuarioId: string, nuevo: AppRole) => {
+    if (usuarioId === user?.id && nuevo !== "administrador") {
+      toast.error("No podés quitarte el rol de administrador a vos mismo.");
+      return;
+    }
+    const admins = usuarios.filter((u) => u.role === "administrador");
+    const target = usuarios.find((u) => u.id === usuarioId);
+    if (target?.role === "administrador" && nuevo !== "administrador" && admins.length <= 1) {
+      toast.error("Debe quedar al menos un administrador.");
+      return;
+    }
     setCambiandoRol(usuarioId);
     const { error } = await api.rpc("set_user_role", {
       _user_id: usuarioId,
@@ -366,6 +319,17 @@ function ConfiguracionPage() {
   };
 
   const onEliminar = async (row: UsuarioRow) => {
+    if (row.id === user?.id) {
+      toast.error("No podés eliminar tu propia cuenta.");
+      return;
+    }
+    if (row.role === "administrador") {
+      const admins = usuarios.filter((u) => u.role === "administrador");
+      if (admins.length <= 1) {
+        toast.error("Debe quedar al menos un administrador.");
+        return;
+      }
+    }
     if (!window.confirm(`¿Eliminar definitivamente a ${row.full_name || row.email}?`)) return;
     try {
       await borrar({ data: { userId: row.id } });
@@ -389,8 +353,30 @@ function ConfiguracionPage() {
     usuarios.forEach((u) => (c[u.role] += 1));
     return c;
   }, [usuarios]);
-  const installedVersion = systemInfo?.appVersion ?? "1.3.0";
-  const versionPolicy = getVersionPolicy(installedVersion);
+
+  const auditFiltrada = useMemo(() => {
+    let list = auditRows;
+    if (auditModulo !== "all") list = list.filter((r) => r.modulo === auditModulo);
+    const q = auditQ.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (r) =>
+          (r.actor_nombre ?? "").toLowerCase().includes(q) ||
+          (r.actor_email ?? "").toLowerCase().includes(q) ||
+          r.accion.toLowerCase().includes(q) ||
+          r.modulo.toLowerCase().includes(q) ||
+          (r.entidad_desc ?? "").toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [auditRows, auditModulo, auditQ]);
+
+  const auditModulos = useMemo(() => {
+    const s = new Set(auditRows.map((r) => r.modulo).filter(Boolean));
+    return Array.from(s).sort();
+  }, [auditRows]);
+
+  const installedVersion = systemInfo?.appVersion ?? "1.4.0";
 
   if (!isAdmin) {
     return (
@@ -423,141 +409,79 @@ function ConfiguracionPage() {
     <div className="space-y-6">
       <PageHeader
         title="Configuración"
-        description="Usuarios, roles, permisos, versión instalada y estado del sistema."
+        description="Quién entra, qué puede hacer y actividad del sistema."
       />
 
-      <Tabs defaultValue="general" className="space-y-4">
+      <Tabs
+        defaultValue="general"
+        className="space-y-4"
+        onValueChange={(v) => {
+          if (v === "actividad" && auditRows.length === 0) void loadAudit();
+        }}
+      >
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
           <TabsTrigger value="roles">Roles y permisos</TabsTrigger>
+          <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <Card className="panel border-primary/20">
-              <CardContent className="py-4">
+          <Card className="panel">
+            <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Versión del sistema
+                  Sistema
                 </p>
-                <p className="mt-2 font-mono text-2xl font-semibold tracking-tight">
+                <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">
                   {systemInfo?.displayVersion ?? formatVersion(installedVersion)}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {systemInfo?.commit ? `Commit ${systemInfo.commit}` : "Build local"}
-                  {systemInfo?.buildTime
-                    ? ` · build ${new Date(systemInfo.buildTime).toLocaleString("es-AR")}`
-                    : ""}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="panel">
-              <CardContent className="py-4">
-                <p className="text-xs font-medium uppercase text-muted-foreground">
-                  Última actualización
-                </p>
-                <p className="mt-2 text-sm font-medium">
-                  {formatDate(systemInfo?.ultimaActualizacion)}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Sale de {updateSourceLabel(systemInfo?.ultimaActualizacionFuente)}. Entorno:{" "}
-                  {systemInfo?.environment ?? "production"}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="panel">
-              <CardContent className="py-4">
-                <p className="text-xs font-medium uppercase text-muted-foreground">
-                  Usuarios activos
-                </p>
-                <p className="mt-2 text-2xl font-semibold">{usuarios.length}</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="panel">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Settings2 className="size-4" /> Criterio de versión
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-                <p className="font-semibold text-foreground">Versión instalada: {versionPolicy.current}</p>
-                <p className="mt-1">
-                  Formato <span className="font-mono">MAJOR.MINOR.PATCH</span> · cada release se
-                  publica con{" "}
-                  <span className="font-mono">npm run version:fix|module|official</span> y queda
-                  registrada en el build (<span className="font-mono">build-info.json</span>).
+                  {systemInfo?.commit ? `Commit ${systemInfo.commit}` : "Sin commit"}
+                  {" · "}
+                  Entorno {systemInfo?.environment ?? "production"}
+                  {systemInfo?.httpsEnabled ? " · HTTPS" : ""}
                 </p>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-                  <p className="font-semibold text-foreground">Patch</p>
-                  <p className="mt-1">
-                    Bugfix o polish. Comando: <span className="font-mono">version:fix</span>
+              <div className="text-sm sm:text-right">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Última actualización
+                </p>
+                <p className="mt-1 font-medium">{formatDate(systemInfo?.ultimaActualizacion)}</p>
+                {systemInfo?.buildTime && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Build {formatDate(systemInfo.buildTime)}
                   </p>
-                  <p className="mt-2 font-mono text-sm text-foreground">{versionPolicy.patch}</p>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-                  <p className="font-semibold text-foreground">Minor</p>
-                  <p className="mt-1">
-                    Módulo nuevo o rediseño. Comando:{" "}
-                    <span className="font-mono">version:module</span>
-                  </p>
-                  <p className="mt-2 font-mono text-sm text-foreground">{versionPolicy.minor}</p>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-                  <p className="font-semibold text-foreground">Major</p>
-                  <p className="mt-1">
-                    Hito o cambio disruptivo. Comando:{" "}
-                    <span className="font-mono">version:official</span>
-                  </p>
-                  <p className="mt-2 font-mono text-sm text-foreground">{versionPolicy.major}</p>
-                </div>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="panel">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Settings2 className="size-4" /> Estado administrativo
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-3">
-              {ROLES.map((r) => (
-                <div key={r.value} className="rounded-lg border border-border p-4">
-                  <div className="flex items-center justify-between">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {ROLES.map((r) => (
+              <Card key={r.value} className="panel">
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between gap-2">
                     <p className="font-medium">{r.label}</p>
                     <Badge variant="secondary">{conteoPorRol[r.value]}</Badge>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{r.hint}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="panel">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Server className="size-4" /> Inventario del sistema
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatTile icon={<Database className="size-4" />} title="Auditoría" value={systemStats.auditoria} detail="eventos registrados" />
-              <StatTile icon={<HardDrive className="size-4" />} title="Instructivos" value={systemStats.instructivos} detail="documentos wiki" />
-              <StatTile icon={<Printer className="size-4" />} title="Tóners" value={systemStats.toners} detail="modelos en depósito" />
-              <StatTile icon={<Users className="size-4" />} title="Guardias" value={systemStats.guardias} detail="registros de guardia" />
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </TabsContent>
 
         <TabsContent value="usuarios" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative max-w-md flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-9" placeholder="Buscar por nombre o email…" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+              <Input
+                className="pl-9"
+                placeholder="Buscar por nombre o email…"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
             </div>
             <Button onClick={() => setNuevoOpen(true)}>
               <UserPlus className="size-4" /> Nuevo usuario
@@ -571,19 +495,31 @@ function ConfiguracionPage() {
                   <Loader2 className="size-4 animate-spin" /> Cargando usuarios…
                 </div>
               ) : filtrados.length === 0 ? (
-                <p className="py-12 text-center text-sm text-muted-foreground">No hay usuarios para mostrar.</p>
+                <p className="py-12 text-center text-sm text-muted-foreground">
+                  No hay usuarios para mostrar.
+                </p>
               ) : (
                 <div className="divide-y divide-border">
                   {filtrados.map((u) => (
-                    <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div
+                      key={u.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                    >
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{u.full_name || "Sin nombre"}</p>
+                        <p className="truncate font-medium">
+                          {u.full_name || "Sin nombre"}
+                          {u.id === user?.id && (
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                              (vos)
+                            </span>
+                          )}
+                        </p>
                         <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Select
                           value={u.role}
-                          disabled={cambiandoRol === u.id || u.id === user?.id}
+                          disabled={cambiandoRol === u.id}
                           onValueChange={(v) => cambiarRol(u.id, v as AppRole)}
                         >
                           <SelectTrigger className="h-8 w-[150px]">
@@ -631,17 +567,38 @@ function ConfiguracionPage() {
               </Button>
             ))}
             <div className="ml-auto flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" disabled={saving === "preset" || rolActivo === "administrador"} onClick={() => aplicarPreset("lectura")}>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={saving === "preset" || rolActivo === "administrador"}
+                onClick={() => aplicarPreset("lectura")}
+              >
                 Preset lectura
               </Button>
-              <Button size="sm" variant="secondary" disabled={saving === "preset" || rolActivo === "administrador"} onClick={() => aplicarPreset("operativo")}>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={saving === "preset" || rolActivo === "administrador"}
+                onClick={() => aplicarPreset("operativo")}
+              >
                 Preset operativo
               </Button>
-              <Button size="sm" variant="outline" disabled={saving === "preset" || rolActivo === "administrador"} onClick={() => aplicarPreset("ninguno")}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saving === "preset" || rolActivo === "administrador"}
+                onClick={() => aplicarPreset("ninguno")}
+              >
                 Quitar todo
               </Button>
             </div>
           </div>
+
+          {rolActivo === "administrador" && (
+            <p className="text-xs text-muted-foreground">
+              El administrador siempre tiene acceso total; la matriz es solo referencia.
+            </p>
+          )}
 
           <Card className="panel overflow-hidden">
             <CardHeader className="border-b border-border/70 pb-3">
@@ -672,7 +629,7 @@ function ConfiguracionPage() {
                           <td key={a.key} className="px-3 py-2.5 text-center">
                             <div className="flex justify-center">
                               <Checkbox
-                                checked={!!row[a.key]}
+                                checked={!!row[a.key] || rolActivo === "administrador"}
                                 disabled={
                                   rolActivo === "administrador" ||
                                   saving === `${row.id}-${a.key}`
@@ -687,6 +644,76 @@ function ConfiguracionPage() {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="actividad" className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative max-w-md flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Buscar actor, acción o entidad…"
+                value={auditQ}
+                onChange={(e) => setAuditQ(e.target.value)}
+              />
+            </div>
+            <Select value={auditModulo} onValueChange={setAuditModulo}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Módulo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los módulos</SelectItem>
+                {auditModulos.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={() => void loadAudit()} disabled={auditLoading}>
+              {auditLoading ? <Loader2 className="size-4 animate-spin" /> : <Activity className="size-4" />}
+              Actualizar
+            </Button>
+          </div>
+
+          <Card className="panel overflow-hidden">
+            <CardContent className="p-0">
+              {auditLoading && auditRows.length === 0 ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" /> Cargando actividad…
+                </div>
+              ) : auditFiltrada.length === 0 ? (
+                <div className="py-12 text-center">
+                  <Activity className="mx-auto mb-2 size-8 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">No hay eventos de auditoría.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {auditFiltrada.map((ev) => (
+                    <div key={ev.id} className="px-4 py-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary" className="h-5 text-[10px]">
+                              {ev.modulo}
+                            </Badge>
+                            <span className="text-sm font-medium">{ev.accion}</span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {ev.actor_nombre || ev.actor_email || "Sistema"}
+                            {ev.entidad_desc ? ` · ${ev.entidad_desc}` : ""}
+                          </p>
+                        </div>
+                        <time className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                          {formatDate(ev.created_at)}
+                        </time>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -756,7 +783,12 @@ function ConfiguracionPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Nueva contraseña (opcional)</Label>
-              <Input name="password" type="password" minLength={6} placeholder="Dejar vacío para no cambiar" />
+              <Input
+                name="password"
+                type="password"
+                minLength={6}
+                placeholder="Dejar vacío para no cambiar"
+              />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditando(null)}>
@@ -772,31 +804,4 @@ function ConfiguracionPage() {
       </Dialog>
     </div>
   );
-}
-
-function StatTile({
-  icon,
-  title,
-  value,
-  detail,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  value: number;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border/70 bg-muted/15 p-3">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {icon}
-        <p className="text-xs font-medium uppercase">{title}</p>
-      </div>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
-
-function filteredEmpty(rows: UsuarioRow[]) {
-  return rows.length === 0;
 }
