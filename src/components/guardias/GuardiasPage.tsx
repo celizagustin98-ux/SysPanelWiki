@@ -53,6 +53,7 @@ import {
   nightEndIso,
   nightStartIso,
   normalizeName,
+  parseLocal,
   periodLabel,
   removeNightFromGuardia,
   shiftPeriod,
@@ -65,6 +66,14 @@ function asText(v: unknown, fallback = "") {
   if (v == null) return fallback;
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString();
+  if (typeof v === "object" && v && "toISOString" in v && typeof (v as any).toISOString === "function") {
+    try {
+      return (v as any).toISOString();
+    } catch {
+      /* fallthrough */
+    }
+  }
   return fallback;
 }
 
@@ -170,8 +179,9 @@ export function GuardiasPage() {
     const a = startOfDay(period.desde).getTime();
     const b = addDays(startOfDay(period.hasta), 1).getTime();
     return guardias.filter((g) => {
-      const s = new Date(g.desde).getTime();
-      const e = new Date(g.hasta).getTime();
+      const s = parseLocal(g.desde)?.getTime() ?? new Date(g.desde).getTime();
+      const e = parseLocal(g.hasta)?.getTime() ?? new Date(g.hasta).getTime();
+      if (Number.isNaN(s) || Number.isNaN(e)) return false;
       return s < b && e > a;
     });
   }, [guardias, period.desde, period.hasta]);
@@ -198,9 +208,11 @@ export function GuardiasPage() {
   }, [days, periodGuardias]);
 
   const now = new Date();
-  const actual = periodGuardias.find(
-    (g) => new Date(g.desde) <= now && new Date(g.hasta) >= now && !isVacacion(g),
-  );
+  const actual = periodGuardias.find((g) => {
+    const s = parseLocal(g.desde) ?? new Date(g.desde);
+    const e = parseLocal(g.hasta) ?? new Date(g.hasta);
+    return s <= now && e >= now && !isVacacion(g);
+  });
 
   const huecos = useMemo(
     () => days.filter((d) => !assignmentByDay.has(ymd(d))),
@@ -383,7 +395,7 @@ export function GuardiasPage() {
               </p>
               {actual && (
                 <p className="text-[11px] text-muted-foreground">
-                  hasta {format(parseISO(actual.hasta), "dd/MM HH:mm")}
+                  hasta {format(parseLocal(actual.hasta) ?? parseISO(actual.hasta), "dd/MM HH:mm")}
                 </p>
               )}
             </div>
@@ -611,7 +623,9 @@ export function GuardiasPage() {
               .sort((a, b) => +new Date(a.desde) - +new Date(b.desde))
               .map((g) => {
                 const op = codeByName[normalizeName(g.operador_nombre)];
-                const dias = differenceInCalendarDays(new Date(g.hasta), new Date(g.desde)) || 1;
+                const d0 = parseLocal(g.desde) ?? new Date(g.desde);
+                const d1 = parseLocal(g.hasta) ?? new Date(g.hasta);
+                const dias = differenceInCalendarDays(d1, d0) || 1;
                 return (
                   <div
                     key={g.id}
@@ -628,8 +642,7 @@ export function GuardiasPage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{g.operador_nombre}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        {format(parseISO(g.desde), "dd/MM HH:mm")} →{" "}
-                        {format(parseISO(g.hasta), "dd/MM HH:mm")}
+                        {format(d0, "dd/MM HH:mm")} → {format(d1, "dd/MM HH:mm")}
                       </p>
                     </div>
                     <Badge variant="secondary" className="tabular-nums">
