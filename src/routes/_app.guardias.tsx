@@ -13,15 +13,4 @@ export const Route = createFileRoute("/_app/guardias")({
     ],
   }),
   component: GuardiasPage,
-  errorComponent: ({ error }) => (
-    <div className="mx-auto max-w-lg space-y-3 p-8 text-center">
-      <h1 className="text-xl font-semibold">No se pudo cargar Guardias</h1>
-      <p className="text-sm text-muted-foreground">
-        {(error as Error)?.message || "Error desconocido"}
-      </p>
-      <a href="/dashboard" className="text-sm text-primary underline">
-        Volver al inicio
-      </a>
-    </div>
-  ),
 });
