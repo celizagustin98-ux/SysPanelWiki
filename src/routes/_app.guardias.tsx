@@ -22,7 +22,9 @@ import {
   FileDown,
   Plus,
   Trash2,
+  UserPlus,
   UserRound,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
@@ -75,32 +77,33 @@ type Guardia = {
   notas: string | null;
 };
 
-type Operario = { nombre: string; code: string; color: string };
+type OperarioRow = {
+  id: string;
+  nombre: string;
+  code: string;
+  activo: boolean;
+  orden: number;
+};
 
-const OPERARIOS: Operario[] = [
-  {
-    nombre: "CELIZ AGUSTIN",
-    code: "A",
-    color: "bg-teal-500/25 text-teal-800 dark:text-teal-200 border-teal-500/40",
-  },
-  {
-    nombre: "CORDOBA SANTINO",
-    code: "S",
-    color: "bg-sky-500/25 text-sky-800 dark:text-sky-200 border-sky-500/40",
-  },
-  {
-    nombre: "SANTILLAN KEVIN",
-    code: "K",
-    color: "bg-violet-500/25 text-violet-800 dark:text-violet-200 border-violet-500/40",
-  },
-  {
-    nombre: "SILETTO JOSE",
-    code: "J",
-    color: "bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 border-indigo-500/40",
-  },
+type Operario = { id?: string; nombre: string; code: string; color: string };
+
+const COLOR_PALETTE = [
+  "bg-teal-500/25 text-teal-800 dark:text-teal-200 border-teal-500/40",
+  "bg-sky-500/25 text-sky-800 dark:text-sky-200 border-sky-500/40",
+  "bg-violet-500/25 text-violet-800 dark:text-violet-200 border-violet-500/40",
+  "bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 border-indigo-500/40",
+  "bg-amber-500/25 text-amber-900 dark:text-amber-200 border-amber-500/40",
+  "bg-rose-500/25 text-rose-800 dark:text-rose-200 border-rose-500/40",
+  "bg-cyan-500/25 text-cyan-900 dark:text-cyan-200 border-cyan-500/40",
+  "bg-fuchsia-500/25 text-fuchsia-800 dark:text-fuchsia-200 border-fuchsia-500/40",
 ];
 
-const CODE_BY_NAME = Object.fromEntries(OPERARIOS.map((o) => [normalizeName(o.nombre), o]));
+const SEED_OPERARIOS = [
+  { nombre: "CELIZ AGUSTIN", code: "A", orden: 1 },
+  { nombre: "CORDOBA SANTINO", code: "S", orden: 2 },
+  { nombre: "SANTILLAN KEVIN", code: "K", orden: 3 },
+  { nombre: "SILETTO JOSE", code: "J", orden: 4 },
+];
 
 const FERIADOS_FIJOS = [
   "01-01",
@@ -145,6 +148,25 @@ function normalizeName(s: string) {
     .toUpperCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function colorForIndex(i: number) {
+  return COLOR_PALETTE[i % COLOR_PALETTE.length];
+}
+
+function suggestCode(nombre: string, used: Set<string>) {
+  const parts = normalizeName(nombre).split(" ").filter(Boolean);
+  const candidates = [
+    parts[0]?.[0],
+    parts[parts.length - 1]?.[0],
+    parts.map((p) => p[0]).join("").slice(0, 2),
+    ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""),
+  ].filter(Boolean) as string[];
+  for (const c of candidates) {
+    const code = c.slice(0, 2).toUpperCase();
+    if (!used.has(code)) return code;
+  }
+  return "X";
 }
 
 function ymd(d: Date) {
@@ -221,14 +243,12 @@ function isVacacion(g: Guardia) {
   return (g.notas ?? "").toLowerCase().includes("vacacion");
 }
 
-/** Quita una noche de un tramo: borra, o parte en antes/después. */
 async function removeNightFromGuardia(g: Guardia, day: Date) {
   const nightStart = new Date(nightStartIso(day)).getTime();
   const nightEnd = new Date(nightEndIso(day)).getTime();
   const gStart = new Date(g.desde).getTime();
   const gEnd = new Date(g.hasta).getTime();
 
-  // Si el tramo es solo esa noche → borrar
   if (gStart >= nightStart - 60_000 && gEnd <= nightEnd + 60_000) {
     const { error } = await api.from("guardias").delete().eq("id", g.id);
     if (error) throw new Error(error.message);
@@ -240,17 +260,14 @@ async function removeNightFromGuardia(g: Guardia, day: Date) {
 
   const inserts: { operador_nombre: string; desde: string; hasta: string; notas: string | null }[] =
     [];
-
-  // Parte anterior (noches antes de `day`)
   if (gStart < nightStart) {
     inserts.push({
       operador_nombre: g.operador_nombre,
       desde: g.desde,
-      hasta: nightStartIso(day), // termina cuando arrancaría esa noche
+      hasta: nightStartIso(day),
       notas: g.notas,
     });
   }
-  // Parte posterior (noches después de `day`)
   if (gEnd > nightEnd) {
     inserts.push({
       operador_nombre: g.operador_nombre,
@@ -259,7 +276,6 @@ async function removeNightFromGuardia(g: Guardia, day: Date) {
       notas: g.notas,
     });
   }
-
   if (inserts.length) {
     const { error } = await api.from("guardias").insert(inserts);
     if (error) throw new Error(error.message);
@@ -276,6 +292,60 @@ function GuardiasPage() {
   const days = useMemo(
     () => eachDayOfInterval({ start: period.desde, end: period.hasta }),
     [period.desde, period.hasta],
+  );
+
+  const { data: operarioRows = [], isLoading: loadingOps } = useQuery({
+    queryKey: ["guardia_operarios"],
+    queryFn: async () => {
+      const { data, error } = await api
+        .from("guardia_operarios")
+        .select("id, nombre, code, activo, orden")
+        .order("orden");
+      if (error) {
+        // Tabla aún no migrada → fallback en memoria
+        return SEED_OPERARIOS.map((s, i) => ({
+          id: `seed-${i}`,
+          nombre: s.nombre,
+          code: s.code,
+          activo: true,
+          orden: s.orden,
+        })) as OperarioRow[];
+      }
+      let rows = (data ?? []) as OperarioRow[];
+      if (rows.length === 0) {
+        await api.from("guardia_operarios").insert(
+          SEED_OPERARIOS.map((s) => ({
+            nombre: s.nombre,
+            code: s.code,
+            activo: true,
+            orden: s.orden,
+          })),
+        );
+        const again = await api
+          .from("guardia_operarios")
+          .select("id, nombre, code, activo, orden")
+          .order("orden");
+        rows = (again.data ?? []) as OperarioRow[];
+      }
+      return rows;
+    },
+  });
+
+  const operarios: Operario[] = useMemo(() => {
+    return operarioRows
+      .filter((r) => r.activo)
+      .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
+      .map((r, i) => ({
+        id: r.id,
+        nombre: r.nombre,
+        code: r.code,
+        color: colorForIndex(i),
+      }));
+  }, [operarioRows]);
+
+  const codeByName = useMemo(
+    () => Object.fromEntries(operarios.map((o) => [normalizeName(o.nombre), o])),
+    [operarios],
   );
 
   const { data: guardias = [], isLoading } = useQuery({
@@ -329,7 +399,7 @@ function GuardiasPage() {
   );
 
   const liquidacion = useMemo(() => {
-    return OPERARIOS.map((op) => {
+    return operarios.map((op) => {
       let normales = 0;
       let feriados = 0;
       for (const day of days) {
@@ -341,7 +411,7 @@ function GuardiasPage() {
       }
       return { ...op, normales, feriados, total: normales + feriados };
     });
-  }, [days, assignmentByDay]);
+  }, [days, assignmentByDay, operarios]);
 
   const del = useMutation({
     mutationFn: async (id: string) => {
@@ -356,6 +426,7 @@ function GuardiasPage() {
   });
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
+  const refreshOps = () => qc.invalidateQueries({ queryKey: ["guardia_operarios"] });
 
   function cellFor(
     op: Operario,
@@ -379,7 +450,6 @@ function GuardiasPage() {
       const vacKey = `${normalizeName(op.nombre)}|${ymd(day)}`;
       const hasVac = vacacionesByDayName.has(vacKey);
 
-      // Quitar vacación del operario ese día
       if (hasVac) {
         const vacG = periodGuardias.find(
           (g) =>
@@ -400,7 +470,6 @@ function GuardiasPage() {
         return;
       }
 
-      // Si otro operario cubría esa noche, sacarlo
       if (existing && normalizeName(existing.operador_nombre) !== normalizeName(op.nombre)) {
         await removeNightFromGuardia(existing, day);
       } else if (
@@ -408,7 +477,6 @@ function GuardiasPage() {
         normalizeName(existing.operador_nombre) === normalizeName(op.nombre) &&
         mode === "guardia"
       ) {
-        // ya está asignado como guardia
         toast.message("Ya estaba asignado");
         setCellDialog(null);
         return;
@@ -451,7 +519,7 @@ function GuardiasPage() {
     <div className="space-y-5">
       <PageHeader
         title="Guardias"
-        description="Planilla 21→20 · clic en celda para asignar · liquidación"
+        description="Planilla 21→20 · clic en celda · plantel editable"
       >
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -486,7 +554,12 @@ function GuardiasPage() {
           >
             Hoy
           </Button>
-          {canWrite && <AsignarSemanaDialog period={period} onDone={refresh} />}
+          {canWrite && (
+            <>
+              <OperariosDialog rows={operarioRows} onDone={refreshOps} />
+              <AsignarSemanaDialog period={period} operarios={operarios} onDone={refresh} />
+            </>
+          )}
           <Button type="button" size="sm" variant="outline" onClick={exportPdf}>
             <FileDown className="size-4" /> PDF liquidación
           </Button>
@@ -543,9 +616,9 @@ function GuardiasPage() {
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Referencia
             </span>
-            {OPERARIOS.map((o) => (
+            {operarios.map((o) => (
               <span
-                key={o.code}
+                key={o.code + o.nombre}
                 className={cn(
                   "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-semibold",
                   o.color,
@@ -609,8 +682,15 @@ function GuardiasPage() {
                 </tr>
               </thead>
               <tbody>
-                {OPERARIOS.map((op) => (
-                  <tr key={op.code}>
+                {operarios.length === 0 && !loadingOps && (
+                  <tr>
+                    <td colSpan={days.length + 1} className="border border-border p-4 text-muted-foreground">
+                      No hay empleados activos. Usá "Empleados" para cargar el plantel.
+                    </td>
+                  </tr>
+                )}
+                {operarios.map((op) => (
+                  <tr key={op.id ?? op.nombre}>
                     <td className="sticky left-0 z-10 border border-border bg-card px-2 py-1 font-medium whitespace-nowrap">
                       {op.nombre}
                     </td>
@@ -631,7 +711,7 @@ function GuardiasPage() {
                             setCellDialog({ op, day: d });
                           }}
                         >
-                          {cell.kind !== "empty" ? (
+                          {cell.kind !== "empty" && (
                             <span
                               className={cn(
                                 "inline-flex size-6 items-center justify-center rounded border text-[11px] font-bold",
@@ -644,10 +724,6 @@ function GuardiasPage() {
                             >
                               {cell.label}
                             </span>
-                          ) : (
-                            canWrite && (
-                              <span className="inline-block size-6 rounded border border-dashed border-border/60 opacity-0 hover:opacity-100" />
-                            )
                           )}
                         </td>
                       );
@@ -686,7 +762,7 @@ function GuardiasPage() {
               </TableHeader>
               <TableBody>
                 {liquidacion.map((row) => (
-                  <TableRow key={row.code}>
+                  <TableRow key={row.code + row.nombre}>
                     <TableCell>
                       <span
                         className={cn(
@@ -698,9 +774,7 @@ function GuardiasPage() {
                       </span>
                       {row.nombre}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {row.normales}
-                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">{row.normales}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium text-rose-600 dark:text-rose-300">
                       {row.feriados}
                     </TableCell>
@@ -711,9 +785,6 @@ function GuardiasPage() {
                 ))}
               </TableBody>
             </Table>
-            <p className="mt-3 text-[11px] text-muted-foreground">
-              Feriado = sábado, domingo o feriado nacional. Cada celda = noche 20:00–08:00.
-            </p>
           </CardContent>
         </Card>
 
@@ -729,7 +800,7 @@ function GuardiasPage() {
               .slice()
               .sort((a, b) => +new Date(a.desde) - +new Date(b.desde))
               .map((g) => {
-                const op = CODE_BY_NAME[normalizeName(g.operador_nombre)];
+                const op = codeByName[normalizeName(g.operador_nombre)];
                 const dias = differenceInCalendarDays(new Date(g.hasta), new Date(g.desde)) || 1;
                 return (
                   <div
@@ -775,7 +846,6 @@ function GuardiasPage() {
         </Card>
       </div>
 
-      {/* Dialog clic en celda */}
       <Dialog open={!!cellDialog} onOpenChange={(o) => !o && setCellDialog(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -827,15 +897,145 @@ function GuardiasPage() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Plantel de empleados                                                       */
+/* -------------------------------------------------------------------------- */
+
+function OperariosDialog({ rows, onDone }: { rows: OperarioRow[]; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [code, setCode] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const usedCodes = useMemo(() => new Set(rows.map((r) => r.code.toUpperCase())), [rows]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = normalizeName(nombre);
+    if (!n) return toast.error("Ingresá el nombre");
+    const c = (code.trim() || suggestCode(n, usedCodes)).toUpperCase().slice(0, 2);
+    if (usedCodes.has(c) && !rows.some((r) => r.code === c && !r.activo)) {
+      // permitir reactivar mismo código si estaba inactivo
+      const inactive = rows.find((r) => r.code.toUpperCase() === c && !r.activo);
+      if (!inactive && rows.some((r) => r.code.toUpperCase() === c && r.activo)) {
+        return toast.error(`El código ${c} ya está en uso`);
+      }
+    }
+    setSaving(true);
+    const orden = (rows.reduce((m, r) => Math.max(m, r.orden), 0) || 0) + 1;
+    const { error } = await api.from("guardia_operarios").insert({
+      nombre: n,
+      code: c,
+      activo: true,
+      orden,
+    });
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success("Empleado agregado");
+    setNombre("");
+    setCode("");
+    onDone();
+  };
+
+  const toggle = async (row: OperarioRow) => {
+    const { error } = await api
+      .from("guardia_operarios")
+      .update({ activo: !row.activo })
+      .eq("id", row.id);
+    if (error) return toast.error(error.message);
+    toast.success(row.activo ? "Desactivado" : "Reactivado");
+    onDone();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="secondary">
+          <Users className="size-4" /> Empleados
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="size-4" /> Plantel de guardia
+          </DialogTitle>
+        </DialogHeader>
+
+        <form className="grid gap-3 rounded-lg border border-border p-3" onSubmit={submit}>
+          <p className="text-xs text-muted-foreground">Cargar nuevo empleado del área</p>
+          <div className="grid gap-3 sm:grid-cols-[1fr_5rem_auto]">
+            <div className="space-y-1">
+              <Label>Nombre completo</Label>
+              <Input
+                value={nombre}
+                onChange={(e) => {
+                  setNombre(e.target.value);
+                  if (!code) setCode(suggestCode(e.target.value, usedCodes));
+                }}
+                placeholder="APELLIDO NOMBRE"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Código</Label>
+              <Input
+                value={code}
+                maxLength={2}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="A"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button type="submit" disabled={saving}>
+                {saving ? "…" : "Agregar"}
+              </Button>
+            </div>
+          </div>
+        </form>
+
+        <div className="max-h-64 space-y-1 overflow-y-auto">
+          {rows
+            .slice()
+            .sort((a, b) => a.orden - b.orden)
+            .map((r) => (
+              <div
+                key={r.id}
+                className={cn(
+                  "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm",
+                  !r.activo && "opacity-50",
+                )}
+              >
+                <span className="inline-flex size-6 items-center justify-center rounded border bg-muted text-[11px] font-bold">
+                  {r.code}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">{r.nombre}</span>
+                {!r.activo && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Inactivo
+                  </Badge>
+                )}
+                <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => void toggle(r)}>
+                  {r.activo ? "Desactivar" : "Activar"}
+                </Button>
+              </div>
+            ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AsignarSemanaDialog({
   period,
+  operarios,
   onDone,
 }: {
   period: { desde: Date; hasta: Date };
+  operarios: Operario[];
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [operador, setOperador] = useState(OPERARIOS[0].nombre);
+  const [operador, setOperador] = useState(operarios[0]?.nombre ?? "");
   const [inicio, setInicio] = useState(format(period.desde, "yyyy-MM-dd"));
   const [dias, setDias] = useState(7);
   const [vacaciones, setVacaciones] = useState(false);
@@ -855,7 +1055,7 @@ function AsignarSemanaDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!preview) return toast.error("Revisá fechas");
+    if (!preview || !operador) return toast.error("Revisá datos");
     setSaving(true);
     const payload = {
       operador_nombre: operador,
@@ -889,11 +1089,11 @@ function AsignarSemanaDialog({
             <Label>Operario</Label>
             <Select value={operador} onValueChange={setOperador}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Elegí operario" />
               </SelectTrigger>
               <SelectContent>
-                {OPERARIOS.map((o) => (
-                  <SelectItem key={o.code} value={o.nombre}>
+                {operarios.map((o) => (
+                  <SelectItem key={o.id ?? o.nombre} value={o.nombre}>
                     {o.code} — {o.nombre}
                   </SelectItem>
                 ))}
@@ -942,7 +1142,7 @@ function AsignarSemanaDialog({
             <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} />
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving || operarios.length === 0}>
               {saving ? "Guardando…" : "Guardar"}
             </Button>
           </DialogFooter>
