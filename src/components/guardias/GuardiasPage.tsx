@@ -61,6 +61,13 @@ import {
 } from "@/components/guardias/domain";
 import { OperariosDialog } from "@/components/guardias/dialogs";
 
+function asText(v: unknown, fallback = "") {
+  if (v == null) return fallback;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return fallback;
+}
+
 export function GuardiasPage() {
   const { canWrite } = useAuth();
   const qc = useQueryClient();
@@ -95,7 +102,13 @@ export function GuardiasPage() {
           orden: s.orden,
         })) as OperarioRow[];
       }
-      let rows = (data ?? []) as OperarioRow[];
+      let rows = ((data ?? []) as any[]).map((r, i) => ({
+        id: asText(r.id, `tmp-${i}`),
+        nombre: asText(r.nombre).trim(),
+        code: asText(r.code, "?").trim() || "?",
+        activo: r.activo !== false,
+        orden: Number(r.orden) || 0,
+      })) as OperarioRow[];
       if (rows.length === 0) {
         await api.from("guardia_operarios").insert(
           SEED_OPERARIOS.map((s) => ({
@@ -109,9 +122,15 @@ export function GuardiasPage() {
           .from("guardia_operarios")
           .select("id, nombre, code, activo, orden")
           .order("orden");
-        rows = (again.data ?? []) as OperarioRow[];
+        rows = ((again.data ?? []) as any[]).map((r, i) => ({
+          id: asText(r.id, `tmp-${i}`),
+          nombre: asText(r.nombre).trim(),
+          code: asText(r.code, "?").trim() || "?",
+          activo: r.activo !== false,
+          orden: Number(r.orden) || 0,
+        })) as OperarioRow[];
       }
-      return rows;
+      return rows.filter((r) => r.nombre);
     },
   });
 
@@ -121,8 +140,8 @@ export function GuardiasPage() {
       .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
       .map((r, i) => ({
         id: r.id,
-        nombre: r.nombre,
-        code: r.code,
+        nombre: asText(r.nombre),
+        code: asText(r.code, "?"),
         color: colorForIndex(i),
       }));
   }, [operarioRows]);
@@ -137,7 +156,13 @@ export function GuardiasPage() {
     queryFn: async () => {
       const { data, error } = await api.from("guardias").select("*").order("desde");
       if (error) throw error;
-      return (data ?? []) as Guardia[];
+      return ((data ?? []) as any[]).map((g) => ({
+        ...g,
+        operador_nombre: asText(g.operador_nombre),
+        desde: asText(g.desde),
+        hasta: asText(g.hasta),
+        notas: g.notas == null ? null : asText(g.notas),
+      })) as Guardia[];
     },
   });
 
@@ -398,7 +423,9 @@ export function GuardiasPage() {
                 )}
               >
                 {o.code}{" "}
-                <span className="font-normal opacity-80">{o.nombre.split(" ").pop()}</span>
+                <span className="font-normal opacity-80">
+                  {asText(o.nombre).split(" ").pop()}
+                </span>
               </span>
             ))}
             <span className="inline-flex items-center rounded border border-rose-400/40 bg-rose-500/20 px-1.5 py-0.5 text-xs font-semibold text-rose-800 dark:text-rose-200">
