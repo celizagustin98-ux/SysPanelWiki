@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileDown,
   Plus,
   Trash2,
   UserRound,
@@ -48,6 +49,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/integrations/api/client";
+import { abrirPdfLiquidacion } from "@/lib/guardia-liquidacion-pdf";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -65,10 +67,6 @@ export const Route = createFileRoute("/_app/guardias")({
   component: GuardiasPage,
 });
 
-/* -------------------------------------------------------------------------- */
-/*  Dominio                                                                    */
-/* -------------------------------------------------------------------------- */
-
 type Guardia = {
   id: string;
   operador_nombre: string;
@@ -80,30 +78,42 @@ type Guardia = {
 type Operario = { nombre: string; code: string; color: string };
 
 const OPERARIOS: Operario[] = [
-  { nombre: "CELIZ AGUSTIN", code: "A", color: "bg-teal-500/25 text-teal-800 dark:text-teal-200 border-teal-500/40" },
-  { nombre: "CORDOBA SANTINO", code: "S", color: "bg-sky-500/25 text-sky-800 dark:text-sky-200 border-sky-500/40" },
-  { nombre: "SANTILLAN KEVIN", code: "K", color: "bg-violet-500/25 text-violet-800 dark:text-violet-200 border-violet-500/40" },
-  { nombre: "SILETTO JOSE", code: "J", color: "bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 border-indigo-500/40" },
+  {
+    nombre: "CELIZ AGUSTIN",
+    code: "A",
+    color: "bg-teal-500/25 text-teal-800 dark:text-teal-200 border-teal-500/40",
+  },
+  {
+    nombre: "CORDOBA SANTINO",
+    code: "S",
+    color: "bg-sky-500/25 text-sky-800 dark:text-sky-200 border-sky-500/40",
+  },
+  {
+    nombre: "SANTILLAN KEVIN",
+    code: "K",
+    color: "bg-violet-500/25 text-violet-800 dark:text-violet-200 border-violet-500/40",
+  },
+  {
+    nombre: "SILETTO JOSE",
+    code: "J",
+    color: "bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 border-indigo-500/40",
+  },
 ];
 
-const CODE_BY_NAME = Object.fromEntries(
-  OPERARIOS.map((o) => [normalizeName(o.nombre), o]),
-);
+const CODE_BY_NAME = Object.fromEntries(OPERARIOS.map((o) => [normalizeName(o.nombre), o]));
 
-/** Feriados nacionales AR (fijos + fechas conocidas 2025–2027). Sáb/dom se suman aparte. */
 const FERIADOS_FIJOS = [
-  "01-01", // Año Nuevo
-  "03-24", // Memoria
-  "04-02", // Malvinas
-  "05-01", // Trabajador
-  "05-25", // Revolución
-  "06-20", // Belgrano
-  "07-09", // Independencia
-  "12-08", // Inmaculada
-  "12-25", // Navidad
+  "01-01",
+  "03-24",
+  "04-02",
+  "05-01",
+  "05-25",
+  "06-20",
+  "07-09",
+  "12-08",
+  "12-25",
 ];
 
-/** Fechas móviles / puente conocidas (AAAA-MM-DD) — ampliar cada año si hace falta */
 const FERIADOS_EXTRA = new Set([
   "2025-03-03",
   "2025-03-04",
@@ -143,18 +153,14 @@ function ymd(d: Date) {
 
 function isFeriado(d: Date) {
   if (isSaturday(d) || isSunday(d)) return true;
-  const key = ymd(d);
-  if (FERIADOS_EXTRA.has(key)) return true;
-  const mmdd = format(d, "MM-dd");
-  return FERIADOS_FIJOS.includes(mmdd);
+  if (FERIADOS_EXTRA.has(ymd(d))) return true;
+  return FERIADOS_FIJOS.includes(format(d, "MM-dd"));
 }
 
-/** Período de liquidación: día 21 → día 20 del mes siguiente. */
 function getPeriodContaining(ref: Date) {
   const y = ref.getFullYear();
-  const m = ref.getMonth(); // 0-11
+  const m = ref.getMonth();
   const day = ref.getDate();
-
   let startY = y;
   let startM = m;
   if (day < 21) {
@@ -176,9 +182,7 @@ function getPeriodContaining(ref: Date) {
 }
 
 function shiftPeriod(period: { desde: Date; hasta: Date }, delta: number) {
-  // mueve el ancla (día 21) ±1 período
-  const anchor = addDays(period.desde, delta * 28);
-  return getPeriodContaining(anchor);
+  return getPeriodContaining(addDays(period.desde, delta * 28));
 }
 
 function periodLabel(desde: Date, hasta: Date) {
@@ -191,20 +195,16 @@ function periodLabel(desde: Date, hasta: Date) {
 }
 
 function weekdayLetter(d: Date) {
-  // V S D L M X J (viernes…)
-  const map = ["D", "L", "M", "X", "J", "V", "S"] as const;
-  return map[d.getDay()];
+  return (["D", "L", "M", "X", "J", "V", "S"] as const)[d.getDay()];
 }
 
 function nightStartIso(day: Date) {
-  // Guardia de la noche que arranca ese día a las 20:00 local
   const d = startOfDay(day);
   d.setHours(20, 0, 0, 0);
   return d.toISOString();
 }
 
 function nightEndIso(day: Date) {
-  // Termina al día siguiente 08:00
   const d = startOfDay(addDays(day, 1));
   d.setHours(8, 0, 0, 0);
   return d.toISOString();
@@ -214,7 +214,6 @@ function coversNight(g: Guardia, day: Date) {
   const start = new Date(g.desde).getTime();
   const end = new Date(g.hasta).getTime();
   const night = new Date(nightStartIso(day)).getTime();
-  // la noche del día D está cubierta si el tramo incluye ese inicio
   return start <= night && end > night;
 }
 
@@ -222,14 +221,57 @@ function isVacacion(g: Guardia) {
   return (g.notas ?? "").toLowerCase().includes("vacacion");
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Página                                                                     */
-/* -------------------------------------------------------------------------- */
+/** Quita una noche de un tramo: borra, o parte en antes/después. */
+async function removeNightFromGuardia(g: Guardia, day: Date) {
+  const nightStart = new Date(nightStartIso(day)).getTime();
+  const nightEnd = new Date(nightEndIso(day)).getTime();
+  const gStart = new Date(g.desde).getTime();
+  const gEnd = new Date(g.hasta).getTime();
+
+  // Si el tramo es solo esa noche → borrar
+  if (gStart >= nightStart - 60_000 && gEnd <= nightEnd + 60_000) {
+    const { error } = await api.from("guardias").delete().eq("id", g.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { error: delErr } = await api.from("guardias").delete().eq("id", g.id);
+  if (delErr) throw new Error(delErr.message);
+
+  const inserts: { operador_nombre: string; desde: string; hasta: string; notas: string | null }[] =
+    [];
+
+  // Parte anterior (noches antes de `day`)
+  if (gStart < nightStart) {
+    inserts.push({
+      operador_nombre: g.operador_nombre,
+      desde: g.desde,
+      hasta: nightStartIso(day), // termina cuando arrancaría esa noche
+      notas: g.notas,
+    });
+  }
+  // Parte posterior (noches después de `day`)
+  if (gEnd > nightEnd) {
+    inserts.push({
+      operador_nombre: g.operador_nombre,
+      desde: nightEndIso(day),
+      hasta: g.hasta,
+      notas: g.notas,
+    });
+  }
+
+  if (inserts.length) {
+    const { error } = await api.from("guardias").insert(inserts);
+    if (error) throw new Error(error.message);
+  }
+}
 
 function GuardiasPage() {
   const { canWrite } = useAuth();
   const qc = useQueryClient();
   const [period, setPeriod] = useState(() => getPeriodContaining(new Date()));
+  const [cellDialog, setCellDialog] = useState<null | { op: Operario; day: Date }>(null);
+  const [busy, setBusy] = useState(false);
 
   const days = useMemo(
     () => eachDayOfInterval({ start: period.desde, end: period.hasta }),
@@ -255,7 +297,6 @@ function GuardiasPage() {
     });
   }, [guardias, period.desde, period.hasta]);
 
-  /** Por cada día: quién cubre (si hay) */
   const assignmentByDay = useMemo(() => {
     const map = new Map<string, Guardia>();
     for (const day of days) {
@@ -282,9 +323,10 @@ function GuardiasPage() {
     (g) => new Date(g.desde) <= now && new Date(g.hasta) >= now && !isVacacion(g),
   );
 
-  const huecos = useMemo(() => {
-    return days.filter((d) => !assignmentByDay.has(ymd(d)));
-  }, [days, assignmentByDay]);
+  const huecos = useMemo(
+    () => days.filter((d) => !assignmentByDay.has(ymd(d))),
+    [days, assignmentByDay],
+  );
 
   const liquidacion = useMemo(() => {
     return OPERARIOS.map((op) => {
@@ -315,7 +357,10 @@ function GuardiasPage() {
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
 
-  function cellFor(op: Operario, day: Date): { kind: "empty" | "code" | "F" | "V"; label: string } {
+  function cellFor(
+    op: Operario,
+    day: Date,
+  ): { kind: "empty" | "code" | "F" | "V"; label: string } {
     const key = `${normalizeName(op.nombre)}|${ymd(day)}`;
     if (vacacionesByDayName.has(key)) return { kind: "V", label: "V" };
     const g = assignmentByDay.get(ymd(day));
@@ -327,11 +372,86 @@ function GuardiasPage() {
     return { kind: "code", label: op.code };
   }
 
+  async function assignCell(op: Operario, day: Date, mode: "guardia" | "vacacion" | "quitar") {
+    setBusy(true);
+    try {
+      const existing = assignmentByDay.get(ymd(day));
+      const vacKey = `${normalizeName(op.nombre)}|${ymd(day)}`;
+      const hasVac = vacacionesByDayName.has(vacKey);
+
+      // Quitar vacación del operario ese día
+      if (hasVac) {
+        const vacG = periodGuardias.find(
+          (g) =>
+            isVacacion(g) &&
+            coversNight(g, day) &&
+            normalizeName(g.operador_nombre) === normalizeName(op.nombre),
+        );
+        if (vacG) await removeNightFromGuardia(vacG, day);
+      }
+
+      if (mode === "quitar") {
+        if (existing && normalizeName(existing.operador_nombre) === normalizeName(op.nombre)) {
+          await removeNightFromGuardia(existing, day);
+        }
+        toast.success("Celda liberada");
+        refresh();
+        setCellDialog(null);
+        return;
+      }
+
+      // Si otro operario cubría esa noche, sacarlo
+      if (existing && normalizeName(existing.operador_nombre) !== normalizeName(op.nombre)) {
+        await removeNightFromGuardia(existing, day);
+      } else if (
+        existing &&
+        normalizeName(existing.operador_nombre) === normalizeName(op.nombre) &&
+        mode === "guardia"
+      ) {
+        // ya está asignado como guardia
+        toast.message("Ya estaba asignado");
+        setCellDialog(null);
+        return;
+      }
+
+      const payload = {
+        operador_nombre: op.nombre,
+        desde: nightStartIso(day),
+        hasta: nightEndIso(day),
+        notas: mode === "vacacion" ? "vacaciones" : "Guardia 1 noche",
+      };
+      const { error } = await api.from("guardias").insert(payload);
+      if (error) throw new Error(error.message);
+      toast.success(mode === "vacacion" ? "Vacaciones cargadas" : "Guardia asignada");
+      refresh();
+      setCellDialog(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportPdf() {
+    abrirPdfLiquidacion({
+      periodoLabel: periodLabel(period.desde, period.hasta),
+      desde: format(period.desde, "dd/MM/yyyy"),
+      hasta: format(period.hasta, "dd/MM/yyyy"),
+      filas: liquidacion.map((r) => ({
+        code: r.code,
+        nombre: r.nombre,
+        normales: r.normales,
+        feriados: r.feriados,
+        total: r.total,
+      })),
+    });
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
         title="Guardias"
-        description="Planilla por período (21→20) · turno 20:00–08:00 · liquidación normales / feriados"
+        description="Planilla 21→20 · clic en celda para asignar · liquidación"
       >
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -367,10 +487,12 @@ function GuardiasPage() {
             Hoy
           </Button>
           {canWrite && <AsignarSemanaDialog period={period} onDone={refresh} />}
+          <Button type="button" size="sm" variant="outline" onClick={exportPdf}>
+            <FileDown className="size-4" /> PDF liquidación
+          </Button>
         </div>
       </PageHeader>
 
-      {/* Estado actual + huecos */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Card className="panel">
           <CardContent className="flex items-center gap-3 p-4">
@@ -429,7 +551,8 @@ function GuardiasPage() {
                   o.color,
                 )}
               >
-                {o.code} <span className="font-normal opacity-80">{o.nombre.split(" ").pop()}</span>
+                {o.code}{" "}
+                <span className="font-normal opacity-80">{o.nombre.split(" ").pop()}</span>
               </span>
             ))}
             <span className="inline-flex items-center rounded border border-rose-400/40 bg-rose-500/20 px-1.5 py-0.5 text-xs font-semibold text-rose-800 dark:text-rose-200">
@@ -438,16 +561,23 @@ function GuardiasPage() {
             <span className="inline-flex items-center rounded border border-lime-500/40 bg-lime-500/20 px-1.5 py-0.5 text-xs font-semibold text-lime-800 dark:text-lime-200">
               V Vacaciones
             </span>
+            <span className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/20 px-1.5 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+              1 Día 1 del mes
+            </span>
           </CardContent>
         </Card>
       </div>
 
-      {/* Planilla */}
       <Card className="panel overflow-hidden">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm">
             <CalendarRange className="size-4 text-primary" />
             Planilla {periodLabel(period.desde, period.hasta)}
+            {canWrite && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                · clic en una celda para asignar o quitar
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -460,14 +590,14 @@ function GuardiasPage() {
                   </th>
                   {days.map((d) => {
                     const fer = isFeriado(d);
-                    const isToday = ymd(d) === ymd(new Date());
+                    const isFirst = d.getDate() === 1;
                     return (
                       <th
                         key={ymd(d)}
                         className={cn(
                           "min-w-[2.25rem] border border-border px-0.5 py-1 text-center font-medium",
-                          fer && "bg-rose-500/10",
-                          isToday && "bg-primary/15",
+                          fer && !isFirst && "bg-rose-500/10",
+                          isFirst && "bg-emerald-500/25 text-emerald-900 dark:text-emerald-100",
                         )}
                         title={format(d, "EEEE dd/MM", { locale: es })}
                       >
@@ -486,15 +616,22 @@ function GuardiasPage() {
                     </td>
                     {days.map((d) => {
                       const cell = cellFor(op, d);
+                      const isFirst = d.getDate() === 1;
                       return (
                         <td
                           key={ymd(d)}
                           className={cn(
                             "border border-border p-0.5 text-center",
-                            isFeriado(d) && "bg-rose-500/5",
+                            isFeriado(d) && !isFirst && "bg-rose-500/5",
+                            isFirst && "bg-emerald-500/10",
+                            canWrite && "cursor-pointer hover:bg-accent/50",
                           )}
+                          onClick={() => {
+                            if (!canWrite) return;
+                            setCellDialog({ op, day: d });
+                          }}
                         >
-                          {cell.kind !== "empty" && (
+                          {cell.kind !== "empty" ? (
                             <span
                               className={cn(
                                 "inline-flex size-6 items-center justify-center rounded border text-[11px] font-bold",
@@ -507,6 +644,10 @@ function GuardiasPage() {
                             >
                               {cell.label}
                             </span>
+                          ) : (
+                            canWrite && (
+                              <span className="inline-block size-6 rounded border border-dashed border-border/60 opacity-0 hover:opacity-100" />
+                            )
                           )}
                         </td>
                       );
@@ -516,20 +657,22 @@ function GuardiasPage() {
               </tbody>
             </table>
           </div>
-          {isLoading && (
-            <p className="p-4 text-sm text-muted-foreground">Cargando turnos…</p>
-          )}
+          {isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando turnos…</p>}
         </CardContent>
       </Card>
 
-      {/* Liquidación + turnos cargados */}
       <div className="grid gap-4 xl:grid-cols-[1fr_1.1fr]">
         <Card className="panel">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <ClipboardList className="size-4 text-primary" />
-              Liquidación del período
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <ClipboardList className="size-4 text-primary" />
+                Liquidación del período
+              </CardTitle>
+              <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={exportPdf}>
+                <FileDown className="size-3.5" /> Exportar PDF
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -569,8 +712,7 @@ function GuardiasPage() {
               </TableBody>
             </Table>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Feriado = sábado, domingo o feriado nacional. Cada celda cuenta la noche 20:00–08:00 de ese
-              día.
+              Feriado = sábado, domingo o feriado nacional. Cada celda = noche 20:00–08:00.
             </p>
           </CardContent>
         </Card>
@@ -588,8 +730,7 @@ function GuardiasPage() {
               .sort((a, b) => +new Date(a.desde) - +new Date(b.desde))
               .map((g) => {
                 const op = CODE_BY_NAME[normalizeName(g.operador_nombre)];
-                const dias =
-                  differenceInCalendarDays(new Date(g.hasta), new Date(g.desde)) || 1;
+                const dias = differenceInCalendarDays(new Date(g.hasta), new Date(g.desde)) || 1;
                 return (
                   <div
                     key={g.id}
@@ -633,13 +774,58 @@ function GuardiasPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Dialog clic en celda */}
+      <Dialog open={!!cellDialog} onOpenChange={(o) => !o && setCellDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Celda de planilla</DialogTitle>
+          </DialogHeader>
+          {cellDialog && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{cellDialog.op.nombre}</span>
+                <br />
+                {format(cellDialog.day, "EEEE d 'de' MMMM", { locale: es })}
+                {isFeriado(cellDialog.day) && (
+                  <Badge variant="secondary" className="ml-2">
+                    Feriado
+                  </Badge>
+                )}
+              </p>
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void assignCell(cellDialog.op, cellDialog.day, "guardia")}
+                >
+                  Asignar guardia ({cellDialog.op.code}
+                  {isFeriado(cellDialog.day) ? " → F" : ""})
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void assignCell(cellDialog.op, cellDialog.day, "vacacion")}
+                >
+                  Marcar vacaciones (V)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void assignCell(cellDialog.op, cellDialog.day, "quitar")}
+                >
+                  Quitar de esta celda
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Asignar semana / tramo                                                     */
-/* -------------------------------------------------------------------------- */
 
 function AsignarSemanaDialog({
   period,
