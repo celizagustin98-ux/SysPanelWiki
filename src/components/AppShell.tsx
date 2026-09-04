@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   BookOpen,
   Boxes,
@@ -208,11 +208,14 @@ export function PageHeader({
   title,
   description,
   action,
+  children,
 }: {
   title: string;
   description?: string;
-  action?: React.ReactNode;
+  action?: ReactNode;
+  children?: ReactNode;
 }) {
+  const right = action ?? children;
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rise-in sm:mb-8">
       <div className="min-w-0 space-y-1">
@@ -221,7 +224,7 @@ export function PageHeader({
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p>
         ) : null}
       </div>
-      {action}
+      {right}
     </div>
   );
 }
