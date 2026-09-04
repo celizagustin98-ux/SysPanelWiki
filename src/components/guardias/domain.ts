@@ -74,9 +74,9 @@ const FERIADOS_EXTRA = new Set([
   "2027-03-30",
 ]);
 
-/** Normaliza nombre sin depender de Unicode property escapes (\\p{M}). */
-export function normalizeName(s: string) {
-  return s
+/** Siempre devuelve string seguro (evita .split/.normalize sobre null/objeto). */
+export function normalizeName(s: unknown) {
+  return String(s ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
@@ -88,7 +88,7 @@ export function colorForIndex(i: number) {
   return COLOR_PALETTE[i % COLOR_PALETTE.length];
 }
 
-export function suggestCode(nombre: string, used: Set<string>) {
+export function suggestCode(nombre: unknown, used: Set<string>) {
   const parts = normalizeName(nombre).split(" ").filter(Boolean);
   const candidates = [
     parts[0]?.[0],
@@ -175,7 +175,7 @@ export function coversNight(g: Guardia, day: Date) {
 }
 
 export function isVacacion(g: Guardia) {
-  return (g.notas ?? "").toLowerCase().includes("vacacion");
+  return String(g.notas ?? "").toLowerCase().includes("vacacion");
 }
 
 export async function removeNightFromGuardia(g: Guardia, day: Date) {
@@ -197,7 +197,7 @@ export async function removeNightFromGuardia(g: Guardia, day: Date) {
     [];
   if (gStart < nightStart) {
     inserts.push({
-      operador_nombre: g.operador_nombre,
+      operador_nombre: String(g.operador_nombre ?? ""),
       desde: g.desde,
       hasta: nightStartIso(day),
       notas: g.notas,
@@ -205,7 +205,7 @@ export async function removeNightFromGuardia(g: Guardia, day: Date) {
   }
   if (gEnd > nightEnd) {
     inserts.push({
-      operador_nombre: g.operador_nombre,
+      operador_nombre: String(g.operador_nombre ?? ""),
       desde: nightEndIso(day),
       hasta: g.hasta,
       notas: g.notas,
