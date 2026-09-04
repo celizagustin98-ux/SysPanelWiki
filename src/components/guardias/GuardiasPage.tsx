@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   addDays,
@@ -153,11 +153,6 @@ export function GuardiasPage() {
         color: colorForIndex(i),
       }));
   }, [operarioRows]);
-
-  const codeByName = useMemo(
-    () => Object.fromEntries(operarios.map((o) => [normalizeName(o.nombre), o])),
-    [operarios],
-  );
 
   const { data: guardias = [], isLoading } = useQuery({
     queryKey: ["guardias"],
