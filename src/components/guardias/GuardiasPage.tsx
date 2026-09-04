@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   addDays,
-  differenceInCalendarDays,
   eachDayOfInterval,
   format,
   parseISO,
@@ -17,7 +16,7 @@ import {
   ChevronRight,
   ClipboardList,
   FileDown,
-  Trash2,
+  Palmtree,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -234,17 +233,26 @@ export function GuardiasPage() {
     });
   }, [days, assignmentByDay, operarios]);
 
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await api.from("guardias").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Turno eliminado");
-      qc.invalidateQueries({ queryKey: ["guardias"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
+  const vacacionesResumen = useMemo(() => {
+    return operarios
+      .map((op) => {
+        const diasVac = days.filter((d) =>
+          vacacionesByDayName.has(`${normalizeName(op.nombre)}|${ymd(d)}`),
+        );
+        if (diasVac.length === 0) return null;
+        const labels = diasVac.map((d) => format(d, "dd/MM"));
+        return {
+          ...op,
+          cantidad: diasVac.length,
+          dias: labels,
+          desde: diasVac[0],
+          hasta: diasVac[diasVac.length - 1],
+        };
+      })
+      .filter(Boolean) as Array<
+      Operario & { cantidad: number; dias: string[]; desde: Date; hasta: Date }
+    >;
+  }, [operarios, days, vacacionesByDayName]);
 
   const refresh = async () => {
     await qc.invalidateQueries({ queryKey: ["guardias"] });
@@ -612,58 +620,49 @@ export function GuardiasPage() {
 
         <Card className="panel">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Tramos del período</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Palmtree className="size-4 text-lime-500" />
+              Vacaciones del período
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {periodGuardias.length === 0 && (
-              <p className="text-sm text-muted-foreground">No hay turnos en este período.</p>
+            {vacacionesResumen.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nadie tiene vacaciones cargadas en este período.
+              </p>
             )}
-            {periodGuardias
-              .slice()
-              .sort((a, b) => +new Date(a.desde) - +new Date(b.desde))
-              .map((g) => {
-                const op = codeByName[normalizeName(g.operador_nombre)];
-                const d0 = parseLocal(g.desde) ?? new Date(g.desde);
-                const d1 = parseLocal(g.hasta) ?? new Date(g.hasta);
-                const dias = differenceInCalendarDays(d1, d0) || 1;
-                return (
-                  <div
-                    key={g.id}
-                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
-                  >
-                    <span
-                      className={cn(
-                        "inline-flex size-6 items-center justify-center rounded border text-[11px] font-bold",
-                        op?.color ?? "bg-muted",
-                      )}
-                    >
-                      {isVacacion(g) ? "V" : op?.code ?? "?"}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{g.operador_nombre}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {format(d0, "dd/MM HH:mm")} → {format(d1, "dd/MM HH:mm")}
-                      </p>
-                    </div>
+            {vacacionesResumen.map((v) => (
+              <div
+                key={v.code + v.nombre}
+                className="flex items-start gap-3 rounded-lg border border-lime-500/30 bg-lime-500/5 px-3 py-2.5 text-sm"
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 inline-flex size-7 items-center justify-center rounded-md border text-xs font-extrabold",
+                    v.color,
+                  )}
+                >
+                  {v.code}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">{v.nombre}</p>
                     <Badge variant="secondary" className="tabular-nums">
-                      {dias}d
+                      {v.cantidad} día{v.cantidad === 1 ? "" : "s"}
                     </Badge>
-                    {canWrite && (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 text-destructive"
-                        onClick={() => {
-                          if (confirm("¿Eliminar este tramo?")) del.mutate(g.id);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
                   </div>
-                );
-              })}
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {format(v.desde, "dd/MM")} → {format(v.hasta, "dd/MM")}
+                    {v.dias.length <= 8
+                      ? ` · ${v.dias.join(", ")}`
+                      : ` · ${v.dias.slice(0, 6).join(", ")}…`}
+                  </p>
+                </div>
+                <span className="inline-flex items-center rounded border border-lime-400 bg-lime-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  V
+                </span>
+              </div>
+            ))}
           </CardContent>
         </Card>
       </div>
