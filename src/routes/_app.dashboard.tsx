@@ -13,9 +13,12 @@ import {
   Ticket,
   UserRound,
 } from "lucide-react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppShell";
+import { isVacacion, parseLocal } from "@/components/guardias/domain";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -48,6 +51,21 @@ type TonerRow = {
   nombre: string;
   stock: number | string | null;
   stock_minimo: number | string | null;
+};
+
+type GuardiaLite = {
+  id?: string;
+  operador_nombre: string;
+  desde: string;
+  hasta: string;
+  notas?: string | null;
+};
+
+type GuardiaEstado = {
+  operador_nombre: string;
+  desde: string;
+  hasta: string;
+  modo: "activa" | "proxima" | "ultima";
 };
 
 function hoyLabel() {
@@ -94,6 +112,60 @@ async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }
   }
 }
 
+function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEstado | null {
+  const parsed = rows
+    .map((g) => {
+      const s = parseLocal(g.desde) ?? new Date(g.desde);
+      const e = parseLocal(g.hasta) ?? new Date(g.hasta);
+      if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+      if (isVacacion(g as any)) return null;
+      return { ...g, s, e };
+    })
+    .filter(Boolean) as Array<GuardiaLite & { s: Date; e: Date }>;
+
+  if (parsed.length === 0) return null;
+
+  const activa = parsed.find((g) => g.s <= now && g.e >= now);
+  if (activa) {
+    return {
+      operador_nombre: activa.operador_nombre,
+      desde: activa.desde,
+      hasta: activa.hasta,
+      modo: "activa",
+    };
+  }
+
+  const proximas = parsed.filter((g) => g.s > now).sort((a, b) => a.s.getTime() - b.s.getTime());
+  if (proximas[0]) {
+    return {
+      operador_nombre: proximas[0].operador_nombre,
+      desde: proximas[0].desde,
+      hasta: proximas[0].hasta,
+      modo: "proxima",
+    };
+  }
+
+  const pasadas = parsed.filter((g) => g.e < now).sort((a, b) => b.e.getTime() - a.e.getTime());
+  if (pasadas[0]) {
+    return {
+      operador_nombre: pasadas[0].operador_nombre,
+      desde: pasadas[0].desde,
+      hasta: pasadas[0].hasta,
+      modo: "ultima",
+    };
+  }
+
+  return null;
+}
+
+function fmtRango(desde: string, hasta: string) {
+  const s = parseLocal(desde) ?? new Date(desde);
+  const e = parseLocal(hasta) ?? new Date(hasta);
+  const a = format(s, "dd/MM HH:mm", { locale: es });
+  const b = format(e, "dd/MM HH:mm", { locale: es });
+  return `${a} → ${b}`;
+}
+
 function Dashboard() {
   const { user, profile } = useAuth();
   const nombre = prettyName(profile?.full_name);
@@ -103,8 +175,7 @@ function Dashboard() {
     queryKey: ["dashboard", user?.id],
     queryFn: async () => {
       const now = new Date();
-      const nowIso = now.toISOString();
-      const today = nowIso.slice(0, 10);
+      const today = format(now, "yyyy-MM-dd");
 
       const [tareas, toners, guardias, misTareas] = await Promise.all([
         safeList<TareaLite>(
@@ -119,17 +190,13 @@ function Dashboard() {
             error: unknown;
           }>,
         ),
-        safeList<{ operador_nombre: string; desde: string; hasta: string }>(
+        // Traemos tramos recientes/próximos y resolvemos en cliente (hora local AR)
+        safeList<GuardiaLite>(
           api
             .from("guardias")
-            .select("operador_nombre, desde, hasta")
-            .lte("desde", nowIso)
-            .gte("hasta", nowIso)
+            .select("id, operador_nombre, desde, hasta, notas")
             .order("desde")
-            .limit(1) as Promise<{
-            data: { operador_nombre: string; desde: string; hasta: string }[] | null;
-            error: unknown;
-          }>,
+            .limit(80) as Promise<{ data: GuardiaLite[] | null; error: unknown }>,
         ),
         safeList<TareaLite>(
           api
@@ -163,7 +230,7 @@ function Dashboard() {
           .slice()
           .sort((a, b) => rank(a.prioridad) - rank(b.prioridad))
           .slice(0, 6),
-        guardia: guardias[0] ?? null,
+        guardia: resolveGuardiaAhora(guardias, now),
         misTareas: misTareas.slice(0, 8),
       };
     },
@@ -175,7 +242,7 @@ function Dashboard() {
   const urgentes = data?.urgentes ?? 0;
   const vencidas = data?.vencidas ?? 0;
   const abiertas = data?.abiertas ?? 0;
-  const sinGuardia = !isLoading && !data?.guardia;
+  const sinGuardiaActiva = !isLoading && data?.guardia?.modo !== "activa";
 
   type AlertItem = { key: string; text: string; to: string; tone: "danger" | "warn" };
   const alerts: AlertItem[] = [];
@@ -203,10 +270,10 @@ function Dashboard() {
       tone: "warn",
     });
   }
-  if (sinGuardia) {
+  if (sinGuardiaActiva && !data?.guardia) {
     alerts.push({
       key: "guardia",
-      text: "Sin cobertura de guardia ahora",
+      text: "Sin cobertura de guardia cargada",
       to: "/guardias",
       tone: "warn",
     });
@@ -247,6 +314,8 @@ function Dashboard() {
     { label: "Guardias", to: "/guardias", icon: CalendarClock },
     { label: "Credenciales", to: "/credenciales", icon: KeyRound },
   ] as const;
+
+  const guardia = data?.guardia ?? null;
 
   return (
     <div className="space-y-5">
@@ -289,33 +358,36 @@ function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {data?.guardia ? (
+            {guardia ? (
               <div className="space-y-2">
-                <p className="text-lg font-semibold">{data.guardia.operador_nombre}</p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date(data.guardia.desde).toLocaleString("es-AR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {" → "}
-                  {new Date(data.guardia.hasta).toLocaleString("es-AR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-                <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs text-primary">
-                  <CheckCircle2 className="size-3.5" /> En turno
-                </div>
+                <p className="text-lg font-semibold">{guardia.operador_nombre}</p>
+                <p className="text-xs text-muted-foreground">{fmtRango(guardia.desde, guardia.hasta)}</p>
+                {guardia.modo === "activa" && (
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs text-primary">
+                    <CheckCircle2 className="size-3.5" /> En turno ahora
+                  </div>
+                )}
+                {guardia.modo === "proxima" && (
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300">
+                    <Clock3 className="size-3.5" /> Próxima guardia
+                  </div>
+                )}
+                {guardia.modo === "ultima" && (
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                    <Clock3 className="size-3.5" /> Última guardia cargada
+                  </div>
+                )}
+                <Button asChild size="sm" variant="outline" className="mt-1">
+                  <Link to="/guardias">Abrir planilla</Link>
+                </Button>
               </div>
             ) : (
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">No hay guardia activa.</p>
+                <p className="text-sm text-muted-foreground">
+                  No hay turnos de guardia cargados.
+                </p>
                 <Button asChild size="sm" variant="outline">
-                  <Link to="/guardias">Ver guardias</Link>
+                  <Link to="/guardias">Cargar en planilla</Link>
                 </Button>
               </div>
             )}
