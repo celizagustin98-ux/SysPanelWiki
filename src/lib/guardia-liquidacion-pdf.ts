@@ -1,0 +1,197 @@
+/** Liquidación de guardias — impresión / PDF (iframe, sin pop-up). */
+
+export type LiqRow = {
+  code: string;
+  nombre: string;
+  normales: number;
+  feriados: number;
+  total: number;
+};
+
+export type LiqPdfInput = {
+  periodoLabel: string;
+  desde: string; // dd/MM/yyyy
+  hasta: string;
+  generada?: Date;
+  filas: LiqRow[];
+};
+
+function esc(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "\u0026amp;")
+    .replace(/</g, "\u0026lt;")
+    .replace(/>/g, "\u0026gt;")
+    .replace(/"/g, "\u0026quot;");
+}
+
+function buildHtml(input: LiqPdfInput) {
+  const generada = (input.generada ?? new Date()).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const totN = input.filas.reduce((s, r) => s + r.normales, 0);
+  const totF = input.filas.reduce((s, r) => s + r.feriados, 0);
+  const totT = input.filas.reduce((s, r) => s + r.total, 0);
+
+  const rows = input.filas
+    .map(
+      (r) =>
+        "<tr>" +
+        '<td class="code">' +
+        esc(r.code) +
+        "</td>" +
+        "<td>" +
+        esc(r.nombre) +
+        "</td>" +
+        '<td class="num">' +
+        r.normales +
+        "</td>" +
+        '<td class="num fer">' +
+        r.feriados +
+        "</td>" +
+        '<td class="num tot">' +
+        r.total +
+        "</td>" +
+        "</tr>",
+    )
+    .join("");
+
+  return (
+    "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\" />" +
+    "<title>Liquidación " +
+    esc(input.periodoLabel) +
+    "</title><style>" +
+    "@page{size:A4;margin:16mm}" +
+    "*{box-sizing:border-box}" +
+    "body{font-family:Segoe UI,system-ui,sans-serif;color:#0f172a;font-size:13px;line-height:1.45;margin:0;padding:28px}" +
+    ".sheet{max-width:720px;margin:0 auto}" +
+    ".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0d9488;padding-bottom:14px;margin-bottom:20px}" +
+    ".brand{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#0d9488;font-weight:700}" +
+    "h1{margin:6px 0 0;font-size:22px;font-weight:700}" +
+    ".sub{margin:4px 0 0;color:#64748b;font-size:12px}" +
+    ".meta{text-align:right;font-size:12px;color:#475569}" +
+    ".meta strong{display:block;font-size:15px;color:#0f172a;margin-bottom:2px}" +
+    ".box{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px}" +
+    ".box div{border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#f8fafc}" +
+    ".box label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b}" +
+    ".box span{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}" +
+    "table{width:100%;border-collapse:collapse;margin-top:4px}" +
+    "th{background:#0f766e;color:#fff;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:10px 12px}" +
+    "th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}" +
+    "td{padding:11px 12px;border-bottom:1px solid #e2e8f0}" +
+    "tr:nth-child(even) td{background:#f8fafc}" +
+    "td.code{font-weight:700;color:#0d9488;width:48px}" +
+    "td.fer{color:#be123c;font-weight:600}" +
+    "td.tot{font-weight:700}" +
+    "tfoot td{background:#ecfdf5;font-weight:700;border-top:2px solid #0d9488;padding:12px}" +
+    ".note{margin-top:18px;font-size:11px;color:#64748b;line-height:1.5}" +
+    ".footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}" +
+    "@media print{body{padding:0}}" +
+    "</style></head><body><div class=\"sheet\">" +
+    '<div class="header"><div>' +
+    '<div class="brand">SysIntranet · Área Sistemas</div>' +
+    "<h1>Liquidación de guardias</h1>" +
+    '<p class="sub">Turno nocturno 20:00 – 08:00 · Período de liquidación 21 → 20</p>' +
+    "</div><div class=\"meta\"><strong>" +
+    esc(input.periodoLabel) +
+    "</strong>" +
+    esc(input.desde) +
+    " → " +
+    esc(input.hasta) +
+    "<br/>Generado " +
+    esc(generada) +
+    "</div></div>" +
+    '<div class="box">' +
+    "<div><label>Total normales</label><span>" +
+    totN +
+    "</span></div>" +
+    "<div><label>Total feriados</label><span style=\"color:#be123c\">" +
+    totF +
+    "</span></div>" +
+    "<div><label>Total noches</label><span>" +
+    totT +
+    "</span></div></div>" +
+    "<table><thead><tr>" +
+    "<th>Cód.</th><th>Operario</th>" +
+    '<th class="num">Normales</th><th class="num">Feriados</th><th class="num">Total</th>' +
+    "</tr></thead><tbody>" +
+    rows +
+    "</tbody><tfoot><tr>" +
+    '<td colspan="2">TOTALES</td>' +
+    '<td class="num">' +
+    totN +
+    "</td>" +
+    '<td class="num fer">' +
+    totF +
+    "</td>" +
+    '<td class="num tot">' +
+    totT +
+    "</td></tr></tfoot></table>" +
+    '<p class="note"><strong>Criterio:</strong> se cuenta cada noche de guardia (20:00–08:00). ' +
+    "<strong>Feriado</strong> = sábado, domingo o feriado nacional argentino. " +
+    "Las vacaciones (V) no suman a liquidación.</p>" +
+    '<div class="footer">SysPanelWiki · Documento de liquidación interna</div>' +
+    "</div></body></html>"
+  );
+}
+
+export function abrirPdfLiquidacion(input: LiqPdfInput) {
+  const html = buildHtml(input);
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("title", "Liquidación " + input.periodoLabel);
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.style.pointerEvents = "none";
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!doc) {
+    document.body.removeChild(iframe);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "liquidacion-guardias.html";
+    a.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  const cleanup = () => {
+    try {
+      document.body.removeChild(iframe);
+    } catch {
+      /* */
+    }
+  };
+
+  const doPrint = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch {
+      /* */
+    }
+    setTimeout(cleanup, 1500);
+  };
+
+  if (iframe.contentWindow?.document.readyState === "complete") {
+    setTimeout(doPrint, 120);
+  } else {
+    iframe.onload = () => setTimeout(doPrint, 120);
+    setTimeout(doPrint, 400);
+  }
+}
