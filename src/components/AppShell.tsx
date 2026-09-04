@@ -28,7 +28,7 @@ const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, modulo: null, adminOnly: false },
   {
     to: "/oficina",
-    label: "Directorio",
+    label: "Oficina",
     icon: BriefcaseBusiness,
     modulo: "oficina",
     adminOnly: false,
