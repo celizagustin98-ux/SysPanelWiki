@@ -9,12 +9,10 @@ import {
   ClipboardList,
   Clock3,
   KeyRound,
-  Package,
   Printer,
   Ticket,
   UserRound,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppShell";
@@ -29,7 +27,7 @@ export const Route = createFileRoute("/_app/dashboard")({
       { title: "Dashboard | SysPanelWiki" },
       {
         name: "description",
-        content: "Alertas operativas, guardia del día, tareas y stock crítico.",
+        content: "Alertas operativas, guardia del día y cola de trabajo.",
       },
     ],
   }),
@@ -99,17 +97,16 @@ async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }
 function Dashboard() {
   const { user, profile } = useAuth();
   const nombre = prettyName(profile?.full_name);
-  const fecha =
-    hoyLabel().charAt(0).toUpperCase() + hoyLabel().slice(1);
+  const fecha = hoyLabel().charAt(0).toUpperCase() + hoyLabel().slice(1);
 
-  const { data, isLoading, isFetching, refetch } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["dashboard", user?.id],
     queryFn: async () => {
       const now = new Date();
       const nowIso = now.toISOString();
       const today = nowIso.slice(0, 10);
 
-      const [tareas, toners, guardias, misTareas, pedidos] = await Promise.all([
+      const [tareas, toners, guardias, misTareas] = await Promise.all([
         safeList<TareaLite>(
           api
             .from("tareas")
@@ -142,31 +139,14 @@ function Dashboard() {
             .neq("estado", "hecha")
             .limit(8) as Promise<{ data: TareaLite[] | null; error: unknown }>,
         ),
-        safeList<{ id: string; estado: string }>(
-          api.from("toner_pedidos").select("id, estado") as Promise<{
-            data: { id: string; estado: string }[] | null;
-            error: unknown;
-          }>,
-        ),
       ]);
 
       const abiertas = tareas.filter((t) => (t.estado ?? "").toLowerCase() !== "hecha");
       const urgentes = abiertas.filter((t) => isAltaPrioridad(t.prioridad));
-      const vencidas = abiertas.filter((t) => t.vence_el && String(t.vence_el).slice(0, 10) < today);
-
-      const stockCritico = toners
-        .filter(isCritico)
-        .map((t) => ({
-          id: t.id,
-          nombre: t.nombre,
-          stock: n(t.stock),
-          stock_minimo: n(t.stock_minimo, 2),
-        }))
-        .sort((a, b) => a.stock - b.stock || a.nombre.localeCompare(b.nombre, "es"));
-
-      const pedidosPendientes = pedidos.filter((p) =>
-        ["borrador", "enviado"].includes((p.estado ?? "").toLowerCase()),
-      ).length;
+      const vencidas = abiertas.filter(
+        (t) => t.vence_el && String(t.vence_el).slice(0, 10) < today,
+      );
+      const criticos = toners.filter(isCritico).length;
 
       const rank = (p: string) => {
         if (isAltaPrioridad(p)) return 0;
@@ -178,22 +158,20 @@ function Dashboard() {
         abiertas: abiertas.length,
         urgentes: urgentes.length,
         vencidas: vencidas.length,
+        criticos,
         colaArea: abiertas
           .slice()
           .sort((a, b) => rank(a.prioridad) - rank(b.prioridad))
           .slice(0, 6),
-        stockCritico,
-        tonersTotal: toners.length,
         guardia: guardias[0] ?? null,
         misTareas: misTareas.slice(0, 8),
-        pedidosPendientes,
       };
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 
-  const criticalCount = data?.stockCritico.length ?? 0;
+  const criticalCount = data?.criticos ?? 0;
   const urgentes = data?.urgentes ?? 0;
   const vencidas = data?.vencidas ?? 0;
   const abiertas = data?.abiertas ?? 0;
@@ -254,21 +232,10 @@ function Dashboard() {
     {
       label: "Tóners críticos",
       value: criticalCount,
-      detail:
-        (data?.tonersTotal ?? 0) > 0
-          ? `de ${data?.tonersTotal} modelos`
-          : "bajo mínimo",
+      detail: "bajo mínimo",
       icon: Printer,
       to: "/toners",
       alert: criticalCount > 0,
-    },
-    {
-      label: "Pedidos en curso",
-      value: data?.pedidosPendientes ?? 0,
-      detail: "borrador / enviado",
-      icon: Package,
-      to: "/toners",
-      alert: false,
     },
   ] as const;
 
@@ -285,7 +252,6 @@ function Dashboard() {
     <div className="space-y-5">
       <PageHeader title={`Hola, ${nombre}`} description={fecha} />
 
-      {/* Alertas */}
       {isLoading ? (
         <div className="h-10 animate-pulse rounded-lg bg-muted/40" />
       ) : alerts.length > 0 ? (
@@ -315,7 +281,6 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Hoy */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="panel">
           <CardHeader className="pb-2">
@@ -430,8 +395,7 @@ function Dashboard() {
         </Card>
       </div>
 
-      {/* KPIs */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         {kpis.map((k) => (
           <Link key={k.label} to={k.to}>
             <Card
@@ -464,50 +428,6 @@ function Dashboard() {
         ))}
       </div>
 
-      {/* Stock crítico — siempre visible si hay datos o loading */}
-      {(criticalCount > 0 || (isLoading && !data)) && (
-        <Card className="panel border-destructive/35">
-          <CardHeader className="pb-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm text-destructive">
-                <AlertTriangle className="size-4" /> Stock crítico
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs"
-                  onClick={() => void refetch()}
-                >
-                  Actualizar
-                </Button>
-                <Button asChild size="sm" variant="outline" className="h-7 text-xs">
-                  <Link to="/toners">Ir a pedidos</Link>
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {isLoading && !data && (
-              <p className="text-sm text-muted-foreground">Cargando modelos…</p>
-            )}
-            {(data?.stockCritico ?? []).map((t) => (
-              <div
-                key={t.id ?? t.nombre}
-                className="flex items-center justify-between gap-2 rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2"
-              >
-                <span className="min-w-0 truncate text-sm font-medium">{t.nombre}</span>
-                <Badge variant="destructive" className="shrink-0 tabular-nums">
-                  {t.stock}/{t.stock_minimo}
-                </Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Atajos */}
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Accesos rápidos
