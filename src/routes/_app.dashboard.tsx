@@ -45,7 +45,12 @@ type TareaLite = {
   asignado_a?: string | null;
 };
 
-type TonerCritico = { nombre: string; stock: number; stock_minimo: number };
+type TonerRow = {
+  id?: string;
+  nombre: string;
+  stock: number | string | null;
+  stock_minimo: number | string | null;
+};
 
 function hoyLabel() {
   return new Date().toLocaleDateString("es-AR", {
@@ -55,60 +60,119 @@ function hoyLabel() {
   });
 }
 
+function prettyName(raw?: string | null) {
+  const first = (raw ?? "").trim().split(/\s+/)[0] || "equipo";
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
+function n(value: unknown, fallback = 0) {
+  const x = Number(value);
+  return Number.isFinite(x) ? x : fallback;
+}
+
+function isCritico(t: TonerRow) {
+  return n(t.stock) <= n(t.stock_minimo, 2);
+}
+
+function isAltaPrioridad(p?: string | null) {
+  const v = (p ?? "").toLowerCase();
+  return v === "alta" || v === "urgente" || v === "critica" || v === "crítica";
+}
+
 function prioridadTone(p: string) {
-  const v = p.toLowerCase();
-  if (v === "alta" || v === "urgente" || v === "critica" || v === "crítica")
-    return "bg-destructive/15 text-destructive border-destructive/30";
-  if (v === "media") return "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30";
+  if (isAltaPrioridad(p)) return "bg-destructive/15 text-destructive border-destructive/30";
+  if ((p ?? "").toLowerCase() === "media")
+    return "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30";
   return "bg-muted text-muted-foreground border-border";
+}
+
+async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  try {
+    const { data, error } = await promise;
+    if (error) return [];
+    return (data ?? []) as T[];
+  } catch {
+    return [];
+  }
 }
 
 function Dashboard() {
   const { user, profile } = useAuth();
-  const nombre = profile?.full_name?.split(" ")[0] || "equipo";
+  const nombre = prettyName(profile?.full_name);
+  const fecha =
+    hoyLabel().charAt(0).toUpperCase() + hoyLabel().slice(1);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["dashboard", user?.id],
     queryFn: async () => {
       const now = new Date();
       const nowIso = now.toISOString();
       const today = nowIso.slice(0, 10);
 
-      const [tareasRes, tonersRes, guardiaRes, misTareasRes, pedidosRes] = await Promise.all([
-        api
-          .from("tareas")
-          .select("id, titulo, estado, prioridad, vence_el, asignado_a")
-          .neq("estado", "hecha"),
-        api.from("toner_modelos").select("stock, stock_minimo, nombre"),
-        api
-          .from("guardias")
-          .select("operador_nombre, desde, hasta")
-          .lte("desde", nowIso)
-          .gte("hasta", nowIso)
-          .order("desde")
-          .limit(1),
-        api
-          .from("tareas")
-          .select("id, titulo, estado, prioridad, vence_el")
-          .eq("asignado_a", user?.id ?? "")
-          .neq("estado", "hecha")
-          .order("prioridad")
-          .limit(8),
-        api.from("toner_pedidos").select("id, estado").in("estado", ["borrador", "enviado"]),
+      const [tareas, toners, guardias, misTareas, pedidos] = await Promise.all([
+        safeList<TareaLite>(
+          api
+            .from("tareas")
+            .select("id, titulo, estado, prioridad, vence_el, asignado_a")
+            .neq("estado", "hecha") as Promise<{ data: TareaLite[] | null; error: unknown }>,
+        ),
+        safeList<TonerRow>(
+          api.from("toner_modelos").select("id, nombre, stock, stock_minimo") as Promise<{
+            data: TonerRow[] | null;
+            error: unknown;
+          }>,
+        ),
+        safeList<{ operador_nombre: string; desde: string; hasta: string }>(
+          api
+            .from("guardias")
+            .select("operador_nombre, desde, hasta")
+            .lte("desde", nowIso)
+            .gte("hasta", nowIso)
+            .order("desde")
+            .limit(1) as Promise<{
+            data: { operador_nombre: string; desde: string; hasta: string }[] | null;
+            error: unknown;
+          }>,
+        ),
+        safeList<TareaLite>(
+          api
+            .from("tareas")
+            .select("id, titulo, estado, prioridad, vence_el")
+            .eq("asignado_a", user?.id ?? "")
+            .neq("estado", "hecha")
+            .limit(8) as Promise<{ data: TareaLite[] | null; error: unknown }>,
+        ),
+        safeList<{ id: string; estado: string }>(
+          api.from("toner_pedidos").select("id, estado") as Promise<{
+            data: { id: string; estado: string }[] | null;
+            error: unknown;
+          }>,
+        ),
       ]);
 
-      const abiertas = (tareasRes.data as TareaLite[] | null) ?? [];
-      const urgentes = abiertas.filter((t) => {
-        const p = (t.prioridad ?? "").toLowerCase();
-        return p === "alta" || p === "urgente" || p === "critica" || p === "crítica";
-      });
-      const vencidas = abiertas.filter((t) => t.vence_el && t.vence_el < today);
+      const abiertas = tareas.filter((t) => (t.estado ?? "").toLowerCase() !== "hecha");
+      const urgentes = abiertas.filter((t) => isAltaPrioridad(t.prioridad));
+      const vencidas = abiertas.filter((t) => t.vence_el && String(t.vence_el).slice(0, 10) < today);
 
-      const stockCritico = ((tonersRes.data as TonerCritico[] | null) ?? []).filter(
-        (t) => t.stock <= t.stock_minimo,
-      );
+      const stockCritico = toners
+        .filter(isCritico)
+        .map((t) => ({
+          id: t.id,
+          nombre: t.nombre,
+          stock: n(t.stock),
+          stock_minimo: n(t.stock_minimo, 2),
+        }))
+        .sort((a, b) => a.stock - b.stock || a.nombre.localeCompare(b.nombre, "es"));
 
-      const pedidosPendientes = (pedidosRes.data ?? []).length;
+      const pedidosPendientes = pedidos.filter((p) =>
+        ["borrador", "enviado"].includes((p.estado ?? "").toLowerCase()),
+      ).length;
+
+      const rank = (p: string) => {
+        if (isAltaPrioridad(p)) return 0;
+        if ((p ?? "").toLowerCase() === "media") return 1;
+        return 2;
+      };
 
       return {
         abiertas: abiertas.length,
@@ -116,29 +180,24 @@ function Dashboard() {
         vencidas: vencidas.length,
         colaArea: abiertas
           .slice()
-          .sort((a, b) => {
-            const rank = (p: string) => {
-              const v = p.toLowerCase();
-              if (v === "alta" || v === "urgente" || v === "critica" || v === "crítica") return 0;
-              if (v === "media") return 1;
-              return 2;
-            };
-            return rank(a.prioridad) - rank(b.prioridad);
-          })
+          .sort((a, b) => rank(a.prioridad) - rank(b.prioridad))
           .slice(0, 6),
         stockCritico,
-        guardia: guardiaRes.data?.[0] ?? null,
-        misTareas: (misTareasRes.data as TareaLite[] | null) ?? [],
+        tonersTotal: toners.length,
+        guardia: guardias[0] ?? null,
+        misTareas: misTareas.slice(0, 8),
         pedidosPendientes,
       };
     },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const criticalCount = data?.stockCritico.length ?? 0;
   const urgentes = data?.urgentes ?? 0;
   const vencidas = data?.vencidas ?? 0;
   const abiertas = data?.abiertas ?? 0;
-  const sinGuardia = !data?.guardia;
+  const sinGuardia = !isLoading && !data?.guardia;
 
   type AlertItem = { key: string; text: string; to: string; tone: "danger" | "warn" };
   const alerts: AlertItem[] = [];
@@ -166,7 +225,7 @@ function Dashboard() {
       tone: "warn",
     });
   }
-  if (sinGuardia && !isLoading) {
+  if (sinGuardia) {
     alerts.push({
       key: "guardia",
       text: "Sin cobertura de guardia ahora",
@@ -195,7 +254,10 @@ function Dashboard() {
     {
       label: "Tóners críticos",
       value: criticalCount,
-      detail: "bajo mínimo",
+      detail:
+        (data?.tonersTotal ?? 0) > 0
+          ? `de ${data?.tonersTotal} modelos`
+          : "bajo mínimo",
       icon: Printer,
       to: "/toners",
       alert: criticalCount > 0,
@@ -221,13 +283,12 @@ function Dashboard() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={`Hola, ${nombre}`}
-        description={hoyLabel().charAt(0).toUpperCase() + hoyLabel().slice(1)}
-      />
+      <PageHeader title={`Hola, ${nombre}`} description={fecha} />
 
       {/* Alertas */}
-      {alerts.length > 0 ? (
+      {isLoading ? (
+        <div className="h-10 animate-pulse rounded-lg bg-muted/40" />
+      ) : alerts.length > 0 ? (
         <div className="flex flex-col gap-2">
           {alerts.map((a) => (
             <Link
@@ -247,15 +308,14 @@ function Dashboard() {
           ))}
         </div>
       ) : (
-        !isLoading && (
-          <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-            <CheckCircle2 className="size-4 text-primary" />
-            Sin alertas operativas
-          </div>
-        )
+        <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 text-primary" />
+          Sin alertas operativas
+          {isFetching && <span className="ml-auto text-[11px]">Actualizando…</span>}
+        </div>
       )}
 
-      {/* Hoy: guardia + mis ítems + cola */}
+      {/* Hoy */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="panel">
           <CardHeader className="pb-2">
@@ -404,23 +464,37 @@ function Dashboard() {
         ))}
       </div>
 
-      {/* Stock crítico detallado */}
-      {criticalCount > 0 && (
+      {/* Stock crítico — siempre visible si hay datos o loading */}
+      {(criticalCount > 0 || (isLoading && !data)) && (
         <Card className="panel border-destructive/35">
           <CardHeader className="pb-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2 text-sm text-destructive">
                 <AlertTriangle className="size-4" /> Stock crítico
               </CardTitle>
-              <Button asChild size="sm" variant="outline" className="h-7 text-xs">
-                <Link to="/toners">Ir a pedidos</Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => void refetch()}
+                >
+                  Actualizar
+                </Button>
+                <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+                  <Link to="/toners">Ir a pedidos</Link>
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {data!.stockCritico.map((t) => (
+            {isLoading && !data && (
+              <p className="text-sm text-muted-foreground">Cargando modelos…</p>
+            )}
+            {(data?.stockCritico ?? []).map((t) => (
               <div
-                key={t.nombre}
+                key={t.id ?? t.nombre}
                 className="flex items-center justify-between gap-2 rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2"
               >
                 <span className="min-w-0 truncate text-sm font-medium">{t.nombre}</span>
