@@ -2,33 +2,26 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
-  addMonths,
+  addDays,
   differenceInCalendarDays,
   eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
   format,
-  isSameDay,
-  isSameMonth,
-  startOfMonth,
-  startOfWeek,
+  isSaturday,
+  isSunday,
+  parseISO,
+  startOfDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import {
-  CalendarCheck,
-  CalendarDays,
+  AlertTriangle,
   CalendarRange,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Clock3,
-  ListChecks,
   Plus,
-  Radio,
-  ShieldCheck,
   Trash2,
   UserRound,
-  UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
@@ -45,6 +38,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/integrations/api/client";
@@ -55,14 +55,19 @@ export const Route = createFileRoute("/_app/guardias")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Guardias | SysIntranet | Área Wiki" },
-      { name: "description", content: "Calendario de guardias con turnos por operador y rango horario." },
-      { property: "og:title", content: "Guardias | SysIntranet | Área Wiki" },
-      { property: "og:description", content: "Planificación de turnos." },
+      { title: "Guardias | SysPanelWiki" },
+      {
+        name: "description",
+        content: "Planilla de guardias por período 21–20, feriados y liquidación.",
+      },
     ],
   }),
   component: GuardiasPage,
 });
+
+/* -------------------------------------------------------------------------- */
+/*  Dominio                                                                    */
+/* -------------------------------------------------------------------------- */
 
 type Guardia = {
   id: string;
@@ -72,124 +77,612 @@ type Guardia = {
   notas: string | null;
 };
 
-const AREA_OPERARIOS = ["CELIZ AGUSTIN", "CORDOBA SANTINO", "SANTILLAN KEVIN", "SILETTO JOSE"];
+type Operario = { nombre: string; code: string; color: string };
 
-const AREA_OPERATOR_CODES: Record<string, string> = {
-  [normalizeOperatorName("CELIZ AGUSTIN")]: "A",
-  [normalizeOperatorName("CORDOBA SANTINO")]: "S",
-  [normalizeOperatorName("SANTILLAN KEVIN")]: "K",
-  [normalizeOperatorName("SILETTO JOSE")]: "J",
-};
+const OPERARIOS: Operario[] = [
+  { nombre: "CELIZ AGUSTIN", code: "A", color: "bg-teal-500/25 text-teal-800 dark:text-teal-200 border-teal-500/40" },
+  { nombre: "CORDOBA SANTINO", code: "S", color: "bg-sky-500/25 text-sky-800 dark:text-sky-200 border-sky-500/40" },
+  { nombre: "SANTILLAN KEVIN", code: "K", color: "bg-violet-500/25 text-violet-800 dark:text-violet-200 border-violet-500/40" },
+  { nombre: "SILETTO JOSE", code: "J", color: "bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 border-indigo-500/40" },
+];
 
-function GuardiaDialog({
-  guardia,
-  trigger,
-  onDone,
-}: {
-  guardia?: Guardia;
-  trigger: React.ReactNode;
-  onDone: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const toLocal = (iso?: string) => (iso ? format(new Date(iso), "yyyy-MM-dd'T'HH:mm") : "");
+const CODE_BY_NAME = Object.fromEntries(
+  OPERARIOS.map((o) => [normalizeName(o.nombre), o]),
+);
 
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const payload = {
-      operador_nombre: String(fd.get("operador_nombre")),
-      desde: new Date(String(fd.get("desde"))).toISOString(),
-      hasta: new Date(String(fd.get("hasta"))).toISOString(),
-      notas: String(fd.get("notas") || ""),
-    };
-    if (new Date(payload.hasta) <= new Date(payload.desde))
-      return toast.error("La fecha de fin debe ser posterior al inicio");
-    const { error } = guardia
-      ? await api.from("guardias").update(payload).eq("id", guardia.id)
-      : await api.from("guardias").insert(payload);
-    if (error) return toast.error(error.message);
-    toast.success(guardia ? "Guardia actualizada" : "Guardia cargada");
-    setOpen(false);
-    onDone();
-  };
+/** Feriados nacionales AR (fijos + fechas conocidas 2025–2027). Sáb/dom se suman aparte. */
+const FERIADOS_FIJOS = [
+  "01-01", // Año Nuevo
+  "03-24", // Memoria
+  "04-02", // Malvinas
+  "05-01", // Trabajador
+  "05-25", // Revolución
+  "06-20", // Belgrano
+  "07-09", // Independencia
+  "12-08", // Inmaculada
+  "12-25", // Navidad
+];
+
+/** Fechas móviles / puente conocidas (AAAA-MM-DD) — ampliar cada año si hace falta */
+const FERIADOS_EXTRA = new Set([
+  "2025-03-03",
+  "2025-03-04",
+  "2025-04-17",
+  "2025-04-18",
+  "2025-06-16",
+  "2025-08-15",
+  "2025-11-17",
+  "2025-11-21",
+  "2025-12-24",
+  "2025-12-26",
+  "2026-03-23",
+  "2026-03-24",
+  "2026-04-02",
+  "2026-04-03",
+  "2026-06-15",
+  "2026-08-17",
+  "2026-10-12",
+  "2026-11-20",
+  "2026-11-23",
+  "2027-03-29",
+  "2027-03-30",
+]);
+
+function normalizeName(s: string) {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function ymd(d: Date) {
+  return format(d, "yyyy-MM-dd");
+}
+
+function isFeriado(d: Date) {
+  if (isSaturday(d) || isSunday(d)) return true;
+  const key = ymd(d);
+  if (FERIADOS_EXTRA.has(key)) return true;
+  const mmdd = format(d, "MM-dd");
+  return FERIADOS_FIJOS.includes(mmdd);
+}
+
+/** Período de liquidación: día 21 → día 20 del mes siguiente. */
+function getPeriodContaining(ref: Date) {
+  const y = ref.getFullYear();
+  const m = ref.getMonth(); // 0-11
+  const day = ref.getDate();
+
+  let startY = y;
+  let startM = m;
+  if (day < 21) {
+    startM = m - 1;
+    if (startM < 0) {
+      startM = 11;
+      startY = y - 1;
+    }
+  }
+  const desde = new Date(startY, startM, 21);
+  let endM = startM + 1;
+  let endY = startY;
+  if (endM > 11) {
+    endM = 0;
+    endY += 1;
+  }
+  const hasta = new Date(endY, endM, 20);
+  return { desde, hasta, key: `${ymd(desde)}_${ymd(hasta)}` };
+}
+
+function shiftPeriod(period: { desde: Date; hasta: Date }, delta: number) {
+  // mueve el ancla (día 21) ±1 período
+  const anchor = addDays(period.desde, delta * 28);
+  return getPeriodContaining(anchor);
+}
+
+function periodLabel(desde: Date, hasta: Date) {
+  const a = format(desde, "MMMM", { locale: es });
+  const b = format(hasta, "MMMM", { locale: es });
+  const year = format(hasta, "yyyy");
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  if (a === b) return `${cap(a)} ${year}`;
+  return `${cap(a)}/${cap(b).slice(0, 4)} ${year}`;
+}
+
+function weekdayLetter(d: Date) {
+  // V S D L M X J (viernes…)
+  const map = ["D", "L", "M", "X", "J", "V", "S"] as const;
+  return map[d.getDay()];
+}
+
+function nightStartIso(day: Date) {
+  // Guardia de la noche que arranca ese día a las 20:00 local
+  const d = startOfDay(day);
+  d.setHours(20, 0, 0, 0);
+  return d.toISOString();
+}
+
+function nightEndIso(day: Date) {
+  // Termina al día siguiente 08:00
+  const d = startOfDay(addDays(day, 1));
+  d.setHours(8, 0, 0, 0);
+  return d.toISOString();
+}
+
+function coversNight(g: Guardia, day: Date) {
+  const start = new Date(g.desde).getTime();
+  const end = new Date(g.hasta).getTime();
+  const night = new Date(nightStartIso(day)).getTime();
+  // la noche del día D está cubierta si el tramo incluye ese inicio
+  return start <= night && end > night;
+}
+
+function isVacacion(g: Guardia) {
+  return (g.notas ?? "").toLowerCase().includes("vacacion");
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Página                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function GuardiasPage() {
+  const { canWrite } = useAuth();
+  const qc = useQueryClient();
+  const [period, setPeriod] = useState(() => getPeriodContaining(new Date()));
+
+  const days = useMemo(
+    () => eachDayOfInterval({ start: period.desde, end: period.hasta }),
+    [period.desde, period.hasta],
+  );
+
+  const { data: guardias = [], isLoading } = useQuery({
+    queryKey: ["guardias"],
+    queryFn: async () => {
+      const { data, error } = await api.from("guardias").select("*").order("desde");
+      if (error) throw error;
+      return (data ?? []) as Guardia[];
+    },
+  });
+
+  const periodGuardias = useMemo(() => {
+    const a = startOfDay(period.desde).getTime();
+    const b = addDays(startOfDay(period.hasta), 1).getTime();
+    return guardias.filter((g) => {
+      const s = new Date(g.desde).getTime();
+      const e = new Date(g.hasta).getTime();
+      return s < b && e > a;
+    });
+  }, [guardias, period.desde, period.hasta]);
+
+  /** Por cada día: quién cubre (si hay) */
+  const assignmentByDay = useMemo(() => {
+    const map = new Map<string, Guardia>();
+    for (const day of days) {
+      const hit = periodGuardias.find((g) => coversNight(g, day) && !isVacacion(g));
+      if (hit) map.set(ymd(day), hit);
+    }
+    return map;
+  }, [days, periodGuardias]);
+
+  const vacacionesByDayName = useMemo(() => {
+    const set = new Set<string>();
+    for (const day of days) {
+      for (const g of periodGuardias) {
+        if (isVacacion(g) && coversNight(g, day)) {
+          set.add(`${normalizeName(g.operador_nombre)}|${ymd(day)}`);
+        }
+      }
+    }
+    return set;
+  }, [days, periodGuardias]);
+
+  const now = new Date();
+  const actual = periodGuardias.find(
+    (g) => new Date(g.desde) <= now && new Date(g.hasta) >= now && !isVacacion(g),
+  );
+
+  const huecos = useMemo(() => {
+    return days.filter((d) => !assignmentByDay.has(ymd(d)));
+  }, [days, assignmentByDay]);
+
+  const liquidacion = useMemo(() => {
+    return OPERARIOS.map((op) => {
+      let normales = 0;
+      let feriados = 0;
+      for (const day of days) {
+        const g = assignmentByDay.get(ymd(day));
+        if (!g) continue;
+        if (normalizeName(g.operador_nombre) !== normalizeName(op.nombre)) continue;
+        if (isFeriado(day)) feriados += 1;
+        else normales += 1;
+      }
+      return { ...op, normales, feriados, total: normales + feriados };
+    });
+  }, [days, assignmentByDay]);
+
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.from("guardias").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Turno eliminado");
+      qc.invalidateQueries({ queryKey: ["guardias"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
+
+  function cellFor(op: Operario, day: Date): { kind: "empty" | "code" | "F" | "V"; label: string } {
+    const key = `${normalizeName(op.nombre)}|${ymd(day)}`;
+    if (vacacionesByDayName.has(key)) return { kind: "V", label: "V" };
+    const g = assignmentByDay.get(ymd(day));
+    if (!g) return { kind: "empty", label: "" };
+    if (normalizeName(g.operador_nombre) !== normalizeName(op.nombre)) {
+      return { kind: "empty", label: "" };
+    }
+    if (isFeriado(day)) return { kind: "F", label: "F" };
+    return { kind: "code", label: op.code };
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{guardia ? "Editar guardia" : "Nueva guardia"}</DialogTitle>
-        </DialogHeader>
-        <form className="grid gap-3" onSubmit={submit}>
-          <div className="space-y-1.5">
-            <Label>Operador</Label>
-            <Input name="operador_nombre" defaultValue={guardia?.operador_nombre} required />
+    <div className="space-y-5">
+      <PageHeader
+        title="Guardias"
+        description="Planilla por período (21→20) · turno 20:00–08:00 · liquidación normales / feriados"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
+            aria-label="Período anterior"
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <div className="min-w-[10rem] text-center">
+            <p className="text-sm font-semibold">{periodLabel(period.desde, period.hasta)}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {format(period.desde, "dd/MM")} → {format(period.hasta, "dd/MM/yyyy")}
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Desde</Label>
-              <Input type="datetime-local" name="desde" defaultValue={toLocal(guardia?.desde)} required />
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
+            aria-label="Período siguiente"
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setPeriod(getPeriodContaining(new Date()))}
+          >
+            Hoy
+          </Button>
+          {canWrite && <AsignarSemanaDialog period={period} onDone={refresh} />}
+        </div>
+      </PageHeader>
+
+      {/* Estado actual + huecos */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Card className="panel">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="grid size-10 place-items-center rounded-lg bg-primary/15 text-primary">
+              <UserRound className="size-5" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Hasta</Label>
-              <Input type="datetime-local" name="hasta" defaultValue={toLocal(guardia?.hasta)} required />
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">De guardia ahora</p>
+              <p className="truncate font-semibold">
+                {actual?.operador_nombre ?? "Sin cobertura"}
+              </p>
+              {actual && (
+                <p className="text-[11px] text-muted-foreground">
+                  hasta {format(parseISO(actual.hasta), "dd/MM HH:mm")}
+                </p>
+              )}
             </div>
+          </CardContent>
+        </Card>
+        <Card className="panel">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div
+              className={cn(
+                "grid size-10 place-items-center rounded-lg",
+                huecos.length
+                  ? "bg-destructive/15 text-destructive"
+                  : "bg-primary/15 text-primary",
+              )}
+            >
+              {huecos.length ? (
+                <AlertTriangle className="size-5" />
+              ) : (
+                <CheckCircle2 className="size-5" />
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Cobertura del período</p>
+              <p className="font-semibold">
+                {huecos.length === 0
+                  ? "Completa"
+                  : `${huecos.length} día${huecos.length === 1 ? "" : "s"} sin asignar`}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="panel sm:col-span-2 xl:col-span-1">
+          <CardContent className="flex flex-wrap items-center gap-2 p-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Referencia
+            </span>
+            {OPERARIOS.map((o) => (
+              <span
+                key={o.code}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-semibold",
+                  o.color,
+                )}
+              >
+                {o.code} <span className="font-normal opacity-80">{o.nombre.split(" ").pop()}</span>
+              </span>
+            ))}
+            <span className="inline-flex items-center rounded border border-rose-400/40 bg-rose-500/20 px-1.5 py-0.5 text-xs font-semibold text-rose-800 dark:text-rose-200">
+              F Feriado
+            </span>
+            <span className="inline-flex items-center rounded border border-lime-500/40 bg-lime-500/20 px-1.5 py-0.5 text-xs font-semibold text-lime-800 dark:text-lime-200">
+              V Vacaciones
+            </span>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Planilla */}
+      <Card className="panel overflow-hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <CalendarRange className="size-4 text-primary" />
+            Planilla {periodLabel(period.desde, period.hasta)}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-max min-w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-muted/40">
+                  <th className="sticky left-0 z-10 border border-border bg-muted/80 px-2 py-1.5 text-left font-semibold">
+                    Empleado
+                  </th>
+                  {days.map((d) => {
+                    const fer = isFeriado(d);
+                    const isToday = ymd(d) === ymd(new Date());
+                    return (
+                      <th
+                        key={ymd(d)}
+                        className={cn(
+                          "min-w-[2.25rem] border border-border px-0.5 py-1 text-center font-medium",
+                          fer && "bg-rose-500/10",
+                          isToday && "bg-primary/15",
+                        )}
+                        title={format(d, "EEEE dd/MM", { locale: es })}
+                      >
+                        <div className="text-[10px] text-muted-foreground">{weekdayLetter(d)}</div>
+                        <div className="tabular-nums">{format(d, "d/M")}</div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {OPERARIOS.map((op) => (
+                  <tr key={op.code}>
+                    <td className="sticky left-0 z-10 border border-border bg-card px-2 py-1 font-medium whitespace-nowrap">
+                      {op.nombre}
+                    </td>
+                    {days.map((d) => {
+                      const cell = cellFor(op, d);
+                      return (
+                        <td
+                          key={ymd(d)}
+                          className={cn(
+                            "border border-border p-0.5 text-center",
+                            isFeriado(d) && "bg-rose-500/5",
+                          )}
+                        >
+                          {cell.kind !== "empty" && (
+                            <span
+                              className={cn(
+                                "inline-flex size-6 items-center justify-center rounded border text-[11px] font-bold",
+                                cell.kind === "code" && op.color,
+                                cell.kind === "F" &&
+                                  "border-rose-400/50 bg-rose-500/25 text-rose-900 dark:text-rose-100",
+                                cell.kind === "V" &&
+                                  "border-lime-500/50 bg-lime-500/25 text-lime-900 dark:text-lime-100",
+                              )}
+                            >
+                              {cell.label}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="space-y-1.5">
-            <Label>Notas</Label>
-            <Textarea name="notas" defaultValue={guardia?.notas ?? ""} />
-          </div>
-          <DialogFooter>
-            <Button type="submit">Guardar</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          {isLoading && (
+            <p className="p-4 text-sm text-muted-foreground">Cargando turnos…</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Liquidación + turnos cargados */}
+      <div className="grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+        <Card className="panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ClipboardList className="size-4 text-primary" />
+              Liquidación del período
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Operario</TableHead>
+                  <TableHead className="text-right">Normales</TableHead>
+                  <TableHead className="text-right">Feriados</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {liquidacion.map((row) => (
+                  <TableRow key={row.code}>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "mr-2 inline-flex size-5 items-center justify-center rounded border text-[10px] font-bold",
+                          row.color,
+                        )}
+                      >
+                        {row.code}
+                      </span>
+                      {row.nombre}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {row.normales}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium text-rose-600 dark:text-rose-300">
+                      {row.feriados}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {row.total}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Feriado = sábado, domingo o feriado nacional. Cada celda cuenta la noche 20:00–08:00 de ese
+              día.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Tramos cargados en el período</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {periodGuardias.length === 0 && (
+              <p className="text-sm text-muted-foreground">No hay turnos en este período.</p>
+            )}
+            {periodGuardias
+              .slice()
+              .sort((a, b) => +new Date(a.desde) - +new Date(b.desde))
+              .map((g) => {
+                const op = CODE_BY_NAME[normalizeName(g.operador_nombre)];
+                const dias =
+                  differenceInCalendarDays(new Date(g.hasta), new Date(g.desde)) || 1;
+                return (
+                  <div
+                    key={g.id}
+                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+                  >
+                    <span
+                      className={cn(
+                        "inline-flex size-6 items-center justify-center rounded border text-[11px] font-bold",
+                        op?.color ?? "bg-muted",
+                      )}
+                    >
+                      {isVacacion(g) ? "V" : op?.code ?? "?"}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{g.operador_nombre}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {format(parseISO(g.desde), "dd/MM HH:mm")} →{" "}
+                        {format(parseISO(g.hasta), "dd/MM HH:mm")}
+                        {g.notas ? ` · ${g.notas}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="tabular-nums">
+                      {dias}d
+                    </Badge>
+                    {canWrite && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 text-destructive"
+                        onClick={() => {
+                          if (confirm("¿Eliminar este tramo?")) del.mutate(g.id);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
-function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
+/* -------------------------------------------------------------------------- */
+/*  Asignar semana / tramo                                                     */
+/* -------------------------------------------------------------------------- */
+
+function AsignarSemanaDialog({
+  period,
+  onDone,
+}: {
+  period: { desde: Date; hasta: Date };
+  onDone: () => void;
+}) {
   const [open, setOpen] = useState(false);
-  const periodoSugerido = useMemo(() => getCurrentGuardiaPeriod(), []);
-  const [desde, setDesde] = useState(periodoSugerido.desde);
-  const [hasta, setHasta] = useState(periodoSugerido.hasta);
-  const [horaInicio, setHoraInicio] = useState("20:00");
-  const [duracionDias, setDuracionDias] = useState(7);
-  const [operarios, setOperarios] = useState(AREA_OPERARIOS.join("\n"));
-  const [notas, setNotas] = useState("Guardia del período");
+  const [operador, setOperador] = useState(OPERARIOS[0].nombre);
+  const [inicio, setInicio] = useState(format(period.desde, "yyyy-MM-dd"));
+  const [dias, setDias] = useState(7);
+  const [vacaciones, setVacaciones] = useState(false);
+  const [notas, setNotas] = useState("");
   const [saving, setSaving] = useState(false);
-  const nombres = useMemo(
-    () =>
-      uniqueOperatorNames(parseOperatorLines(operarios)),
-    [operarios],
-  );
 
-  const preview = useMemo(
-    () => generarTurnosPeriodo({ desde, hasta, horaInicio, duracionDias, operarios, notas }),
-    [desde, hasta, horaInicio, duracionDias, operarios, notas],
-  );
-  const sheetPreview = useMemo(
-    () =>
-      buildGuardiaSheet(preview.turnos.map((turno, index) => ({ ...turno, id: `preview-${index}` })), {
-        periodStart: desde,
-        periodEnd: hasta,
-        operatorNames: nombres,
-      }),
-    [desde, hasta, nombres, preview.turnos],
-  );
-  const diasPeriodo = useMemo(() => calcularDiasCalendario(desde, hasta), [desde, hasta]);
+  const preview = useMemo(() => {
+    const startDay = parseISO(inicio);
+    if (Number.isNaN(startDay.getTime()) || dias < 1) return null;
+    const lastNight = addDays(startDay, dias - 1);
+    return {
+      desde: nightStartIso(startDay),
+      hasta: nightEndIso(lastNight),
+      label: `${format(startDay, "dd/MM")} → ${format(lastNight, "dd/MM")} (${dias} noches)`,
+    };
+  }, [inicio, dias]);
 
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (preview.error) return toast.error(preview.error);
-    if (preview.turnos.length === 0) return toast.error("No hay turnos para cargar");
-
+    if (!preview) return toast.error("Revisá fechas");
     setSaving(true);
-    const { error } = await api.from("guardias").insert(preview.turnos);
+    const payload = {
+      operador_nombre: operador,
+      desde: preview.desde,
+      hasta: preview.hasta,
+      notas: vacaciones
+        ? `vacaciones${notas ? ` · ${notas}` : ""}`
+        : notas || `Guardia ${dias} noche(s)`,
+    };
+    const { error } = await api.from("guardias").insert(payload);
     setSaving(false);
-
     if (error) return toast.error(error.message);
-    toast.success(`${preview.turnos.length} guardias cargadas para el período`);
+    toast.success(vacaciones ? "Vacaciones registradas" : "Guardia asignada");
     setOpen(false);
     onDone();
   };
@@ -197,1101 +690,78 @@ function PeriodoGuardiasDialog({ onDone }: { onDone: () => void }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <CalendarRange className="size-4" /> Nuevo período
+        <Button size="sm">
+          <Plus className="size-4" /> Asignar tramo
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Carga masiva de guardias</DialogTitle>
+          <DialogTitle>Asignar tramo de guardia</DialogTitle>
         </DialogHeader>
-        <form className="grid gap-5" onSubmit={submit}>
-          <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-                  <ClipboardList className="size-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">Planificación del período</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {diasPeriodo > 0
-                      ? `${diasPeriodo} días de liquidación entre ${formatDateInput(desde)} y ${formatDateInput(hasta)}. Cada línea asigna un relevo semanal de lunes 20:00 a lunes 08:00.`
-                      : "Seleccioná el rango de cobertura."}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
-                  <p className="text-lg font-semibold">{diasPeriodo || "-"}</p>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Días</p>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
-                  <p className="text-lg font-semibold">{nombres.length || "-"}</p>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Operarios</p>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-2">
-                  <p className="text-lg font-semibold">{preview.error ? "-" : preview.turnos.length}</p>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Turnos</p>
-                </div>
-              </div>
-            </div>
+        <form className="grid gap-3" onSubmit={submit}>
+          <div className="space-y-1.5">
+            <Label>Operario</Label>
+            <Select value={operador} onValueChange={setOperador}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {OPERARIOS.map((o) => (
+                  <SelectItem key={o.code} value={o.nombre}>
+                    {o.code} — {o.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Inicio del período</Label>
-              <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} required />
+              <Label>Primera noche</Label>
+              <Input
+                type="date"
+                value={inicio}
+                min={format(period.desde, "yyyy-MM-dd")}
+                max={format(period.hasta, "yyyy-MM-dd")}
+                onChange={(e) => setInicio(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>Fin del período</Label>
-              <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Hora de inicio</Label>
-              <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Días por turno</Label>
+              <Label>Cantidad de noches</Label>
               <Input
                 type="number"
                 min={1}
                 max={31}
-                value={duracionDias}
-                onChange={(e) => setDuracionDias(Number(e.target.value))}
+                value={dias}
+                onChange={(e) => setDias(Number(e.target.value) || 1)}
                 required
               />
             </div>
           </div>
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
-            <div className="space-y-1.5">
-              <Label>Operarios que hacen guardia</Label>
-              <Textarea
-                className="min-h-56"
-                placeholder={AREA_OPERARIOS.join("\n")}
-                value={operarios}
-                onChange={(e) => setOperarios(e.target.value)}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Escribí un operario por línea, en el orden en que toman la guardia. La planilla genera el inicio y fin de cada tramo.
-              </p>
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {nombres.slice(0, 8).map((nombre) => (
-                  <Badge key={nombre} variant="outline" className="border-primary/25 bg-primary/5 text-primary">
-                    {nombre}
-                  </Badge>
-                ))}
-                {nombres.length > 8 && <Badge variant="outline">+{nombres.length - 8}</Badge>}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
-              <div className="flex items-center gap-2">
-                <ListChecks className="size-4 text-primary" />
-                <p className="text-sm font-semibold">Tramos a cargar</p>
-              </div>
-              {preview.error ? (
-                <p className="mt-3 text-sm text-destructive">{preview.error}</p>
-              ) : (
-                <>
-                  <p className="mt-1 text-xs text-muted-foreground">{preview.turnos.length} turnos a crear</p>
-                  <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-border/60">
-                    <Table className="text-xs">
-                      <TableHeader>
-                        <TableRow className="bg-muted/50 hover:bg-muted/50">
-                          <TableHead className="w-10">#</TableHead>
-                          <TableHead>Operario</TableHead>
-                          <TableHead>Comienza</TableHead>
-                          <TableHead>Termina</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {preview.turnos.slice(0, 12).map((g, index) => (
-                          <TableRow key={`${g.operador_nombre}-${g.desde}-${index}`}>
-                            <TableCell className="font-semibold text-muted-foreground">{index + 1}</TableCell>
-                            <TableCell className="font-medium">{g.operador_nombre}</TableCell>
-                            <TableCell>{format(new Date(g.desde), "dd/MM HH:mm")}</TableCell>
-                            <TableCell>{format(new Date(g.hasta), "dd/MM HH:mm")}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    {preview.turnos.length > 12 && (
-                      <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-                        +{preview.turnos.length - 12} turnos más
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {!preview.error && preview.turnos.length > 0 && (
-            <GuardiaSheetView
-              title="Planilla previa"
-              description="Sábados, domingos y feriados nacionales se marcan como F para liquidación."
-              sheet={sheetPreview}
-              compact
-            />
+          {preview && (
+            <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {preview.label} · 20:00 → 08:00
+            </p>
           )}
-
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={vacaciones}
+              onChange={(e) => setVacaciones(e.target.checked)}
+            />
+            Marcar como vacaciones (V)
+          </label>
           <div className="space-y-1.5">
-            <Label>Notas para estos turnos</Label>
-            <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} />
+            <Label>Notas</Label>
+            <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} />
           </div>
-
           <DialogFooter>
-            <Button type="submit" disabled={saving || !!preview.error}>
-              {saving ? "Cargando período..." : "Guardar período"}
+            <Button type="submit" disabled={saving}>
+              {saving ? "Guardando…" : "Guardar"}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
-}
-
-function GuardiasPage() {
-  const { canWrite } = useAuth();
-  const qc = useQueryClient();
-  const [cursor, setCursor] = useState(new Date());
-
-  const { data = [] } = useQuery({
-    queryKey: ["guardias"],
-    queryFn: async () => {
-      const { data, error } = await api.from("guardias").select("*").order("desde");
-      if (error) throw error;
-      return data as Guardia[];
-    },
-  });
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await api.from("guardias").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Guardia eliminada");
-      qc.invalidateQueries({ queryKey: ["guardias"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const days = useMemo(() => {
-    const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfMonth(cursor), { weekStartsOn: 1 });
-    return eachDayOfInterval({ start, end });
-  }, [cursor]);
-
-  const now = new Date();
-  const sortedGuardias = useMemo(
-    () => [...data].sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime()),
-    [data],
-  );
-  const actual = sortedGuardias.find((g) => new Date(g.desde) <= now && new Date(g.hasta) >= now);
-  const proximas = sortedGuardias.filter((g) => new Date(g.hasta) >= now).slice(0, 4);
-  const guardiasDelMes = sortedGuardias.filter(
-    (g) => new Date(g.desde) <= endOfMonth(cursor) && new Date(g.hasta) >= startOfMonth(cursor),
-  );
-  const operadoresDelMes = uniqueOperatorNames(guardiasDelMes.map((g) => canonicalOperatorName(g.operador_nombre))).length;
-  const periodoActual = actual ? calcularPeriodoCobertura(actual, sortedGuardias) : null;
-  const diasCubiertosMes = days.filter((day) =>
-    isSameMonth(day, cursor)
-      ? sortedGuardias.some((g) => new Date(g.desde) <= endOfDay(day) && new Date(g.hasta) >= startOfDay(day))
-      : false,
-  ).length;
-  const diasCubiertos = periodoActual ? inclusiveCalendarDays(periodoActual.desde, periodoActual.hasta) : diasCubiertosMes;
-  const operadoresPeriodo = periodoActual?.operadores ?? operadoresDelMes;
-  const turnosPeriodo = periodoActual?.turnos ?? guardiasDelMes.length;
-  const periodoLiquidacion = actual ? getGuardiaPeriodForDate(now) : null;
-  const detallePeriodo = periodoActual
-    ? `${format(periodoLiquidacion?.desdeDate ?? periodoActual.desde, "dd/MM")} -> ${format(periodoLiquidacion?.hastaDate ?? periodoActual.hasta, "dd/MM")}`
-    : format(cursor, "MMMM yyyy", { locale: es });
-  const planillaGuardias = useMemo(() => {
-    const bounds = periodoLiquidacion
-      ? { periodStart: periodoLiquidacion.desde, periodEnd: periodoLiquidacion.hasta }
-      : undefined;
-    const source = periodoActual && periodoLiquidacion
-      ? sortedGuardias.filter((guardia) => {
-          const desde = new Date(guardia.desde);
-          const hasta = new Date(guardia.hasta);
-          return desde <= endOfDay(periodoLiquidacion.hastaDate) && hasta >= startOfDay(periodoLiquidacion.desdeDate);
-        })
-      : guardiasDelMes;
-    return buildGuardiaSheet(source, { ...bounds, operatorNames: AREA_OPERARIOS });
-  }, [guardiasDelMes, periodoActual, periodoLiquidacion, sortedGuardias]);
-  const refresh = () => qc.invalidateQueries({ queryKey: ["guardias"] });
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Guardias"
-        description="Cobertura operativa del área de Sistemas."
-        action={
-          canWrite ? (
-            <div className="flex flex-wrap gap-2">
-              <PeriodoGuardiasDialog onDone={refresh} />
-              <GuardiaDialog
-                trigger={
-                  <Button>
-                    <Plus className="size-4" /> Cargar guardia individual
-                  </Button>
-                }
-                onDone={refresh}
-              />
-            </div>
-          ) : null
-        }
-      />
-
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,0.75fr)]">
-        <Card className={cn("overflow-hidden border-primary/30 bg-card/80", actual && "shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]")}>
-          <CardContent className="p-0">
-            <div className="border-b border-primary/20 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="grid size-14 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-                    <Radio className="size-6" />
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Turno actual</p>
-                      {actual && <Badge className="bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15">En curso</Badge>}
-                    </div>
-                    <h2 className="mt-1 text-2xl font-semibold tracking-tight">
-                      {actual ? actual.operador_nombre : "Sin guardia activa"}
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {actual
-                        ? `Cobertura hasta ${format(new Date(actual.hasta), "EEEE d 'de' MMMM, HH:mm", { locale: es })}`
-                        : "No hay un operador asignado para este momento."}
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-background/60 px-4 py-3 text-sm">
-                  <p className="text-xs text-muted-foreground">Estado de cobertura</p>
-                  <p className={cn("mt-1 font-semibold", actual ? "text-emerald-300" : "text-amber-300")}>
-                    {actual ? "Operativa" : "Sin cobertura"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-3 p-5 sm:grid-cols-3">
-              <MetricCard
-                icon={<CalendarCheck className="size-4" />}
-                label={periodoActual ? "Días del período" : "Días cubiertos"}
-                value={`${diasCubiertos}`}
-                detail={detallePeriodo}
-              />
-              <MetricCard
-                icon={<UsersRound className="size-4" />}
-                label="Operadores"
-                value={`${operadoresPeriodo}`}
-                detail={periodoActual ? "En el período activo" : "Con guardias este mes"}
-              />
-              <MetricCard
-                icon={<ShieldCheck className="size-4" />}
-                label="Turnos"
-                value={`${turnosPeriodo}`}
-                detail={periodoActual ? "Del período activo" : "Programados en calendario"}
-              />
-            </div>
-
-            {actual?.notas ? (
-              <div className="mx-5 mb-5 rounded-xl border border-border/60 bg-muted/30 p-4">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Notas del turno</p>
-                <p className="mt-2 text-sm leading-relaxed">{actual.notas}</p>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card className="panel">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Clock3 className="size-4 text-primary" />
-              Próximos turnos
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {proximas.map((g) => {
-              const activa = new Date(g.desde) <= now && new Date(g.hasta) >= now;
-              return (
-                <div
-                  key={g.id}
-                  className={cn(
-                    "rounded-xl border border-border/60 bg-background/40 p-3",
-                    activa && "border-primary/40 bg-primary/5",
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{g.operador_nombre}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatGuardiaRange(g)}</p>
-                    </div>
-                    {activa ? <Badge>Actual</Badge> : <Badge variant="outline">Próxima</Badge>}
-                  </div>
-                </div>
-              );
-            })}
-            {proximas.length === 0 && (
-              <div className="rounded-xl border border-dashed border-border/70 p-5 text-center text-sm text-muted-foreground">
-                No hay guardias próximas cargadas.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      {planillaGuardias.days.length > 0 && (
-        <GuardiaSheetView
-          title="Planilla del período"
-          description="Matriz diaria de guardias. F incluye feriados nacionales de Argentina y fines de semana."
-          sheet={planillaGuardias}
-        />
-      )}
-
-      <Card className="panel">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/60">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base capitalize">
-              <CalendarDays className="size-4 text-primary" />
-              {format(cursor, "MMMM yyyy", { locale: es })}
-            </CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">Vista mensual de cobertura y relevos.</p>
-          </div>
-          <div className="flex gap-1">
-            <Button size="icon" variant="ghost" onClick={() => setCursor(addMonths(cursor, -1))}>
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setCursor(new Date())}>
-              Hoy
-            </Button>
-            <Button size="icon" variant="ghost" onClick={() => setCursor(addMonths(cursor, 1))}>
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-5">
-          <div className="grid grid-cols-7 gap-2 text-center text-xs text-muted-foreground">
-            {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
-              <div key={d} className="rounded-lg bg-muted/40 py-2 font-medium">
-                {d}
-              </div>
-            ))}
-          </div>
-          <div className="mt-2 grid grid-cols-7 gap-2">
-            {days.map((day) => {
-              const items = data.filter(
-                (g) => new Date(g.desde) <= endOfDay(day) && new Date(g.hasta) >= startOfDay(day),
-              );
-              const visibleItems = items.slice(0, 2);
-              return (
-                <div
-                  key={day.toISOString()}
-                  className={cn(
-                    "min-h-[118px] rounded-xl border border-border/60 bg-background/30 p-2 text-left transition-colors hover:border-primary/40 hover:bg-primary/5",
-                    !isSameMonth(day, cursor) && "opacity-35",
-                    isSameDay(day, now) && "border-primary bg-primary/10",
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold">{format(day, "d")}</span>
-                    {items.length > 0 && (
-                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        {items.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 space-y-1.5">
-                    {visibleItems.map((g) => (
-                      <div
-                        key={g.id}
-                        className="rounded-lg border border-primary/15 bg-primary/10 px-2 py-1"
-                        title={`${g.operador_nombre} · ${format(new Date(g.desde), "dd/MM HH:mm")} → ${format(new Date(g.hasta), "dd/MM HH:mm")}`}
-                      >
-                        <p className="truncate text-[11px] font-medium text-primary">{g.operador_nombre}</p>
-                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{formatDayRange(g, day)}</p>
-                      </div>
-                    ))}
-                    {items.length > visibleItems.length && (
-                      <p className="px-1 text-[10px] text-muted-foreground">+{items.length - visibleItems.length} turno más</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="panel">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Agenda de guardias</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {sortedGuardias.map((g) => (
-            <div
-              key={g.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/30 px-4 py-3"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
-                  <UserRound className="size-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{g.operador_nombre}</p>
-                  <p className="text-xs text-muted-foreground">{formatGuardiaRange(g)}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {new Date(g.desde) <= now && new Date(g.hasta) >= now && <Badge>Activa</Badge>}
-                {canWrite && (
-                  <>
-                    <GuardiaDialog
-                      guardia={g}
-                      trigger={
-                        <Button size="sm" variant="ghost">
-                          Editar
-                        </Button>
-                      }
-                      onDone={refresh}
-                    />
-                    <Button size="icon" variant="ghost" onClick={() => del.mutate(g.id)}>
-                      <Trash2 className="size-4 text-destructive" />
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-          {data.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">Sin guardias cargadas.</p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border/60 bg-background/50 p-4">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        <span className="text-primary">{icon}</span>
-        {label}
-      </div>
-      <p className="mt-3 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
-
-type GuardiaSheet = {
-  days: Date[];
-  operadores: {
-    nombre: string;
-    codigo: string;
-    colorClass: string;
-    normales: number;
-    feriados: number;
-  }[];
-  cells: Record<string, Record<string, "guardia" | "feriado" | null>>;
-  periodLabel: string;
-};
-
-function GuardiaSheetView({
-  title,
-  description,
-  sheet,
-  compact,
-}: {
-  title: string;
-  description: string;
-  sheet: GuardiaSheet;
-  compact?: boolean;
-}) {
-  if (sheet.days.length === 0) return null;
-
-  return (
-    <Card className="panel overflow-hidden">
-      <CardHeader className="border-b border-border/60 pb-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarRange className="size-4 text-primary" />
-              {title}
-            </CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-          </div>
-          <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary">
-            {sheet.periodLabel}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className={cn("space-y-4", compact ? "p-4" : "p-5")}>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]">
-          <div className="overflow-hidden rounded-xl border border-border/70 bg-background/40">
-            <div className="overflow-x-auto">
-              <Table className="min-w-[920px] text-xs">
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="sticky left-0 z-20 w-44 bg-muted/80 text-foreground">Empleado</TableHead>
-                    {sheet.days.map((day) => {
-                      const feriado = isNonWorkingDay(day);
-                      return (
-                        <TableHead
-                          key={day.toISOString()}
-                          className={cn(
-                            "min-w-10 border-l border-border/50 px-1 text-center",
-                            feriado ? "bg-rose-500/15 text-rose-300" : "bg-muted/60",
-                          )}
-                          title={feriado ? getHolidayName(day) || "Fin de semana" : undefined}
-                        >
-                          <div className="font-semibold capitalize">{format(day, "EEEEE", { locale: es })}</div>
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">{format(day, "d/M")}</div>
-                        </TableHead>
-                      );
-                    })}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sheet.operadores.map((operador) => (
-                    <TableRow key={operador.nombre} className="hover:bg-primary/5">
-                      <TableCell className="sticky left-0 z-10 w-44 bg-background font-semibold">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              "grid size-7 shrink-0 place-items-center rounded-md text-xs font-bold text-white",
-                              operador.colorClass,
-                            )}
-                          >
-                            {operador.codigo}
-                          </span>
-                          <span className="truncate">{operador.nombre}</span>
-                        </div>
-                      </TableCell>
-                      {sheet.days.map((day) => {
-                        const key = dateKey(day);
-                        const cell = sheet.cells[operador.nombre]?.[key] ?? null;
-                        return (
-                          <TableCell
-                            key={key}
-                            className={cn(
-                              "border-l border-border/50 px-1 text-center font-semibold",
-                              cell === "feriado" && "bg-rose-500/15 text-rose-300",
-                              cell === "guardia" && "bg-primary/10 text-primary",
-                            )}
-                          >
-                            {cell === "feriado" ? "F" : cell === "guardia" ? operador.codigo : ""}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Referencia</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {sheet.operadores.map((operador) => (
-                  <div key={operador.nombre} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/50 p-2">
-                    <span className={cn("grid size-7 place-items-center rounded-md text-xs font-bold text-white", operador.colorClass)}>
-                      {operador.codigo}
-                    </span>
-                    <span className="truncate text-xs font-medium">{operador.nombre}</span>
-                  </div>
-                ))}
-                <div className="flex items-center gap-2 rounded-lg border border-rose-500/25 bg-rose-500/10 p-2 text-rose-200">
-                  <span className="grid size-7 place-items-center rounded-md bg-rose-400/80 text-xs font-bold text-rose-950">F</span>
-                  <span className="text-xs font-medium">Feriado / finde</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-border/70 bg-background">
-              <div className="border-b border-border/60 bg-primary/10 px-3 py-2.5">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Liquidación guardia</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Normales y feriados por operario.</p>
-              </div>
-              <div className="grid gap-2 p-3">
-                {sheet.operadores.map((operador) => (
-                  <div key={operador.nombre} className="rounded-lg border border-border/60 bg-muted/20 p-3">
-                    <div className="flex items-center gap-2">
-                      <span className={cn("grid size-7 place-items-center rounded-md text-xs font-bold text-white", operador.colorClass)}>
-                        {operador.codigo}
-                      </span>
-                      <p className="min-w-0 flex-1 truncate text-xs font-semibold">{operador.nombre}</p>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-center">
-                      <LiquidacionStat label="Normales" value={operador.normales} />
-                      <LiquidacionStat label="Feriados" value={operador.feriados} highlight />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function LiquidacionStat({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
-  return (
-    <div className={cn("rounded-md border border-border/50 bg-background/60 px-2 py-2", highlight && "border-rose-500/25 bg-rose-500/10")}>
-      <p className="text-sm font-semibold leading-none">{value}</p>
-      <p className="mt-1 truncate text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-function formatGuardiaRange(g: Guardia) {
-  return `${format(new Date(g.desde), "dd/MM/yyyy HH:mm")} -> ${format(new Date(g.hasta), "dd/MM/yyyy HH:mm")}`;
-}
-
-function formatDayRange(g: Guardia, day: Date) {
-  const desde = new Date(g.desde);
-  const hasta = new Date(g.hasta);
-  const startsToday = isSameDay(desde, day);
-  const endsToday = isSameDay(hasta, day);
-
-  if (startsToday && endsToday) return `${format(desde, "HH:mm")} a ${format(hasta, "HH:mm")}`;
-  if (startsToday) return `Desde ${format(desde, "HH:mm")}`;
-  if (endsToday) return `Hasta ${format(hasta, "HH:mm")}`;
-  return "Día completo";
-}
-
-function startOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function endOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-
-function inclusiveCalendarDays(desde: Date, hasta: Date) {
-  return Math.max(0, differenceInCalendarDays(startOfDay(hasta), startOfDay(desde)) + 1);
-}
-
-function calcularDiasCalendario(desde: string, hasta: string) {
-  if (!desde || !hasta) return 0;
-  const start = new Date(`${desde}T00:00`);
-  const end = new Date(`${hasta}T00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
-  return inclusiveCalendarDays(start, end);
-}
-
-function formatDateInput(value: string) {
-  const date = new Date(`${value}T00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return format(date, "dd/MM/yyyy");
-}
-
-function calcularPeriodoCobertura(actual: Guardia, guardias: Guardia[]) {
-  let desde = new Date(actual.desde);
-  let hasta = new Date(actual.hasta);
-  const ids = new Set<string>([actual.id]);
-  const toleranceMs = 60_000;
-  let changed = true;
-
-  while (changed) {
-    changed = false;
-
-    for (const guardia of guardias) {
-      const guardiaDesde = new Date(guardia.desde);
-      const guardiaHasta = new Date(guardia.hasta);
-      const connected = guardiaDesde.getTime() <= hasta.getTime() + toleranceMs && guardiaHasta.getTime() >= desde.getTime() - toleranceMs;
-
-      if (!connected) continue;
-
-      if (!ids.has(guardia.id)) {
-        ids.add(guardia.id);
-        changed = true;
-      }
-      if (guardiaDesde < desde) desde = guardiaDesde;
-      if (guardiaHasta > hasta) hasta = guardiaHasta;
-    }
-  }
-
-  const turnos = guardias.filter((guardia) => ids.has(guardia.id));
-  return {
-    desde,
-    hasta,
-    turnos: turnos.length,
-    operadores: uniqueOperatorNames(turnos.map((guardia) => canonicalOperatorName(guardia.operador_nombre))).length,
-  };
-}
-
-function generarTurnosPeriodo({
-  desde,
-  hasta,
-  horaInicio,
-  duracionDias,
-  operarios,
-  notas,
-}: {
-  desde: string;
-  hasta: string;
-  horaInicio: string;
-  duracionDias: number;
-  operarios: string;
-  notas: string;
-}): { turnos: Omit<Guardia, "id">[]; error: string | null } {
-  const nombres = uniqueOperatorNames(parseOperatorLines(operarios));
-
-  if (nombres.length === 0) return { turnos: [], error: "Cargá al menos un operario" };
-  if (!desde || !hasta || !horaInicio) return { turnos: [], error: "Completá las fechas y la hora de inicio" };
-
-  const diasPorTurno = Math.max(1, Math.min(31, Number(duracionDias || 1)));
-  const inicioPeriodo = buildDateTime(desde, "00:00");
-  const finPeriodo = endOfDay(buildDateTime(hasta, "00:00"));
-  const inicio = mondayOnOrBefore(inicioPeriodo, horaInicio);
-
-  if (Number.isNaN(inicio.getTime()) || Number.isNaN(finPeriodo.getTime()) || Number.isNaN(inicioPeriodo.getTime())) {
-    return { turnos: [], error: "Revisá las fechas del período" };
-  }
-  if (finPeriodo <= inicioPeriodo) return { turnos: [], error: "La fecha hasta debe ser posterior a desde" };
-
-  const turnos: Omit<Guardia, "id">[] = [];
-  let cursor = inicio;
-  let index = 0;
-
-  while (cursor <= finPeriodo && turnos.length < 400) {
-    const hastaTurno = new Date(cursor);
-    hastaTurno.setDate(hastaTurno.getDate() + diasPorTurno);
-    hastaTurno.setHours(8, 0, 0, 0);
-
-    if (hastaTurno >= inicioPeriodo && cursor <= finPeriodo) {
-      turnos.push({
-        operador_nombre: nombres[index % nombres.length],
-        desde: cursor.toISOString(),
-        hasta: hastaTurno.toISOString(),
-        notas,
-      });
-    }
-
-    cursor = new Date(cursor);
-    cursor.setDate(cursor.getDate() + diasPorTurno);
-    cursor.setHours(Number(horaInicio.split(":")[0] ?? 20), Number(horaInicio.split(":")[1] ?? 0), 0, 0);
-    index += 1;
-  }
-
-  return { turnos, error: null };
-}
-
-function getCurrentGuardiaPeriod() {
-  return getGuardiaPeriodForDate(new Date());
-}
-
-function getGuardiaPeriodForDate(date: Date) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const currentDay = date.getDate();
-  const desdeDate = currentDay >= 21 ? new Date(year, month, 21) : new Date(year, month - 1, 21);
-  const hastaDate = currentDay >= 21 ? new Date(year, month + 1, 20) : new Date(year, month, 20);
-
-  return {
-    desde: format(desdeDate, "yyyy-MM-dd"),
-    hasta: format(hastaDate, "yyyy-MM-dd"),
-    desdeDate,
-    hastaDate,
-  };
-}
-
-function mondayOnOrBefore(date: Date, time: string) {
-  const [hours = "20", minutes = "00"] = time.split(":");
-  const result = new Date(date);
-  const day = result.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  result.setDate(result.getDate() - diff);
-  result.setHours(Number(hours), Number(minutes), 0, 0);
-  return result;
-}
-
-function countNocturnosEnPeriodo(guardia: Guardia, periodStart: Date, periodEnd: Date) {
-  const desde = new Date(guardia.desde);
-  const hasta = new Date(guardia.hasta);
-  return eachDayOfInterval({ start: periodStart, end: periodEnd }).filter((day) => {
-    if (isNonWorkingDay(day)) return false;
-    const nightStart = new Date(day);
-    nightStart.setHours(20, 0, 0, 0);
-    const nightEnd = addDays(nightStart, 1);
-    nightEnd.setHours(8, 0, 0, 0);
-    return desde <= nightEnd && hasta >= nightStart;
-  }).length;
-}
-
-function buildGuardiaSheet(
-  guardias: Guardia[],
-  bounds?: {
-    periodStart?: string;
-    periodEnd?: string;
-    operatorNames?: string[];
-  },
-): GuardiaSheet {
-  const requestedNames = uniqueOperatorNames(bounds?.operatorNames ?? []);
-
-  if (guardias.length === 0 && requestedNames.length === 0) {
-    return { days: [], operadores: [], cells: {}, periodLabel: "Sin período" };
-  }
-
-  const sorted = [...guardias].sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime());
-  const detectedStart =
-    sorted.length > 0
-      ? startOfDay(
-          sorted.reduce((min, guardia) => {
-            const desde = new Date(guardia.desde);
-            return desde < min ? desde : min;
-          }, new Date(sorted[0].desde)),
-        )
-      : buildDateTime(bounds?.periodStart ?? format(new Date(), "yyyy-MM-dd"), "00:00");
-  const detectedEnd =
-    sorted.length > 0
-      ? startOfDay(
-          sorted.reduce((max, guardia) => {
-            const hasta = new Date(guardia.hasta);
-            return hasta > max ? hasta : max;
-          }, new Date(sorted[0].hasta)),
-        )
-      : buildDateTime(bounds?.periodEnd ?? bounds?.periodStart ?? format(new Date(), "yyyy-MM-dd"), "00:00");
-  const start = bounds?.periodStart ? buildDateTime(bounds.periodStart, "00:00") : detectedStart;
-  const end = bounds?.periodEnd ? buildDateTime(bounds.periodEnd, "00:00") : detectedEnd;
-  const days = eachDayOfInterval({ start, end });
-  const names = uniqueOperatorNames([
-    ...requestedNames,
-    ...sorted.map((guardia) => canonicalOperatorName(guardia.operador_nombre)),
-  ]);
-  const codes = buildOperatorCodes(names);
-  const cells: GuardiaSheet["cells"] = {};
-  const palette = [
-    "bg-teal-500",
-    "bg-sky-500",
-    "bg-violet-500",
-    "bg-blue-800",
-    "bg-emerald-500",
-    "bg-amber-500",
-    "bg-fuchsia-500",
-    "bg-slate-600",
-  ];
-
-  for (const name of names) {
-    cells[name] = {};
-    for (const day of days) {
-      const key = dateKey(day);
-      const worksThatDay = sorted.some(
-        (guardia) =>
-          canonicalOperatorName(guardia.operador_nombre) === name &&
-          new Date(guardia.desde) <= endOfDay(day) &&
-          new Date(guardia.hasta) >= startOfDay(day),
-      );
-      cells[name][key] = worksThatDay ? (isNonWorkingDay(day) ? "feriado" : "guardia") : null;
-    }
-  }
-
-  const operadores = names.map((name, index) => {
-    const values = Object.values(cells[name]);
-    return {
-      nombre: name,
-      codigo: codes.get(name) ?? initialsCode(name),
-      colorClass: palette[index % palette.length],
-      normales: values.filter((value) => value === "guardia").length,
-      feriados: values.filter((value) => value === "feriado").length,
-    };
-  });
-
-  return {
-    days,
-    operadores,
-    cells,
-    periodLabel: `${format(start, "dd/MM/yyyy")} al ${format(end, "dd/MM/yyyy")}`,
-  };
-}
-
-function buildOperatorCodes(names: string[]) {
-  const result = new Map<string, string>();
-
-  for (const name of names) {
-    result.set(name, AREA_OPERATOR_CODES[normalizeOperatorName(name)] ?? initialsCode(name));
-  }
-
-  return result;
-}
-
-function parseOperatorLines(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((nombre) => canonicalOperatorName(nombre))
-    .filter(Boolean);
-}
-
-function uniqueOperatorNames(names: string[]) {
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  for (const name of names) {
-    const canonical = canonicalOperatorName(name);
-    if (!canonical) continue;
-    const key = normalizeOperatorName(canonical);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(canonical);
-  }
-
-  return result;
-}
-
-function canonicalOperatorName(name: string) {
-  const trimmed = name.trim().replace(/\s+/g, " ");
-  if (!trimmed) return "";
-  const normalized = normalizeOperatorName(trimmed);
-  const fixed = AREA_OPERARIOS.find((operario) => normalizeOperatorName(operario) === normalized);
-  if (fixed) return fixed;
-
-  const parts = normalized.split(" ");
-  if (parts.length >= 2) {
-    const reversed = `${parts.slice(1).join(" ")} ${parts[0]}`;
-    const reversedFixed = AREA_OPERARIOS.find((operario) => normalizeOperatorName(operario) === reversed);
-    if (reversedFixed) return reversedFixed;
-  }
-
-  return trimmed.toUpperCase();
-}
-
-function normalizeOperatorName(name: string) {
-  return name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toUpperCase();
-}
-
-function initialsCode(name: string) {
-  const normalized = normalizeOperatorName(name);
-  if (AREA_OPERATOR_CODES[normalized]) return AREA_OPERATOR_CODES[normalized];
-  const words = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  const firstName = words.length > 1 ? words[words.length - 1] : words[0];
-  return (firstName?.[0] ?? "?").toUpperCase();
-}
-
-function isNonWorkingDay(day: Date) {
-  const weekDay = day.getDay();
-  return weekDay === 0 || weekDay === 6 || Boolean(getHolidayName(day));
-}
-
-function getHolidayName(day: Date) {
-  const year = day.getFullYear();
-  const key = `${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-  const fixed: Record<string, string> = {
-    "01-01": "Año Nuevo",
-    "03-24": "Día Nacional de la Memoria",
-    "04-02": "Día del Veterano y de los Caídos en Malvinas",
-    "05-01": "Día del Trabajador",
-    "05-25": "Día de la Revolución de Mayo",
-    "06-20": "Paso a la Inmortalidad de Manuel Belgrano",
-    "07-09": "Día de la Independencia",
-    "12-08": "Inmaculada Concepción de María",
-    "12-25": "Navidad",
-  };
-  if (fixed[key]) return fixed[key];
-
-  const easter = calculateEasterSunday(year);
-  const variable = new Map<string, string>([
-    [dateKey(addDays(easter, -48)), "Carnaval"],
-    [dateKey(addDays(easter, -47)), "Carnaval"],
-    [dateKey(addDays(easter, -2)), "Viernes Santo"],
-    [dateKey(nearestMonday(new Date(year, 5, 17))), "Paso a la Inmortalidad de Martín Miguel de Güemes"],
-    [dateKey(thirdMonday(new Date(year, 7, 1))), "Paso a la Inmortalidad de José de San Martín"],
-    [dateKey(secondMonday(new Date(year, 9, 1))), "Día del Respeto a la Diversidad Cultural"],
-    [dateKey(fourthMonday(new Date(year, 10, 1))), "Día de la Soberanía Nacional"],
-  ]);
-
-  return variable.get(dateKey(day)) ?? null;
-}
-
-function calculateEasterSunday(year: number) {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(year, month, day);
-}
-
-function addDays(date: Date, amount: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function nearestMonday(date: Date) {
-  const monday = new Date(date);
-  while (monday.getDay() !== 1) monday.setDate(monday.getDate() + 1);
-  return monday;
-}
-
-function secondMonday(monthStart: Date) {
-  return nthMonday(monthStart, 2);
-}
-
-function thirdMonday(monthStart: Date) {
-  return nthMonday(monthStart, 3);
-}
-
-function fourthMonday(monthStart: Date) {
-  return nthMonday(monthStart, 4);
-}
-
-function nthMonday(monthStart: Date, nth: number) {
-  const date = new Date(monthStart);
-  let count = 0;
-  while (date.getMonth() === monthStart.getMonth()) {
-    if (date.getDay() === 1) {
-      count += 1;
-      if (count === nth) return date;
-    }
-    date.setDate(date.getDate() + 1);
-  }
-  return date;
-}
-
-function dateKey(date: Date) {
-  return format(date, "yyyy-MM-dd");
-}
-
-function buildDateTime(date: string, time: string) {
-  return new Date(`${date}T${time || "00:00"}`);
 }
