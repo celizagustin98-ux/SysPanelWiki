@@ -20,15 +20,16 @@ export type OperarioRow = {
 
 export type Operario = { id?: string; nombre: string; code: string; color: string };
 
+/** Fondos más opacos para que la letra se lea en dark mode. */
 export const COLOR_PALETTE = [
-  "bg-teal-500/25 text-teal-800 dark:text-teal-200 border-teal-500/40",
-  "bg-sky-500/25 text-sky-800 dark:text-sky-200 border-sky-500/40",
-  "bg-violet-500/25 text-violet-800 dark:text-violet-200 border-violet-500/40",
-  "bg-indigo-500/25 text-indigo-800 dark:text-indigo-200 border-indigo-500/40",
-  "bg-amber-500/25 text-amber-900 dark:text-amber-200 border-amber-500/40",
-  "bg-rose-500/25 text-rose-800 dark:text-rose-200 border-rose-500/40",
-  "bg-cyan-500/25 text-cyan-900 dark:text-cyan-200 border-cyan-500/40",
-  "bg-fuchsia-500/25 text-fuchsia-800 dark:text-fuchsia-200 border-fuchsia-500/40",
+  "bg-teal-600 text-white border-teal-400",
+  "bg-sky-600 text-white border-sky-400",
+  "bg-violet-600 text-white border-violet-400",
+  "bg-indigo-600 text-white border-indigo-400",
+  "bg-amber-600 text-white border-amber-400",
+  "bg-rose-600 text-white border-rose-400",
+  "bg-cyan-600 text-white border-cyan-400",
+  "bg-fuchsia-600 text-white border-fuchsia-400",
 ];
 
 export const SEED_OPERARIOS = [
@@ -74,7 +75,6 @@ const FERIADOS_EXTRA = new Set([
   "2027-03-30",
 ]);
 
-/** Siempre devuelve string seguro (evita .split/.normalize sobre null/objeto). */
 export function normalizeName(s: unknown) {
   return String(s ?? "")
     .normalize("NFD")
@@ -167,11 +167,15 @@ export function nightEndIso(day: Date) {
   return d.toISOString();
 }
 
+/** True si el tramo de guardia cubre la noche de `day` (20:00→08:00). */
 export function coversNight(g: Guardia, day: Date) {
-  const start = new Date(g.desde).getTime();
-  const end = new Date(g.hasta).getTime();
-  const night = new Date(nightStartIso(day)).getTime();
-  return start <= night && end > night;
+  const ns = new Date(nightStartIso(day)).getTime();
+  const ne = new Date(nightEndIso(day)).getTime();
+  const gs = new Date(g.desde).getTime();
+  const ge = new Date(g.hasta).getTime();
+  if (Number.isNaN(gs) || Number.isNaN(ge) || Number.isNaN(ns) || Number.isNaN(ne)) return false;
+  // Solapamiento de intervalos [gs, ge) ∩ [ns, ne)
+  return gs < ne && ge > ns;
 }
 
 export function isVacacion(g: Guardia) {
