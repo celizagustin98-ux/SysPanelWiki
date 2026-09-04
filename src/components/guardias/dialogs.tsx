@@ -68,19 +68,19 @@ export function OperariosDialog({ rows, onDone }: { rows: OperarioRow[]; onDone:
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-7 text-xs">
-          <UserPlus className="size-3.5" /> Plantel
+        <Button size="sm" variant="secondary">
+          <UserPlus className="size-4" /> Cargar Empleado
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="size-4" /> Plantel de guardia
+            <UserPlus className="size-4" /> Cargar empleado
           </DialogTitle>
         </DialogHeader>
 
         <form className="grid gap-3 rounded-lg border border-border p-3" onSubmit={submit}>
-          <p className="text-xs text-muted-foreground">Cargar nuevo empleado del área</p>
+          <p className="text-xs text-muted-foreground">Agregar compañero al plantel de guardia</p>
           <div className="grid gap-3 sm:grid-cols-[1fr_5rem_auto]">
             <div className="space-y-1">
               <Label>Nombre completo</Label>
