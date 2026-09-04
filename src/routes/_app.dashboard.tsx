@@ -1,349 +1,454 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity,
   AlertTriangle,
-  ArrowUpRight,
   BookOpen,
   Boxes,
   CalendarClock,
   CheckCircle2,
+  ClipboardList,
   Clock3,
-  FileText,
-  KanbanSquare,
+  KeyRound,
+  Package,
   Printer,
-  Server,
-  ShieldCheck,
+  Ticket,
+  UserRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppShell";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Dashboard | SysIntranet | Área Wiki" },
-      { name: "description", content: "Estadísticas en tiempo real, guardia del día y tareas asignadas." },
-      { property: "og:title", content: "Dashboard | SysIntranet | Área Wiki" },
-      { property: "og:description", content: "Panel operativo para sistemas." },
+      { title: "Dashboard | SysPanelWiki" },
+      {
+        name: "description",
+        content: "Alertas operativas, guardia del día, tareas y stock crítico.",
+      },
     ],
   }),
   component: Dashboard,
 });
 
+type TareaLite = {
+  id: string;
+  titulo: string;
+  estado: string;
+  prioridad: string;
+  vence_el?: string | null;
+  asignado_a?: string | null;
+};
+
+type TonerCritico = { nombre: string; stock: number; stock_minimo: number };
+
+function hoyLabel() {
+  return new Date().toLocaleDateString("es-AR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+function prioridadTone(p: string) {
+  const v = p.toLowerCase();
+  if (v === "alta" || v === "urgente" || v === "critica" || v === "crítica")
+    return "bg-destructive/15 text-destructive border-destructive/30";
+  if (v === "media") return "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30";
+  return "bg-muted text-muted-foreground border-border";
+}
+
 function Dashboard() {
   const { user, profile } = useAuth();
+  const nombre = profile?.full_name?.split(" ")[0] || "equipo";
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["dashboard", user?.id],
     queryFn: async () => {
-      const now = new Date().toISOString();
-      const [equipos, tareas, toners, docs, guardia, misTareas, criticos] = await Promise.all([
-        api.from("inventario").select("id", { count: "exact", head: true }),
-        api.from("tareas").select("id", { count: "exact", head: true }).neq("estado", "hecha"),
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const today = nowIso.slice(0, 10);
+
+      const [tareasRes, tonersRes, guardiaRes, misTareasRes, pedidosRes] = await Promise.all([
+        api
+          .from("tareas")
+          .select("id, titulo, estado, prioridad, vence_el, asignado_a")
+          .neq("estado", "hecha"),
         api.from("toner_modelos").select("stock, stock_minimo, nombre"),
-        api.from("wiki_docs").select("id, title, views").order("views", { ascending: false }).limit(5),
         api
           .from("guardias")
-          .select("*")
-          .lte("desde", now)
-          .gte("hasta", now)
+          .select("operador_nombre, desde, hasta")
+          .lte("desde", nowIso)
+          .gte("hasta", nowIso)
           .order("desde")
           .limit(1),
         api
           .from("tareas")
-          .select("id, titulo, estado, prioridad")
+          .select("id, titulo, estado, prioridad, vence_el")
           .eq("asignado_a", user?.id ?? "")
           .neq("estado", "hecha")
-          .limit(6),
-        api.from("credenciales").select("id", { count: "exact", head: true }),
+          .order("prioridad")
+          .limit(8),
+        api.from("toner_pedidos").select("id, estado").in("estado", ["borrador", "enviado"]),
       ]);
-      const stockTotal = (toners.data ?? []).reduce((a, t) => a + t.stock, 0);
-      const stockCritico = (toners.data ?? []).filter((t) => t.stock <= t.stock_minimo);
+
+      const abiertas = (tareasRes.data as TareaLite[] | null) ?? [];
+      const urgentes = abiertas.filter((t) => {
+        const p = (t.prioridad ?? "").toLowerCase();
+        return p === "alta" || p === "urgente" || p === "critica" || p === "crítica";
+      });
+      const vencidas = abiertas.filter((t) => t.vence_el && t.vence_el < today);
+
+      const stockCritico = ((tonersRes.data as TonerCritico[] | null) ?? []).filter(
+        (t) => t.stock <= t.stock_minimo,
+      );
+
+      const pedidosPendientes = (pedidosRes.data ?? []).length;
+
       return {
-        equipos: equipos.count ?? 0,
-        tareas: tareas.count ?? 0,
-        stockTotal,
+        abiertas: abiertas.length,
+        urgentes: urgentes.length,
+        vencidas: vencidas.length,
+        colaArea: abiertas
+          .slice()
+          .sort((a, b) => {
+            const rank = (p: string) => {
+              const v = p.toLowerCase();
+              if (v === "alta" || v === "urgente" || v === "critica" || v === "crítica") return 0;
+              if (v === "media") return 1;
+              return 2;
+            };
+            return rank(a.prioridad) - rank(b.prioridad);
+          })
+          .slice(0, 6),
         stockCritico,
-        docs: docs.data ?? [],
-        guardia: guardia.data?.[0] ?? null,
-        misTareas: misTareas.data ?? [],
-        credenciales: criticos.count ?? 0,
+        guardia: guardiaRes.data?.[0] ?? null,
+        misTareas: (misTareasRes.data as TareaLite[] | null) ?? [],
+        pedidosPendientes,
       };
     },
   });
 
-  const stats = [
-    {
-      label: "Inventario TI",
-      value: data?.equipos ?? 0,
-      detail: "activos registrados",
-      icon: Boxes,
-      to: "/inventario",
-    },
-    {
-      label: "Mesa de trabajo",
-      value: data?.tareas ?? 0,
-      detail: "tareas abiertas",
-      icon: KanbanSquare,
+  const criticalCount = data?.stockCritico.length ?? 0;
+  const urgentes = data?.urgentes ?? 0;
+  const vencidas = data?.vencidas ?? 0;
+  const abiertas = data?.abiertas ?? 0;
+  const sinGuardia = !data?.guardia;
+
+  type AlertItem = { key: string; text: string; to: string; tone: "danger" | "warn" };
+  const alerts: AlertItem[] = [];
+  if (criticalCount > 0) {
+    alerts.push({
+      key: "toners",
+      text: `${criticalCount} tóner${criticalCount === 1 ? "" : "s"} bajo mínimo`,
+      to: "/toners",
+      tone: "danger",
+    });
+  }
+  if (urgentes > 0) {
+    alerts.push({
+      key: "urgentes",
+      text: `${urgentes} ticket${urgentes === 1 ? "" : "s"} de prioridad alta`,
       to: "/tareas",
+      tone: "danger",
+    });
+  }
+  if (vencidas > 0) {
+    alerts.push({
+      key: "vencidas",
+      text: `${vencidas} con fecha vencida`,
+      to: "/tareas",
+      tone: "warn",
+    });
+  }
+  if (sinGuardia && !isLoading) {
+    alerts.push({
+      key: "guardia",
+      text: "Sin cobertura de guardia ahora",
+      to: "/guardias",
+      tone: "warn",
+    });
+  }
+
+  const kpis = [
+    {
+      label: "Abiertos",
+      value: abiertas,
+      detail: "tickets / tareas",
+      icon: Ticket,
+      to: "/tareas",
+      alert: abiertas >= 10,
     },
     {
-      label: "Stock de tóners",
-      value: data?.stockTotal ?? 0,
-      detail: `${data?.stockCritico.length ?? 0} críticos`,
+      label: "Urgentes",
+      value: urgentes,
+      detail: vencidas > 0 ? `${vencidas} vencidos` : "prioridad alta",
+      icon: AlertTriangle,
+      to: "/tareas",
+      alert: urgentes > 0 || vencidas > 0,
+    },
+    {
+      label: "Tóners críticos",
+      value: criticalCount,
+      detail: "bajo mínimo",
       icon: Printer,
       to: "/toners",
+      alert: criticalCount > 0,
     },
     {
-      label: "Bóveda segura",
-      value: data?.credenciales ?? 0,
-      detail: "credenciales guardadas",
-      icon: ShieldCheck,
-      to: "/credenciales",
+      label: "Pedidos en curso",
+      value: data?.pedidosPendientes ?? 0,
+      detail: "borrador / enviado",
+      icon: Package,
+      to: "/toners",
+      alert: false,
     },
   ] as const;
 
-  const criticalCount = data?.stockCritico.length ?? 0;
-  const taskCount = data?.tareas ?? 0;
-  const operationalStatus =
-    criticalCount > 0 ? "Atención requerida" : taskCount > 0 ? "Operación activa" : "Operación estable";
-  const operationalTone =
-    criticalCount > 0
-      ? "border-destructive/35 bg-destructive/8 text-destructive"
-      : "border-primary/25 bg-primary/10 text-primary";
+  const atajos = [
+    { label: "Tickets", to: "/tareas", icon: ClipboardList },
+    { label: "Tóners", to: "/toners", icon: Printer },
+    { label: "Instructivos", to: "/instructivos", icon: BookOpen },
+    { label: "Inventario", to: "/inventario", icon: Boxes },
+    { label: "Guardias", to: "/guardias", icon: CalendarClock },
+    { label: "Credenciales", to: "/credenciales", icon: KeyRound },
+  ] as const;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
-        title="Centro de Operaciones TI"
-        description={`Hola, ${profile?.full_name?.split(" ")[0] || "equipo"}. Resumen ejecutivo del área de sistemas.`}
+        title={`Hola, ${nombre}`}
+        description={hoyLabel().charAt(0).toUpperCase() + hoyLabel().slice(1)}
       />
 
-      <section className="panel overflow-hidden">
-        <div className="grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
-          <div className="border-b border-border p-5 lg:border-b-0 lg:border-r">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="grid size-11 place-items-center rounded-lg bg-primary text-primary-foreground">
-                <Server className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Estado general</p>
-                <h2 className="text-2xl font-semibold tracking-tight">{operationalStatus}</h2>
-              </div>
-              <Badge className={`ml-auto border ${operationalTone}`} variant="outline">
-                <Activity className="mr-1 size-3" />
-                En tiempo real
-              </Badge>
-            </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-xs uppercase text-muted-foreground">Guardia</p>
-                <p className="mt-1 truncate text-sm font-semibold">
-                  {data?.guardia?.operador_nombre ?? "Sin guardia activa"}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-xs uppercase text-muted-foreground">Pendientes</p>
-                <p className="mt-1 text-sm font-semibold">{taskCount} tickets y tareas abiertos</p>
-              </div>
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-xs uppercase text-muted-foreground">Alertas</p>
-                <p className="mt-1 text-sm font-semibold">{criticalCount} modelos bajo mínimo</p>
-              </div>
-            </div>
-          </div>
-          <div className="p-5">
-            <p className="text-sm font-medium text-muted-foreground">Prioridad operativa</p>
-            <div className="mt-4 space-y-3">
-              <StatusLine
-                active={criticalCount === 0}
-                label="Stock de insumos controlado"
-                value={criticalCount === 0 ? "OK" : `${criticalCount} críticos`}
-              />
-              <StatusLine
-                active={Boolean(data?.guardia)}
-                label="Cobertura de guardia"
-                value={data?.guardia ? "Activa" : "Sin cobertura"}
-              />
-              <StatusLine
-                active={taskCount < 10}
-                label="Carga de tareas"
-                value={taskCount < 10 ? "Normal" : "Alta"}
-              />
-            </div>
-          </div>
+      {/* Alertas */}
+      {alerts.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {alerts.map((a) => (
+            <Link
+              key={a.key}
+              to={a.to}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:bg-accent/40",
+                a.tone === "danger"
+                  ? "border-destructive/35 bg-destructive/8 text-destructive"
+                  : "border-amber-500/35 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+              )}
+            >
+              <AlertTriangle className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 font-medium">{a.text}</span>
+              <span className="text-xs opacity-80">Ver →</span>
+            </Link>
+          ))}
         </div>
-      </section>
+      ) : (
+        !isLoading && (
+          <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-primary" />
+            Sin alertas operativas
+          </div>
+        )
+      )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((s) => (
-          <Link key={s.label} to={s.to}>
-            <Card className="panel group transition-colors hover:border-primary/40">
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="grid size-11 place-items-center rounded-lg bg-accent text-accent-foreground">
-                  <s.icon className="size-5" />
-                  </div>
-                  <ArrowUpRight className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+      {/* Hoy: guardia + mis ítems + cola */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <UserRound className="size-4 text-primary" /> Guardia ahora
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data?.guardia ? (
+              <div className="space-y-2">
+                <p className="text-lg font-semibold">{data.guardia.operador_nombre}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(data.guardia.desde).toLocaleString("es-AR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {" → "}
+                  {new Date(data.guardia.hasta).toLocaleString("es-AR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+                <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs text-primary">
+                  <CheckCircle2 className="size-3.5" /> En turno
                 </div>
-                <div className="mt-4">
-                  <p className="text-sm font-medium text-muted-foreground">{s.label}</p>
-                  <div className="mt-1 flex items-end gap-2">
-                    <p className="text-3xl font-semibold tabular-nums">{s.value}</p>
-                    <p className="pb-1 text-xs text-muted-foreground">{s.detail}</p>
-                  </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">No hay guardia activa.</p>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/guardias">Ver guardias</Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="panel">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                <Clock3 className="size-4 text-primary" /> Para vos
+              </CardTitle>
+              <Link to="/tareas" className="text-xs font-medium text-primary hover:underline">
+                Ver todas
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {(data?.misTareas ?? []).length === 0 && (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No tenés ítems asignados
+              </p>
+            )}
+            {(data?.misTareas ?? []).map((t) => (
+              <Link
+                key={t.id}
+                to="/tareas"
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+              >
+                <span className="min-w-0 flex-1 truncate">{t.titulo}</span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                    prioridadTone(t.prioridad),
+                  )}
+                >
+                  {t.prioridad}
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="panel">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                <ClipboardList className="size-4 text-primary" /> Cola del área
+              </CardTitle>
+              <Link to="/tareas" className="text-xs font-medium text-primary hover:underline">
+                Abrir cola
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {(data?.colaArea ?? []).length === 0 && (
+              <p className="py-4 text-center text-sm text-muted-foreground">Cola vacía</p>
+            )}
+            {(data?.colaArea ?? []).map((t) => (
+              <Link
+                key={t.id}
+                to="/tareas"
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+              >
+                <span className="min-w-0 flex-1 truncate">{t.titulo}</span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                    prioridadTone(t.prioridad),
+                  )}
+                >
+                  {t.prioridad}
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map((k) => (
+          <Link key={k.label} to={k.to}>
+            <Card
+              className={cn(
+                "panel h-full transition-colors hover:border-primary/40",
+                k.alert && "border-destructive/35",
+              )}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {k.label}
+                  </p>
+                  <k.icon
+                    className={cn("size-4", k.alert ? "text-destructive" : "text-muted-foreground")}
+                  />
                 </div>
+                <p
+                  className={cn(
+                    "mt-2 text-3xl font-semibold tabular-nums",
+                    k.alert && "text-destructive",
+                  )}
+                >
+                  {isLoading ? "—" : k.value}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{k.detail}</p>
               </CardContent>
             </Card>
           </Link>
         ))}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr_1fr]">
-        <Card className="panel">
+      {/* Stock crítico detallado */}
+      {criticalCount > 0 && (
+        <Card className="panel border-destructive/35">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarClock className="size-4 text-primary" /> Guardia de hoy
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data?.guardia ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xl font-semibold">{data.guardia.operador_nombre}</p>
-                  <p className="text-sm text-muted-foreground">
-                  {new Date(data.guardia.desde).toLocaleString("es-AR")} →{" "}
-                  {new Date(data.guardia.hasta).toLocaleString("es-AR")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
-                  <CheckCircle2 className="size-4" />
-                  En turno ahora
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground">
-                No hay guardia activa en este momento.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="panel">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BookOpen className="size-4 text-primary" /> Instructivos más visitados
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {(data?.docs ?? []).length === 0 && (
-              <div className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground">
-                Todavía no hay instructivos consultados.
-              </div>
-            )}
-            {(data?.docs ?? []).map((d, index) => (
-              <Link
-                key={d.id}
-                to="/instructivos"
-                search={{ doc: d.id }}
-                className="flex items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-sm hover:border-border hover:bg-accent/40"
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-xs font-semibold">
-                  {index + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{d.title}</span>
-                  <span className="text-xs text-muted-foreground">{d.views} vistas</span>
-                </span>
-                <FileText className="size-4 text-muted-foreground" />
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="panel">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <KanbanSquare className="size-4 text-primary" /> Mis tareas
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {(data?.misTareas ?? []).length === 0 && (
-              <div className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground">
-                No tenés tareas asignadas.
-              </div>
-            )}
-            {(data?.misTareas ?? []).map((t) => (
-              <Link
-                key={t.id}
-                to="/tareas"
-                className="flex items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-sm hover:border-border hover:bg-accent/40"
-              >
-                <Clock3 className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate font-medium">{t.titulo}</span>
-                <Badge variant="secondary" className="capitalize">
-                  {t.prioridad}
-                </Badge>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      {(data?.stockCritico ?? []).length > 0 && (
-        <Card className="panel border-destructive/40">
-          <CardHeader className="pb-2">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <CardTitle className="flex items-center gap-2 text-base text-destructive">
-                <AlertTriangle className="size-4" /> Stock crítico de tóners
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm text-destructive">
+                <AlertTriangle className="size-4" /> Stock crítico
               </CardTitle>
-              <Link to="/toners" className="text-sm font-medium text-primary hover:underline">
-                Gestionar stock
-              </Link>
+              <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+                <Link to="/toners">Ir a pedidos</Link>
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {data!.stockCritico.map((t) => (
               <div
                 key={t.nombre}
-                className="flex items-center justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2"
+                className="flex items-center justify-between gap-2 rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2"
               >
                 <span className="min-w-0 truncate text-sm font-medium">{t.nombre}</span>
-                <Badge variant="destructive" className="shrink-0">
-                  {t.stock}
+                <Badge variant="destructive" className="shrink-0 tabular-nums">
+                  {t.stock}/{t.stock_minimo}
                 </Badge>
               </div>
             ))}
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
 
-function StatusLine({
-  active,
-  label,
-  value,
-}: {
-  active: boolean;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/40 px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span
-          className={`size-2 rounded-full ${active ? "bg-primary" : "bg-destructive"}`}
-          aria-hidden="true"
-        />
-        <span className="truncate text-sm">{label}</span>
+      {/* Atajos */}
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Accesos rápidos
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {atajos.map((a) => (
+            <Button key={a.to} asChild size="sm" variant="secondary" className="h-8">
+              <Link to={a.to}>
+                <a.icon className="size-3.5" />
+                {a.label}
+              </Link>
+            </Button>
+          ))}
+        </div>
       </div>
-      <span className="shrink-0 text-xs font-medium text-muted-foreground">{value}</span>
     </div>
   );
 }
