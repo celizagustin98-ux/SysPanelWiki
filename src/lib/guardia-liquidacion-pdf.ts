@@ -10,9 +10,12 @@ export type LiqRow = {
 
 export type LiqPdfInput = {
   periodoLabel: string;
-  desde: string; // dd/MM/yyyy
+  desde: string;
   hasta: string;
   generada?: Date;
+  titulo?: string;
+  notas?: string;
+  pie?: string;
   filas: LiqRow[];
 };
 
@@ -32,6 +35,10 @@ function buildHtml(input: LiqPdfInput) {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  const titulo = (input.titulo || "Liquidación de guardias").trim();
+  const notas = (input.notas || "").trim();
+  const pie = (input.pie || "SysPanelWiki · Documento de liquidación interna").trim();
 
   const totN = input.filas.reduce((s, r) => s + r.normales, 0);
   const totF = input.filas.reduce((s, r) => s + r.feriados, 0);
@@ -60,9 +67,15 @@ function buildHtml(input: LiqPdfInput) {
     )
     .join("");
 
+  const notasBlock = notas
+    ? '<p class="note">' + esc(notas).replace(/\n/g, "<br/>") + "</p>"
+    : "";
+
   return (
     "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\" />" +
-    "<title>Liquidación " +
+    "<title>" +
+    esc(titulo) +
+    " — " +
     esc(input.periodoLabel) +
     "</title><style>" +
     "@page{size:A4;margin:16mm}" +
@@ -88,13 +101,15 @@ function buildHtml(input: LiqPdfInput) {
     "td.fer{color:#be123c;font-weight:600}" +
     "td.tot{font-weight:700}" +
     "tfoot td{background:#ecfdf5;font-weight:700;border-top:2px solid #0d9488;padding:12px}" +
-    ".note{margin-top:18px;font-size:11px;color:#64748b;line-height:1.5}" +
+    ".note{margin-top:18px;font-size:11px;color:#64748b;line-height:1.5;white-space:pre-wrap}" +
     ".footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}" +
     "@media print{body{padding:0}}" +
     "</style></head><body><div class=\"sheet\">" +
     '<div class="header"><div>' +
     '<div class="brand">SysIntranet · Área Sistemas</div>' +
-    "<h1>Liquidación de guardias</h1>" +
+    "<h1>" +
+    esc(titulo) +
+    "</h1>" +
     '<p class="sub">Turno nocturno 20:00 – 08:00 · Período de liquidación 21 → 20</p>' +
     "</div><div class=\"meta\"><strong>" +
     esc(input.periodoLabel) +
@@ -131,10 +146,10 @@ function buildHtml(input: LiqPdfInput) {
     '<td class="num tot">' +
     totT +
     "</td></tr></tfoot></table>" +
-    '<p class="note"><strong>Criterio:</strong> se cuenta cada noche de guardia (20:00–08:00). ' +
-    "<strong>Feriado</strong> = sábado, domingo o feriado nacional argentino. " +
-    "Las vacaciones (V) no suman a liquidación.</p>" +
-    '<div class="footer">SysPanelWiki · Documento de liquidación interna</div>' +
+    notasBlock +
+    '<div class="footer">' +
+    esc(pie) +
+    "</div>" +
     "</div></body></html>"
   );
 }
@@ -142,7 +157,7 @@ function buildHtml(input: LiqPdfInput) {
 export function abrirPdfLiquidacion(input: LiqPdfInput) {
   const html = buildHtml(input);
   const iframe = document.createElement("iframe");
-  iframe.setAttribute("title", "Liquidación " + input.periodoLabel);
+  iframe.setAttribute("title", (input.titulo || "Liquidación") + " " + input.periodoLabel);
   iframe.style.position = "fixed";
   iframe.style.right = "0";
   iframe.style.bottom = "0";
