@@ -20,7 +20,6 @@ export type OperarioRow = {
 
 export type Operario = { id?: string; nombre: string; code: string; color: string };
 
-/** Fondos más opacos para que la letra se lea en dark mode. */
 export const COLOR_PALETTE = [
   "bg-teal-600 text-white border-teal-400",
   "bg-sky-600 text-white border-sky-400",
@@ -155,27 +154,50 @@ export function weekdayLetter(d: Date) {
   return (["D", "L", "M", "X", "J", "V", "S"] as const)[d.getDay()];
 }
 
+/** Fecha/hora local sin convertir a UTC (evita desfasaje AR). */
+function localDT(day: Date, hours: number, minutes = 0) {
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes, 0, 0);
+}
+
+/** Parsea timestamps de DB (con o sin Z) siempre como reloj local. */
+export function parseLocal(iso: string): Date | null {
+  const s = String(iso ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    return new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      m[6] ? Number(m[6]) : 0,
+      0,
+    );
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Serializa noche sin sufijo Z para que Postgres y el cliente usen el mismo reloj. */
 export function nightStartIso(day: Date) {
-  const d = startOfDay(day);
-  d.setHours(20, 0, 0, 0);
-  return d.toISOString();
+  const d = localDT(day, 20, 0);
+  return format(d, "yyyy-MM-dd'T'HH:mm:ss");
 }
 
 export function nightEndIso(day: Date) {
-  const d = startOfDay(addDays(day, 1));
-  d.setHours(8, 0, 0, 0);
-  return d.toISOString();
+  const d = localDT(addDays(day, 1), 8, 0);
+  return format(d, "yyyy-MM-dd'T'HH:mm:ss");
 }
 
-/** True si el tramo de guardia cubre la noche de `day` (20:00→08:00). */
+/** True si el tramo cubre la noche de `day` (20:00 → 08:00 local). */
 export function coversNight(g: Guardia, day: Date) {
-  const ns = new Date(nightStartIso(day)).getTime();
-  const ne = new Date(nightEndIso(day)).getTime();
-  const gs = new Date(g.desde).getTime();
-  const ge = new Date(g.hasta).getTime();
-  if (Number.isNaN(gs) || Number.isNaN(ge) || Number.isNaN(ns) || Number.isNaN(ne)) return false;
-  // Solapamiento de intervalos [gs, ge) ∩ [ns, ne)
-  return gs < ne && ge > ns;
+  const gs = parseLocal(g.desde);
+  const ge = parseLocal(g.hasta);
+  if (!gs || !ge) return false;
+  const ns = localDT(day, 20, 0);
+  const ne = localDT(addDays(day, 1), 8, 0);
+  return gs.getTime() < ne.getTime() && ge.getTime() > ns.getTime();
 }
 
 export function isVacacion(g: Guardia) {
@@ -183,10 +205,10 @@ export function isVacacion(g: Guardia) {
 }
 
 export async function removeNightFromGuardia(g: Guardia, day: Date) {
-  const nightStart = new Date(nightStartIso(day)).getTime();
-  const nightEnd = new Date(nightEndIso(day)).getTime();
-  const gStart = new Date(g.desde).getTime();
-  const gEnd = new Date(g.hasta).getTime();
+  const nightStart = localDT(day, 20, 0).getTime();
+  const nightEnd = localDT(addDays(day, 1), 8, 0).getTime();
+  const gStart = parseLocal(g.desde)?.getTime() ?? 0;
+  const gEnd = parseLocal(g.hasta)?.getTime() ?? 0;
 
   if (gStart >= nightStart - 60_000 && gEnd <= nightEnd + 60_000) {
     const { error } = await api.from("guardias").delete().eq("id", g.id);
