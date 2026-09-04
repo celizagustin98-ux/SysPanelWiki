@@ -74,10 +74,11 @@ const FERIADOS_EXTRA = new Set([
   "2027-03-30",
 ]);
 
+/** Normaliza nombre sin depender de Unicode property escapes (\\p{M}). */
 export function normalizeName(s: string) {
   return s
     .normalize("NFD")
-    .replace(/\p{M}/gu, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
     .replace(/\s+/g, " ")
     .trim();
