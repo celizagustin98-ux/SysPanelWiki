@@ -13,12 +13,12 @@ import {
   Ticket,
   UserRound,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppShell";
-import { isVacacion, parseLocal } from "@/components/guardias/domain";
+import { coversNight, isVacacion, parseLocal } from "@/components/guardias/domain";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -65,7 +65,7 @@ type GuardiaEstado = {
   operador_nombre: string;
   desde: string;
   hasta: string;
-  modo: "activa" | "proxima" | "ultima";
+  modo: "activa" | "hoy" | "proxima";
 };
 
 function hoyLabel() {
@@ -112,6 +112,7 @@ async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }
   }
 }
 
+/** Resuelve quién mostrar según datos reales de la planilla (sin asumir franja horaria). */
 function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEstado | null {
   const parsed = rows
     .map((g) => {
@@ -125,6 +126,7 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
 
   if (parsed.length === 0) return null;
 
+  // 1) Turno cuyo rango incluye este momento
   const activa = parsed.find((g) => g.s <= now && g.e >= now);
   if (activa) {
     return {
@@ -135,6 +137,19 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
     };
   }
 
+  // 2) Asignado en la planilla para el día de hoy (misma lógica que la grilla)
+  const hoy = startOfDay(now);
+  const deHoy = parsed.find((g) => coversNight(g, hoy));
+  if (deHoy) {
+    return {
+      operador_nombre: deHoy.operador_nombre,
+      desde: deHoy.desde,
+      hasta: deHoy.hasta,
+      modo: "hoy",
+    };
+  }
+
+  // 3) Próximo tramo cargado
   const proximas = parsed.filter((g) => g.s > now).sort((a, b) => a.s.getTime() - b.s.getTime());
   if (proximas[0]) {
     return {
@@ -142,16 +157,6 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
       desde: proximas[0].desde,
       hasta: proximas[0].hasta,
       modo: "proxima",
-    };
-  }
-
-  const pasadas = parsed.filter((g) => g.e < now).sort((a, b) => b.e.getTime() - a.e.getTime());
-  if (pasadas[0]) {
-    return {
-      operador_nombre: pasadas[0].operador_nombre,
-      desde: pasadas[0].desde,
-      hasta: pasadas[0].hasta,
-      modo: "ultima",
     };
   }
 
@@ -190,13 +195,12 @@ function Dashboard() {
             error: unknown;
           }>,
         ),
-        // Traemos tramos recientes/próximos y resolvemos en cliente (hora local AR)
         safeList<GuardiaLite>(
           api
             .from("guardias")
             .select("id, operador_nombre, desde, hasta, notas")
             .order("desde")
-            .limit(80) as Promise<{ data: GuardiaLite[] | null; error: unknown }>,
+            .limit(120) as Promise<{ data: GuardiaLite[] | null; error: unknown }>,
         ),
         safeList<TareaLite>(
           api
@@ -242,7 +246,6 @@ function Dashboard() {
   const urgentes = data?.urgentes ?? 0;
   const vencidas = data?.vencidas ?? 0;
   const abiertas = data?.abiertas ?? 0;
-  const sinGuardiaActiva = !isLoading && data?.guardia?.modo !== "activa";
 
   type AlertItem = { key: string; text: string; to: string; tone: "danger" | "warn" };
   const alerts: AlertItem[] = [];
@@ -270,7 +273,7 @@ function Dashboard() {
       tone: "warn",
     });
   }
-  if (sinGuardiaActiva && !data?.guardia) {
+  if (!isLoading && !data?.guardia) {
     alerts.push({
       key: "guardia",
       text: "Sin cobertura de guardia cargada",
@@ -364,17 +367,17 @@ function Dashboard() {
                 <p className="text-xs text-muted-foreground">{fmtRango(guardia.desde, guardia.hasta)}</p>
                 {guardia.modo === "activa" && (
                   <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs text-primary">
-                    <CheckCircle2 className="size-3.5" /> En turno ahora
+                    <CheckCircle2 className="size-3.5" /> En turno
+                  </div>
+                )}
+                {guardia.modo === "hoy" && (
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300">
+                    <CalendarClock className="size-3.5" /> Asignado hoy
                   </div>
                 )}
                 {guardia.modo === "proxima" && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300">
-                    <Clock3 className="size-3.5" /> Próxima guardia
-                  </div>
-                )}
-                {guardia.modo === "ultima" && (
                   <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-                    <Clock3 className="size-3.5" /> Última guardia cargada
+                    <Clock3 className="size-3.5" /> Próximo turno
                   </div>
                 )}
                 <Button asChild size="sm" variant="outline" className="mt-1">
@@ -383,9 +386,7 @@ function Dashboard() {
               </div>
             ) : (
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  No hay turnos de guardia cargados.
-                </p>
+                <p className="text-sm text-muted-foreground">No hay turnos cargados en la planilla.</p>
                 <Button asChild size="sm" variant="outline">
                   <Link to="/guardias">Cargar en planilla</Link>
                 </Button>
