@@ -6,9 +6,7 @@
 
 /*
  * Design system — SysIntranet
- *
- * @theme inline maps CSS custom properties to Tailwind utilities.
- * :root / .dark hold OKLCH values. Prefer semantic tokens over raw colors.
+ * Tokens OKLCH + utilidades de panel, empty-state y jerarquía visual.
  */
 
 @theme inline {
@@ -63,9 +61,8 @@
 }
 
 :root {
-  --radius: 0.75rem;
+  --radius: 0.8rem;
 
-  /* Surfaces — cooler slate with clearer hierarchy */
   --background: oklch(0.975 0.008 245);
   --foreground: oklch(0.2 0.028 255);
   --card: oklch(0.995 0.004 245);
@@ -73,7 +70,6 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0.028 255);
 
-  /* Brand — teal/cyan with stronger presence */
   --primary: oklch(0.55 0.14 195);
   --primary-foreground: oklch(0.99 0.01 195);
   --secondary: oklch(0.945 0.012 245);
@@ -94,20 +90,20 @@
   --chart-4: oklch(0.58 0.2 25);
   --chart-5: oklch(0.55 0.15 285);
 
-  --sidebar: oklch(0.98 0.006 245);
+  --sidebar: oklch(0.985 0.006 245);
   --sidebar-foreground: oklch(0.2 0.028 255);
   --sidebar-primary: oklch(0.55 0.14 195);
   --sidebar-primary-foreground: oklch(0.99 0.01 195);
-  --sidebar-accent: oklch(0.935 0.015 245);
+  --sidebar-accent: oklch(0.94 0.015 245);
   --sidebar-accent-foreground: oklch(0.22 0.03 255);
   --sidebar-border: oklch(0.88 0.012 245);
   --sidebar-ring: oklch(0.55 0.14 195);
 
   --surface-glow: radial-gradient(
-    1000px circle at 12% -8%,
-    color-mix(in oklab, var(--primary) 14%, transparent),
-    transparent 55%
-  ),
+      1000px circle at 12% -8%,
+      color-mix(in oklab, var(--primary) 14%, transparent),
+      transparent 55%
+    ),
     radial-gradient(
       800px circle at 92% 8%,
       color-mix(in oklab, var(--primary) 6%, transparent),
@@ -122,11 +118,11 @@
 }
 
 .dark {
-  --background: oklch(0.155 0.022 255);
+  --background: oklch(0.15 0.022 255);
   --foreground: oklch(0.96 0.006 240);
-  --card: oklch(0.2 0.024 255);
+  --card: oklch(0.195 0.024 255);
   --card-foreground: oklch(0.96 0.006 240);
-  --popover: oklch(0.205 0.024 255);
+  --popover: oklch(0.2 0.024 255);
   --popover-foreground: oklch(0.96 0.006 240);
 
   --primary: oklch(0.76 0.13 190);
@@ -149,20 +145,20 @@
   --chart-4: oklch(0.68 0.18 22);
   --chart-5: oklch(0.68 0.15 290);
 
-  --sidebar: oklch(0.175 0.022 255);
+  --sidebar: oklch(0.17 0.022 255);
   --sidebar-foreground: oklch(0.94 0.006 240);
   --sidebar-primary: oklch(0.76 0.13 190);
   --sidebar-primary-foreground: oklch(0.16 0.03 240);
-  --sidebar-accent: oklch(0.24 0.025 255);
+  --sidebar-accent: oklch(0.235 0.025 255);
   --sidebar-accent-foreground: oklch(0.95 0.006 240);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.76 0.13 190);
 
   --surface-glow: radial-gradient(
-    900px circle at 10% -12%,
-    color-mix(in oklab, var(--primary) 10%, transparent),
-    transparent 55%
-  ),
+      900px circle at 10% -12%,
+      color-mix(in oklab, var(--primary) 11%, transparent),
+      transparent 55%
+    ),
     radial-gradient(
       700px circle at 95% 0%,
       color-mix(in oklab, var(--primary) 5%, transparent),
@@ -224,17 +220,19 @@
     width: 100%;
   }
 
-  /* Stronger default focus for accessibility */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
 
-  /* Prefer component-level rings when present */
   button:focus-visible,
   a:focus-visible,
   [role="button"]:focus-visible {
     outline: none;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
   }
 }
 
@@ -257,18 +255,58 @@
     max-width: 100%;
     overflow-x: hidden;
   }
+
+  .empty-state {
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    border-style: dashed;
+  }
+
+  .stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--card) 80%, transparent);
+    padding: 0.2rem 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 550;
+    color: var(--color-muted-foreground);
+  }
+
+  .soft-divider {
+    height: 1px;
+    width: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--color-border) 90%, transparent),
+      transparent
+    );
+  }
 }
 
 @utility panel {
   border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
-  background: color-mix(in oklab, var(--card) 92%, transparent);
+  background: color-mix(in oklab, var(--card) 94%, transparent);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(10px);
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease,
-    background-color 0.18s ease;
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+@utility panel-hover {
+  &:hover {
+    border-color: color-mix(in oklab, var(--primary) 28%, var(--color-border));
+    box-shadow: var(--shadow-md);
+  }
 }
 
 @utility rise-in {
@@ -286,7 +324,6 @@
   }
 }
 
-/* Wiki / rich content */
 .wiki-content h1 {
   font-size: 1.65rem;
   font-weight: 700;
