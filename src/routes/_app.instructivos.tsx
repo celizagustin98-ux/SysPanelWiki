@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -8,13 +8,11 @@ import {
   FileText,
   Files,
   Folder,
-  FolderPlus,
   Eye,
   LibraryBig,
   Loader2,
   MoreHorizontal,
   Paperclip,
-  Plus,
   Save,
   Search,
   Trash2,
@@ -36,15 +34,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -52,13 +41,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
@@ -387,7 +369,7 @@ function InstructivosPage() {
     };
   }, [pdfActivo?.id]);
 
-  const renderTree = (parent: string | null, depth = 0): React.ReactNode => (
+  const renderTree = (parent: string | null, depth = 0): ReactNode => (
     <div className={cn("space-y-0.5", depth > 0 && "ml-2 border-l border-border/40 pl-2")}>
       {(childFolders.get(parent) ?? []).map((c) => {
         const open = expanded[c.id] ?? depth === 0;
