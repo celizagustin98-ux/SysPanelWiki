@@ -52,25 +52,49 @@ type AuthCtx = {
   signOut: () => Promise<void>;
 };
 
-
 const Ctx = createContext<AuthCtx | null>(null);
 
 function traducirError(msg: string): string {
   const m = msg.toLowerCase();
-  if (m.includes("invalid login credentials"))
-    return "Correo o contraseña incorrectos. Si nunca definiste la contraseña, usá «¿Olvidaste tu contraseña?».";
+  if (
+    m.includes("password authentication failed") ||
+    m.includes("authentification par mot de passe") ||
+    (m.includes("authentication failed") && m.includes("syswiki"))
+  ) {
+    return "La aplicacion no puede conectar a PostgreSQL (usuario syswiki). Revisá DATABASE_URL en el servidor: la clave del usuario de base no coincide.";
+  }
+  if (
+    m.includes("econnrefused") ||
+    m.includes("connection refused") ||
+    m.includes("could not connect") ||
+    m.includes("connect econnrefused")
+  ) {
+    return "No hay conexion con PostgreSQL. Verificá que el servicio este activo y que DATABASE_URL apunte al host/puerto correctos.";
+  }
+  if (m.includes("does not exist") && (m.includes("database") || m.includes("relation") || m.includes("role"))) {
+    return "Falta la base o las tablas. En el servidor ejecuta: npm run db:init";
+  }
+  if (m.includes("invalid login credentials") || m.includes("usuario o contrasena incorrectos"))
+    return "Usuario o contraseña incorrectos.";
   if (m.includes("email not confirmed"))
     return "Tu correo todavía no fue confirmado. Revisá tu bandeja de entrada.";
   if (m.includes("known to be weak") || m.includes("pwned"))
     return "Esa contraseña es demasiado común e insegura. Elegí una más fuerte (mayúsculas, números y símbolos).";
-  if (m.includes("password should be at least") || m.includes("at least 6"))
-    return "La contraseña debe tener al menos 6 caracteres.";
-  if (m.includes("user already registered") || m.includes("already been registered"))
-    return "Ese correo ya está registrado. Ingresá con tu contraseña o restablecela.";
+  if (m.includes("password should be at least") || m.includes("at least 6") || m.includes("al menos 8"))
+    return "La contraseña debe tener al menos 8 caracteres.";
+  if (
+    m.includes("user already registered") ||
+    m.includes("already been registered") ||
+    m.includes("ya está registrado") ||
+    m.includes("ya esta registrado")
+  )
+    return "Ese usuario o correo ya está registrado. Ingresá con tu contraseña.";
+  if (m.includes("registro público") || m.includes("registro publico") || m.includes("allow_public_signup"))
+    return "El registro público está deshabilitado. Pedile a un administrador que cree tu usuario.";
   if (m.includes("rate limit") || m.includes("too many"))
     return "Demasiados intentos. Esperá unos minutos y volvé a intentar.";
-  if (m.includes("database error"))
-    return "Error del servidor al crear la cuenta. Volvé a intentar en unos segundos.";
+  if (m.includes("database error") || m.includes("error: 28p01"))
+    return "Error de base de datos al crear la cuenta. Revisá DATABASE_URL y que PostgreSQL acepte al usuario syswiki.";
   return msg;
 }
 
