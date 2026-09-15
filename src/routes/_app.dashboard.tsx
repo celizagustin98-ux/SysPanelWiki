@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowRight,
   BookOpen,
   Boxes,
   CalendarClock,
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Dashboard | SysPanelWiki" },
+      { title: "Dashboard | SysIntranet" },
       {
         name: "description",
         content: "Alertas operativas, guardia del día y cola de trabajo.",
@@ -112,7 +113,6 @@ async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }
   }
 }
 
-/** Resuelve quién mostrar según datos reales de la planilla (sin asumir franja horaria). */
 function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEstado | null {
   const parsed = rows
     .map((g) => {
@@ -126,7 +126,6 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
 
   if (parsed.length === 0) return null;
 
-  // 1) Turno cuyo rango incluye este momento
   const activa = parsed.find((g) => g.s <= now && g.e >= now);
   if (activa) {
     return {
@@ -137,7 +136,6 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
     };
   }
 
-  // 2) Asignado en la planilla para el día de hoy (misma lógica que la grilla)
   const hoy = startOfDay(now);
   const deHoy = parsed.find((g) => coversNight(g, hoy));
   if (deHoy) {
@@ -149,7 +147,6 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
     };
   }
 
-  // 3) Próximo tramo cargado
   const proximas = parsed.filter((g) => g.s > now).sort((a, b) => a.s.getTime() - b.s.getTime());
   if (proximas[0]) {
     return {
@@ -321,32 +318,75 @@ function Dashboard() {
   const guardia = data?.guardia ?? null;
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader title={`Hola, ${nombre}`} description={fecha} />
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        {kpis.map((k) => (
+          <Link key={k.label} to={k.to} className="group block">
+            <Card
+              className={cn(
+                "h-full border-border/80 bg-card/90 shadow-sm transition-all duration-150",
+                "hover:border-primary/35 hover:shadow-md",
+                k.alert && "border-destructive/40 bg-destructive/[0.04]",
+              )}
+            >
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                    {k.label}
+                  </p>
+                  <span
+                    className={cn(
+                      "grid size-8 place-items-center rounded-lg border",
+                      k.alert
+                        ? "border-destructive/25 bg-destructive/10 text-destructive"
+                        : "border-border bg-muted/50 text-muted-foreground group-hover:border-primary/30 group-hover:text-primary",
+                    )}
+                  >
+                    <k.icon className="size-4" />
+                  </span>
+                </div>
+                <p
+                  className={cn(
+                    "mt-3 text-3xl font-semibold tabular-nums tracking-tight sm:text-[2rem]",
+                    k.alert && "text-destructive",
+                  )}
+                >
+                  {isLoading ? "—" : k.value}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{k.detail}</p>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
       {isLoading ? (
-        <div className="h-10 animate-pulse rounded-lg bg-muted/40" />
+        <div className="h-11 animate-pulse rounded-xl bg-muted/40" />
       ) : alerts.length > 0 ? (
-        <div className="flex flex-col gap-2">
+        <div className="grid gap-2">
           {alerts.map((a) => (
             <Link
               key={a.key}
               to={a.to}
               className={cn(
-                "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:bg-accent/40",
+                "flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm transition-colors",
                 a.tone === "danger"
-                  ? "border-destructive/35 bg-destructive/8 text-destructive"
-                  : "border-amber-500/35 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+                  ? "border-destructive/30 bg-destructive/[0.07] text-destructive hover:bg-destructive/12"
+                  : "border-amber-500/30 bg-amber-500/[0.08] text-amber-900 hover:bg-amber-500/15 dark:text-amber-200",
               )}
             >
               <AlertTriangle className="size-4 shrink-0" />
               <span className="min-w-0 flex-1 font-medium">{a.text}</span>
-              <span className="text-xs opacity-80">Ver →</span>
+              <span className="inline-flex items-center gap-1 text-xs opacity-80">
+                Ver <ArrowRight className="size-3.5" />
+              </span>
             </Link>
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-muted/25 px-3.5 py-2.5 text-sm text-muted-foreground">
           <CheckCircle2 className="size-4 text-primary" />
           Sin alertas operativas
           {isFetching && <span className="ml-auto text-[11px]">Actualizando…</span>}
@@ -354,24 +394,31 @@ function Dashboard() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="panel">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              <UserRound className="size-4 text-primary" /> Guardia ahora
+        <Card className="border-border/80 bg-card/90 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
+                <UserRound className="size-3.5" />
+              </span>
+              Guardia ahora
             </CardTitle>
           </CardHeader>
           <CardContent>
             {guardia ? (
-              <div className="space-y-2">
-                <p className="text-lg font-semibold">{guardia.operador_nombre}</p>
-                <p className="text-xs text-muted-foreground">{fmtRango(guardia.desde, guardia.hasta)}</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-lg font-semibold tracking-tight">{guardia.operador_nombre}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {fmtRango(guardia.desde, guardia.hasta)}
+                  </p>
+                </div>
                 {guardia.modo === "activa" && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs text-primary">
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
                     <CheckCircle2 className="size-3.5" /> En turno
                   </div>
                 )}
                 {guardia.modo === "hoy" && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300">
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-700 dark:text-sky-300">
                     <CalendarClock className="size-3.5" /> Asignado hoy
                   </div>
                 )}
@@ -380,14 +427,14 @@ function Dashboard() {
                     <Clock3 className="size-3.5" /> Próximo turno
                   </div>
                 )}
-                <Button asChild size="sm" variant="outline" className="mt-1">
+                <Button asChild size="sm" variant="outline" className="mt-1 h-8">
                   <Link to="/guardias">Abrir planilla</Link>
                 </Button>
               </div>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">No hay turnos cargados en la planilla.</p>
-                <Button asChild size="sm" variant="outline">
+                <Button asChild size="sm" variant="outline" className="h-8">
                   <Link to="/guardias">Cargar en planilla</Link>
                 </Button>
               </div>
@@ -395,20 +442,23 @@ function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="panel">
-          <CardHeader className="pb-2">
+        <Card className="border-border/80 bg-card/90 shadow-sm">
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                <Clock3 className="size-4 text-primary" /> Para vos
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
+                  <Clock3 className="size-3.5" />
+                </span>
+                Para vos
               </CardTitle>
               <Link to="/tareas" className="text-xs font-medium text-primary hover:underline">
                 Ver todas
               </Link>
             </div>
           </CardHeader>
-          <CardContent className="space-y-1">
+          <CardContent className="space-y-0.5">
             {(data?.misTareas ?? []).length === 0 && (
-              <p className="py-4 text-center text-sm text-muted-foreground">
+              <p className="py-6 text-center text-sm text-muted-foreground">
                 No tenés ítems asignados
               </p>
             )}
@@ -416,12 +466,12 @@ function Dashboard() {
               <Link
                 key={t.id}
                 to="/tareas"
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+                className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted/60"
               >
-                <span className="min-w-0 flex-1 truncate">{t.titulo}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{t.titulo}</span>
                 <span
                   className={cn(
-                    "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                    "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize",
                     prioridadTone(t.prioridad),
                   )}
                 >
@@ -432,31 +482,34 @@ function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="panel">
-          <CardHeader className="pb-2">
+        <Card className="border-border/80 bg-card/90 shadow-sm">
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                <ClipboardList className="size-4 text-primary" /> Cola del área
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
+                  <ClipboardList className="size-3.5" />
+                </span>
+                Cola del área
               </CardTitle>
               <Link to="/tareas" className="text-xs font-medium text-primary hover:underline">
                 Abrir cola
               </Link>
             </div>
           </CardHeader>
-          <CardContent className="space-y-1">
+          <CardContent className="space-y-0.5">
             {(data?.colaArea ?? []).length === 0 && (
-              <p className="py-4 text-center text-sm text-muted-foreground">Cola vacía</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">Cola vacía</p>
             )}
             {(data?.colaArea ?? []).map((t) => (
               <Link
                 key={t.id}
                 to="/tareas"
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+                className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted/60"
               >
-                <span className="min-w-0 flex-1 truncate">{t.titulo}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{t.titulo}</span>
                 <span
                   className={cn(
-                    "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                    "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize",
                     prioridadTone(t.prioridad),
                   )}
                 >
@@ -468,46 +521,19 @@ function Dashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {kpis.map((k) => (
-          <Link key={k.label} to={k.to}>
-            <Card
-              className={cn(
-                "panel h-full transition-colors hover:border-primary/40",
-                k.alert && "border-destructive/35",
-              )}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {k.label}
-                  </p>
-                  <k.icon
-                    className={cn("size-4", k.alert ? "text-destructive" : "text-muted-foreground")}
-                  />
-                </div>
-                <p
-                  className={cn(
-                    "mt-2 text-3xl font-semibold tabular-nums",
-                    k.alert && "text-destructive",
-                  )}
-                >
-                  {isLoading ? "—" : k.value}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{k.detail}</p>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
       <div>
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           Accesos rápidos
         </p>
         <div className="flex flex-wrap gap-2">
           {atajos.map((a) => (
-            <Button key={a.to} asChild size="sm" variant="secondary" className="h-8">
+            <Button
+              key={a.to}
+              asChild
+              size="sm"
+              variant="secondary"
+              className="h-9 rounded-lg border border-border/60 bg-card/80 shadow-xs hover:border-primary/30 hover:bg-accent/60"
+            >
               <Link to={a.to}>
                 <a.icon className="size-3.5" />
                 {a.label}
