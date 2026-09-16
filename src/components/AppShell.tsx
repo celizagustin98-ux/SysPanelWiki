@@ -52,14 +52,13 @@ const GROUP_LABEL: Record<NavItem["group"], string> = {
 
 function BrandMark({ collapsed }: { collapsed?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5 min-w-0">
-      <div className="relative grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
-        <span className="font-mono text-[10px] font-bold tracking-tighter">SI</span>
-        <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-emerald-400 ring-2 ring-sidebar" />
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
+        <span className="text-[11px] font-bold tracking-tight">SI</span>
       </div>
       <div className={cn("min-w-0", collapsed && "hidden")}>
-        <p className="truncate text-[13px] font-semibold tracking-tight text-sidebar-foreground">SysIntranet</p>
-        <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-sidebar-foreground/45">ops panel</p>
+        <p className="truncate text-[14px] font-semibold tracking-tight text-sidebar-foreground">SysIntranet</p>
+        <p className="truncate text-[11px] text-sidebar-foreground/45">Área sistemas</p>
       </div>
     </div>
   );
@@ -95,42 +94,42 @@ export function AppShell() {
     <div className="flex min-h-screen w-full bg-background">
       <aside
         className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
-          sidebarCollapsed ? "w-[64px]" : "w-[232px]",
+          "sticky top-0 hidden h-screen shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+          sidebarCollapsed ? "w-[72px]" : "w-[240px]",
         )}
       >
-        <div className={cn("flex items-center gap-2 border-b border-sidebar-border px-3 py-3.5", sidebarCollapsed && "justify-center px-2")}>
+        <div className={cn("flex items-center gap-2 px-4 pb-2 pt-5", sidebarCollapsed && "justify-center px-2")}>
           <BrandMark collapsed={sidebarCollapsed} />
           {!sidebarCollapsed && (
             <Button
               size="icon"
               variant="ghost"
-              className="ml-auto size-7 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              title="Contraer menú"
+              className="ml-auto size-8 rounded-full text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title="Contraer"
               onClick={() => setSidebarCollapsed(true)}
             >
-              <PanelLeftClose className="size-3.5" />
+              <PanelLeftClose className="size-4" />
             </Button>
           )}
           {sidebarCollapsed && (
             <Button
               size="icon"
               variant="ghost"
-              className="size-7 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              title="Expandir menú"
+              className="size-8 rounded-full text-sidebar-foreground/40 hover:bg-sidebar-accent"
+              title="Expandir"
               onClick={() => setSidebarCollapsed(false)}
             >
-              <PanelLeftOpen className="size-3.5" />
+              <PanelLeftOpen className="size-4" />
             </Button>
           )}
         </div>
 
-        <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-3">
+        <nav className="mt-4 flex flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3">
           {groups.map(({ group, items }) => (
-            <div key={group} className="flex flex-col gap-0.5">
+            <div key={group} className="flex flex-col gap-1">
               <p
                 className={cn(
-                  "mb-1 px-2 font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/35",
+                  "mb-1 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/30",
                   sidebarCollapsed && "sr-only",
                 )}
               >
@@ -145,16 +144,13 @@ export function AppShell() {
                     className={cn(
                       "ops-nav-item",
                       active
-                        ? "bg-sidebar-accent text-sidebar-primary"
-                        : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
+                        ? "bg-primary/20 text-primary"
+                        : "text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground",
                       sidebarCollapsed && "justify-center px-2",
                     )}
                     title={sidebarCollapsed ? item.label : undefined}
                   >
-                    {active && (
-                      <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r-full bg-primary" />
-                    )}
-                    <item.icon className={cn("size-4 shrink-0", active ? "text-primary" : "opacity-80")} />
+                    <item.icon className={cn("size-[18px] shrink-0", active && "text-primary")} />
                     <span className={cn(sidebarCollapsed && "sr-only")}>{item.label}</span>
                   </Link>
                 );
@@ -163,14 +159,19 @@ export function AppShell() {
           ))}
         </nav>
 
-        <div className={cn("border-t border-sidebar-border p-2", sidebarCollapsed && "px-1.5")}>
-          <div className={cn("mb-2 flex items-center gap-2 rounded-md px-1.5 py-1.5", sidebarCollapsed && "justify-center")}>
-            <div className="grid size-7 shrink-0 place-items-center rounded-md bg-sidebar-accent font-mono text-[10px] font-semibold text-sidebar-foreground">
+        <div className={cn("mt-auto border-t border-sidebar-border/80 p-3", sidebarCollapsed && "px-2")}>
+          <div
+            className={cn(
+              "mb-2 flex items-center gap-2.5 rounded-2xl bg-sidebar-accent/50 px-2.5 py-2",
+              sidebarCollapsed && "justify-center px-1",
+            )}
+          >
+            <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-semibold text-primary">
               {initials || "?"}
             </div>
             <div className={cn("min-w-0 flex-1", sidebarCollapsed && "hidden")}>
-              <p className="truncate text-[12px] font-medium tracking-tight">{profile?.full_name || user?.email}</p>
-              <p className="font-mono text-[9px] uppercase tracking-wider text-sidebar-foreground/45">{role ?? "—"}</p>
+              <p className="truncate text-[13px] font-medium">{profile?.full_name || user?.email}</p>
+              <p className="truncate text-[11px] capitalize text-sidebar-foreground/40">{role ?? "—"}</p>
             </div>
           </div>
           <div className={cn("grid gap-0.5", sidebarCollapsed && "justify-items-center")}>
@@ -178,13 +179,13 @@ export function AppShell() {
               size={sidebarCollapsed ? "icon" : "sm"}
               variant="ghost"
               className={cn(
-                "h-7 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                !sidebarCollapsed && "w-full justify-start px-2 text-[12px]",
+                "h-8 rounded-xl text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                !sidebarCollapsed && "w-full justify-start px-2.5 text-[12px]",
               )}
               title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
               onClick={toggle}
             >
-              {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
               <span className={cn("ml-2", sidebarCollapsed && "sr-only")}>
                 {theme === "dark" ? "Modo claro" : "Modo oscuro"}
               </span>
@@ -193,13 +194,13 @@ export function AppShell() {
               size={sidebarCollapsed ? "icon" : "sm"}
               variant="ghost"
               className={cn(
-                "h-7 text-red-400/80 hover:bg-red-500/10 hover:text-red-300",
-                !sidebarCollapsed && "w-full justify-start px-2 text-[12px]",
+                "h-8 rounded-xl text-red-400/70 hover:bg-red-500/10 hover:text-red-300",
+                !sidebarCollapsed && "w-full justify-start px-2.5 text-[12px]",
               )}
               title="Cerrar sesión"
               onClick={handleSignOut}
             >
-              <LogOut className="size-3.5" />
+              <LogOut className="size-4" />
               <span className={cn("ml-2", sidebarCollapsed && "sr-only")}>Salir</span>
             </Button>
           </div>
@@ -207,27 +208,22 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-border bg-card/80 backdrop-blur-sm md:hidden">
+        <header className="border-b border-border/60 bg-card/70 backdrop-blur-md md:hidden">
           <div className="flex items-center justify-between gap-3 px-3 py-2.5">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
-                <span className="font-mono text-[10px] font-bold">SI</span>
+              <div className="grid size-8 place-items-center rounded-full bg-primary text-primary-foreground">
+                <span className="text-[10px] font-bold">SI</span>
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold tracking-tight">SysIntranet</p>
-                <p className="truncate font-mono text-[10px] text-muted-foreground">{profile?.full_name || user?.email}</p>
+                <p className="truncate text-sm font-semibold">SysIntranet</p>
+                <p className="truncate text-[11px] text-muted-foreground">{profile?.full_name || user?.email}</p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button size="icon" variant="ghost" className="size-8" onClick={toggle} title="Tema">
+              <Button size="icon" variant="ghost" className="size-8 rounded-full" onClick={toggle}>
                 {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8 text-destructive hover:bg-destructive/10"
-                onClick={handleSignOut}
-              >
+              <Button size="icon" variant="ghost" className="size-8 rounded-full text-destructive" onClick={handleSignOut}>
                 <LogOut className="size-4" />
               </Button>
             </div>
@@ -238,7 +234,7 @@ export function AppShell() {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                   pathname.startsWith(item.to)
                     ? "bg-primary/15 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -250,7 +246,7 @@ export function AppShell() {
           </nav>
         </header>
 
-        <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-7">
+        <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">
           <Outlet />
         </main>
       </div>
@@ -271,9 +267,9 @@ export function PageHeader({
 }) {
   const right = action ?? children;
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3 rise-in sm:mb-6">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rise-in">
       <div className="min-w-0 space-y-1">
-        <h1 className="text-[1.5rem] font-semibold tracking-tight sm:text-[1.65rem]">{title}</h1>
+        <h1 className="text-[1.55rem] font-semibold tracking-tight sm:text-[1.7rem]">{title}</h1>
         {description ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p>
         ) : null}
