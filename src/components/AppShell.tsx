@@ -18,7 +18,6 @@ import {
   Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useAuth, type Modulo } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -48,18 +47,20 @@ const NAV: NavItem[] = [
 const GROUP_LABEL: Record<NavItem["group"], string> = {
   principal: "Inicio",
   operacion: "Operación",
-  admin: "Administración",
+  admin: "Admin",
 };
 
-function BrandMark({ className }: { className?: string }) {
+function BrandMark({ collapsed }: { collapsed?: boolean }) {
   return (
-    <div
-      className={cn(
-        "grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/25",
-        className,
-      )}
-    >
-      <span className="text-[11px] font-bold tracking-tight">SI</span>
+    <div className="flex items-center gap-2.5 min-w-0">
+      <div className="relative grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
+        <span className="font-mono text-[10px] font-bold tracking-tighter">SI</span>
+        <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-emerald-400 ring-2 ring-sidebar" />
+      </div>
+      <div className={cn("min-w-0", collapsed && "hidden")}>
+        <p className="truncate text-[13px] font-semibold tracking-tight text-sidebar-foreground">SysIntranet</p>
+        <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-sidebar-foreground/45">ops panel</p>
+      </div>
     </div>
   );
 }
@@ -83,42 +84,53 @@ export function AppShell() {
     await navigate({ to: "/auth", replace: true });
   };
 
+  const initials = (profile?.full_name || user?.email || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+
   return (
     <div className="flex min-h-screen w-full bg-background">
       <aside
         className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex",
-          sidebarCollapsed ? "w-[72px]" : "w-[15.5rem]",
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+          sidebarCollapsed ? "w-[64px]" : "w-[232px]",
         )}
       >
-        <div className="flex items-center gap-2.5 px-3 pb-4 pt-4">
-          <BrandMark />
-          <div className={cn("min-w-0", sidebarCollapsed && "hidden")}>
-            <p className="text-sm font-semibold leading-tight tracking-tight">SysIntranet</p>
-            <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-              Panel operativo
-            </p>
-          </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            className={cn(
-              "ml-auto size-8 text-muted-foreground hover:text-foreground",
-              sidebarCollapsed && "mx-auto",
-            )}
-            title={sidebarCollapsed ? "Mostrar menú" : "Contraer menú"}
-            onClick={() => setSidebarCollapsed((value) => !value)}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-          </Button>
+        <div className={cn("flex items-center gap-2 border-b border-sidebar-border px-3 py-3.5", sidebarCollapsed && "justify-center px-2")}>
+          <BrandMark collapsed={sidebarCollapsed} />
+          {!sidebarCollapsed && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="ml-auto size-7 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title="Contraer menú"
+              onClick={() => setSidebarCollapsed(true)}
+            >
+              <PanelLeftClose className="size-3.5" />
+            </Button>
+          )}
+          {sidebarCollapsed && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title="Expandir menú"
+              onClick={() => setSidebarCollapsed(false)}
+            >
+              <PanelLeftOpen className="size-3.5" />
+            </Button>
+          )}
         </div>
 
-        <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-3">
+        <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-3">
           {groups.map(({ group, items }) => (
             <div key={group} className="flex flex-col gap-0.5">
               <p
                 className={cn(
-                  "mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70",
+                  "mb-1 px-2 font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/35",
                   sidebarCollapsed && "sr-only",
                 )}
               >
@@ -131,23 +143,18 @@ export function AppShell() {
                     key={item.to}
                     to={item.to}
                     className={cn(
-                      "relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors duration-150",
+                      "ops-nav-item",
                       active
                         ? "bg-sidebar-accent text-sidebar-primary"
-                        : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                        : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
                       sidebarCollapsed && "justify-center px-2",
                     )}
                     title={sidebarCollapsed ? item.label : undefined}
                   >
                     {active && (
-                      <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+                      <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r-full bg-primary" />
                     )}
-                    <item.icon
-                      className={cn(
-                        "size-4 shrink-0",
-                        active ? "text-primary" : "text-muted-foreground",
-                      )}
-                    />
+                    <item.icon className={cn("size-4 shrink-0", active ? "text-primary" : "opacity-80")} />
                     <span className={cn(sidebarCollapsed && "sr-only")}>{item.label}</span>
                   </Link>
                 );
@@ -156,30 +163,29 @@ export function AppShell() {
           ))}
         </nav>
 
-        <div
-          className={cn(
-            "mx-2 mb-3 rounded-xl border border-sidebar-border/80 bg-sidebar-accent/30 p-2.5",
-            sidebarCollapsed && "px-1.5",
-          )}
-        >
-          <div className={cn("mb-2 px-0.5", sidebarCollapsed && "hidden")}>
-            <p className="truncate text-[13px] font-medium tracking-tight">
-              {profile?.full_name || user?.email}
-            </p>
-            <Badge variant="secondary" className="mt-1.5 h-5 px-1.5 text-[10px] capitalize">
-              {role ?? "—"}
-            </Badge>
+        <div className={cn("border-t border-sidebar-border p-2", sidebarCollapsed && "px-1.5")}>
+          <div className={cn("mb-2 flex items-center gap-2 rounded-md px-1.5 py-1.5", sidebarCollapsed && "justify-center")}>
+            <div className="grid size-7 shrink-0 place-items-center rounded-md bg-sidebar-accent font-mono text-[10px] font-semibold text-sidebar-foreground">
+              {initials || "?"}
+            </div>
+            <div className={cn("min-w-0 flex-1", sidebarCollapsed && "hidden")}>
+              <p className="truncate text-[12px] font-medium tracking-tight">{profile?.full_name || user?.email}</p>
+              <p className="font-mono text-[9px] uppercase tracking-wider text-sidebar-foreground/45">{role ?? "—"}</p>
+            </div>
           </div>
-          <div className="grid gap-1">
+          <div className={cn("grid gap-0.5", sidebarCollapsed && "justify-items-center")}>
             <Button
               size={sidebarCollapsed ? "icon" : "sm"}
               variant="ghost"
-              className={cn("h-8", !sidebarCollapsed && "justify-start px-2")}
+              className={cn(
+                "h-7 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                !sidebarCollapsed && "w-full justify-start px-2 text-[12px]",
+              )}
               title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
               onClick={toggle}
             >
-              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-              <span className={cn("ml-2 text-[13px]", sidebarCollapsed && "sr-only")}>
+              {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+              <span className={cn("ml-2", sidebarCollapsed && "sr-only")}>
                 {theme === "dark" ? "Modo claro" : "Modo oscuro"}
               </span>
             </Button>
@@ -187,31 +193,29 @@ export function AppShell() {
               size={sidebarCollapsed ? "icon" : "sm"}
               variant="ghost"
               className={cn(
-                "h-8 text-destructive hover:bg-destructive/10 hover:text-destructive",
-                !sidebarCollapsed && "justify-start px-2",
+                "h-7 text-red-400/80 hover:bg-red-500/10 hover:text-red-300",
+                !sidebarCollapsed && "w-full justify-start px-2 text-[12px]",
               )}
               title="Cerrar sesión"
               onClick={handleSignOut}
             >
-              <LogOut className="size-4" />
-              <span className={cn("ml-2 text-[13px]", sidebarCollapsed && "sr-only")}>
-                Cerrar sesión
-              </span>
+              <LogOut className="size-3.5" />
+              <span className={cn("ml-2", sidebarCollapsed && "sr-only")}>Salir</span>
             </Button>
           </div>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-border bg-background/90 backdrop-blur-md md:hidden">
+        <header className="border-b border-border bg-card/80 backdrop-blur-sm md:hidden">
           <div className="flex items-center justify-between gap-3 px-3 py-2.5">
             <div className="flex min-w-0 items-center gap-2.5">
-              <BrandMark className="size-8 rounded-lg" />
+              <div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
+                <span className="font-mono text-[10px] font-bold">SI</span>
+              </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold tracking-tight">SysIntranet</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {profile?.full_name || user?.email}
-                </p>
+                <p className="truncate font-mono text-[10px] text-muted-foreground">{profile?.full_name || user?.email}</p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -246,7 +250,7 @@ export function AppShell() {
           </nav>
         </header>
 
-        <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">
+        <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-7">
           <Outlet />
         </main>
       </div>
@@ -269,7 +273,7 @@ export function PageHeader({
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3 rise-in sm:mb-6">
       <div className="min-w-0 space-y-1">
-        <h1 className="text-[1.65rem] font-semibold tracking-tight sm:text-[1.75rem]">{title}</h1>
+        <h1 className="text-[1.5rem] font-semibold tracking-tight sm:text-[1.65rem]">{title}</h1>
         {description ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p>
         ) : null}
