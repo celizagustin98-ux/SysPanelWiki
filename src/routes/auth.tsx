@@ -1,9 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Network } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "SysIntranet | Área Wiki" },
+      { title: "Acceso | SysIntranet" },
       {
         name: "description",
         content: "Ingreso con usuario y contraseña a SysIntranet | Área Wiki.",
@@ -43,7 +41,7 @@ function AuthPage() {
     const { error } = await signIn(String(fd.get("username")), String(fd.get("password")));
     setBusy(false);
     if (error) toast.error(error);
-    else toast.success("Bienvenido");
+    else toast.success("Sesión iniciada");
   };
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -63,7 +61,7 @@ function AuthPage() {
       return;
     }
     form.reset();
-    toast.success("Cuenta creada. Bienvenido.");
+    toast.success("Cuenta creada");
     navigate({ to: "/dashboard", replace: true });
   };
 
@@ -80,30 +78,71 @@ function AuthPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center px-4 py-10">
-      <div className="w-full max-w-md rise-in">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Network className="size-6" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold">SysIntranet | Área Wiki</h1>
-            <p className="text-sm text-muted-foreground">Wiki, inventario y operación interna</p>
+    <div className="relative grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="relative hidden overflow-hidden bg-[oklch(0.14_0.018_260)] text-[oklch(0.95_0.008_260)] lg:flex lg:flex-col lg:justify-between lg:p-10 xl:p-12">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40"
+          style={{
+            backgroundImage:
+              "linear-gradient(oklch(1 0 0 / 4%) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0 / 4%) 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
+          }}
+        />
+        <div className="relative">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-md bg-primary text-primary-foreground">
+              <span className="font-mono text-xs font-bold tracking-tighter">SI</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold tracking-tight">SysIntranet</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-white/40">ops panel</p>
+            </div>
           </div>
         </div>
-        <Card className="panel">
-          <CardHeader>
-            <CardTitle>{olvide ? "Restablecer contraseña" : "Acceso"}</CardTitle>
-            <CardDescription>
+        <div className="relative max-w-md space-y-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-primary">Área de sistemas</p>
+          <h1 className="text-3xl font-semibold leading-tight tracking-tight xl:text-[2rem]">
+            Panel operativo interno
+          </h1>
+          <p className="text-sm leading-relaxed text-white/55">
+            Tickets, guardias, tóners, instructivos e inventario en un solo lugar. Pensado para el día a día del equipo técnico.
+          </p>
+          <ul className="space-y-2 pt-2 font-mono text-[11px] text-white/40">
+            <li className="flex gap-2"><span className="text-primary">›</span> Mesa de tickets con historial</li>
+            <li className="flex gap-2"><span className="text-primary">›</span> Stock de tóners y pedidos</li>
+            <li className="flex gap-2"><span className="text-primary">›</span> Guardias y liquidación</li>
+          </ul>
+        </div>
+        <p className="relative font-mono text-[10px] text-white/30">v1.5 · uso interno</p>
+      </div>
+
+      <div className="grid place-items-center px-4 py-10 sm:px-8">
+        <div className="w-full max-w-[380px] rise-in">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
+              <span className="font-mono text-[10px] font-bold">SI</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold tracking-tight">SysIntranet</p>
+              <p className="font-mono text-[10px] text-muted-foreground">ops panel</p>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold tracking-tight">
+              {olvide ? "Restablecer acceso" : "Ingresar"}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {olvide
-                ? "Ingresá el correo de tu cuenta y te enviamos un enlace."
-                : "Ingresá con tu nombre de usuario y contraseña."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+                ? "Te enviamos un enlace al correo de la cuenta."
+                : "Usuario y contraseña del panel interno."}
+            </p>
+          </div>
+
+          <div className="panel p-5 sm:p-6">
             {olvide ? (
               <form className="space-y-4" onSubmit={handleReset}>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="reset_email">Correo</Label>
                   <Input
                     id="reset_email"
@@ -112,33 +151,37 @@ function AuthPage() {
                     autoComplete="email"
                     value={correoReset}
                     onChange={(ev) => setCorreoReset(ev.target.value)}
+                    className="h-9 font-mono text-sm"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={busy}>
+                <Button type="submit" className="h-9 w-full" disabled={busy}>
                   Enviar enlace
                 </Button>
-                <Button
+                <button
                   type="button"
-                  variant="link"
-                  className="h-auto w-full p-0 text-xs"
+                  className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => setOlvide(false)}
                 >
                   Volver al ingreso
-                </Button>
+                </button>
               </form>
             ) : (
               <Tabs value={tab} onValueChange={setTab}>
-                <TabsList className="mb-4 grid w-full grid-cols-2">
-                  <TabsTrigger value="login">Ingresar</TabsTrigger>
-                  <TabsTrigger value="signup">Registrarme</TabsTrigger>
+                <TabsList className="mb-5 grid h-9 w-full grid-cols-2">
+                  <TabsTrigger value="login" className="text-xs">
+                    Ingresar
+                  </TabsTrigger>
+                  <TabsTrigger value="signup" className="text-xs">
+                    Registrarme
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="login">
-                  <form className="space-y-4" onSubmit={handleLogin}>
-                    <div className="space-y-2">
+                  <form className="space-y-3.5" onSubmit={handleLogin}>
+                    <div className="space-y-1.5">
                       <Label htmlFor="username">Usuario</Label>
-                      <Input id="username" name="username" required autoComplete="username" />
+                      <Input id="username" name="username" required autoComplete="username" className="h-9 font-mono text-sm" />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label htmlFor="password">Contraseña</Label>
                       <Input
                         id="password"
@@ -146,29 +189,29 @@ function AuthPage() {
                         type="password"
                         required
                         autoComplete="current-password"
+                        className="h-9"
                       />
                     </div>
-                    <Button
+                    <button
                       type="button"
-                      variant="link"
-                      className="h-auto p-0 text-xs"
+                      className="text-xs text-muted-foreground hover:text-foreground"
                       onClick={() => setOlvide(true)}
                     >
-                      ¿Olvidaste tu contraseña?
-                    </Button>
-                    <Button type="submit" className="w-full" disabled={busy}>
-                      Ingresar
+                      ¿Olvidaste la contraseña?
+                    </button>
+                    <Button type="submit" className="h-9 w-full" disabled={busy}>
+                      Entrar al panel
                     </Button>
                   </form>
                 </TabsContent>
                 <TabsContent value="signup">
-                  <form className="space-y-4" onSubmit={handleSignup}>
-                    <div className="space-y-2">
+                  <form className="space-y-3.5" onSubmit={handleSignup}>
+                    <div className="space-y-1.5">
                       <Label htmlFor="full_name">Nombre y apellido</Label>
-                      <Input id="full_name" name="full_name" required autoComplete="name" />
+                      <Input id="full_name" name="full_name" required autoComplete="name" className="h-9" />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="username2">Nombre de usuario</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="username2">Usuario</Label>
                       <Input
                         id="username2"
                         name="username"
@@ -177,38 +220,31 @@ function AuthPage() {
                         maxLength={32}
                         pattern="[A-Za-z0-9._\-]{3,32}"
                         autoComplete="username"
+                        className="h-9 font-mono text-sm"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Con este usuario vas a ingresar. Letras, números, punto, guion o guion bajo.
-                      </p>
+                      <p className="text-[11px] text-muted-foreground">Letras, números, punto o guion.</p>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label htmlFor="email2">Correo</Label>
-                      <Input id="email2" name="email" type="email" required autoComplete="email" />
-                      <p className="text-xs text-muted-foreground">
-                        Se usa solo para restablecer la contraseña.
-                      </p>
+                      <Input id="email2" name="email" type="email" required autoComplete="email" className="h-9" />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label htmlFor="password2">Contraseña</Label>
-                      <Input id="password2" name="password" type="password" minLength={8} required />
-                      <p className="text-xs text-muted-foreground">
-                        Mínimo 8 caracteres. Evitá contraseñas comunes (se rechazan por seguridad).
-                      </p>
+                      <Input id="password2" name="password" type="password" minLength={8} required className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Mínimo 8 caracteres.</p>
                     </div>
-                    <Button type="submit" className="w-full" disabled={busy}>
+                    <Button type="submit" className="h-9 w-full" disabled={busy}>
                       Crear cuenta
                     </Button>
-                    <p className="text-xs text-muted-foreground">
-                      El primer usuario registrado obtiene el rol Administrador; el resto ingresa
-                      como Consulta hasta que un administrador lo promueva.
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      El primer usuario es administrador. El resto entra como consulta.
                     </p>
                   </form>
                 </TabsContent>
               </Tabs>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
