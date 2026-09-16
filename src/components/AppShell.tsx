@@ -91,10 +91,10 @@ export function AppShell() {
     .join("");
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-dvh w-full max-w-[100vw] overflow-x-clip bg-background">
       <aside
         className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+          "sticky top-0 hidden h-dvh shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
           sidebarCollapsed ? "w-[72px]" : "w-[240px]",
         )}
       >
@@ -207,11 +207,11 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-border/60 bg-card/70 backdrop-blur-md md:hidden">
-          <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-x-clip">
+        <header className="sticky top-0 z-30 border-b border-border/60 bg-card/80 backdrop-blur-md md:hidden">
+          <div className="flex items-center justify-between gap-2 px-3 py-2.5">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="grid size-8 place-items-center rounded-full bg-primary text-primary-foreground">
+              <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
                 <span className="text-[10px] font-bold">SI</span>
               </div>
               <div className="min-w-0">
@@ -219,7 +219,7 @@ export function AppShell() {
                 <p className="truncate text-[11px] text-muted-foreground">{profile?.full_name || user?.email}</p>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-center gap-0.5">
               <Button size="icon" variant="ghost" className="size-8 rounded-full" onClick={toggle}>
                 {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
               </Button>
@@ -228,7 +228,7 @@ export function AppShell() {
               </Button>
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto px-3 pb-2.5">
+          <nav className="flex gap-1 overflow-x-auto overscroll-x-contain px-3 pb-2.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {nav.map((item) => (
               <Link
                 key={item.to}
@@ -246,7 +246,7 @@ export function AppShell() {
           </nav>
         </header>
 
-        <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">
+        <main className="page-content min-w-0 flex-1 overflow-x-clip px-3 py-4 sm:px-4 md:px-6 md:py-6 lg:px-8 lg:py-8">
           <Outlet />
         </main>
       </div>
@@ -267,14 +267,14 @@ export function PageHeader({
 }) {
   const right = action ?? children;
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3 rise-in">
-      <div className="min-w-0 space-y-1">
-        <h1 className="text-[1.55rem] font-semibold tracking-tight sm:text-[1.7rem]">{title}</h1>
+    <div className="mb-5 flex flex-col gap-3 rise-in sm:mb-6 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+      <div className="min-w-0 flex-1 space-y-1">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-[1.55rem] lg:text-[1.7rem]">{title}</h1>
         {description ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p>
         ) : null}
       </div>
-      {right ? <div className="responsive-actions">{right}</div> : null}
+      {right ? <div className="responsive-actions w-full sm:w-auto">{right}</div> : null}
     </div>
   );
 }
