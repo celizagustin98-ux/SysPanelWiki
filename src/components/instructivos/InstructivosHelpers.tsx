@@ -51,28 +51,44 @@ export function DocRow({
   active,
   onSelect,
   showTime,
+  hasPdf,
 }: {
   doc: Doc;
   active: boolean;
   onSelect: () => void;
   showTime?: boolean;
+  hasPdf?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+        "group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
         active
-          ? "bg-primary/12 font-medium text-primary ring-1 ring-primary/20"
-          : "text-muted-foreground hover:bg-muted/55 hover:text-foreground",
+          ? "bg-primary/10 text-foreground ring-1 ring-primary/25"
+          : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
       )}
     >
-      <FileText className="size-3.5 shrink-0 opacity-75" />
-      <span className="min-w-0 flex-1 truncate">{doc.title}</span>
-      {showTime && (
-        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
-          {tiempoRelativo(doc.updated_at)}
+      <span
+        className={cn(
+          "grid size-7 shrink-0 place-items-center rounded-md border",
+          active ? "border-primary/30 bg-primary/15 text-primary" : "border-border bg-muted/40",
+        )}
+      >
+        <FileText className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn("block truncate text-[13px]", active && "font-medium text-foreground")}>
+          {doc.title}
+        </span>
+        {showTime && (
+          <span className="font-mono text-[10px] text-muted-foreground/80">{tiempoRelativo(doc.updated_at)}</span>
+        )}
+      </span>
+      {hasPdf && (
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+          PDF
         </span>
       )}
     </button>
@@ -82,9 +98,11 @@ export function DocRow({
 export function NuevaCarpeta({
   carpetas,
   onDone,
+  defaultParent,
 }: {
   carpetas: Carpeta[];
   onDone: (created?: Carpeta) => void | Promise<void>;
+  defaultParent?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [parent, setParent] = useState("root");
@@ -94,18 +112,18 @@ export function NuevaCarpeta({
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (o) setParent("root");
+        if (o) setParent(defaultParent || "root");
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm" variant="secondary">
-          <FolderPlus className="size-4" /> Carpeta
+        <Button size="sm" variant="outline" className="h-8">
+          <FolderPlus className="size-3.5" /> Carpeta
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Nueva carpeta</DialogTitle>
-          <DialogDescription>Organizá la biblioteca de instructivos.</DialogDescription>
+          <DialogDescription>Organizá instructivos por área o sistema.</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-3"
@@ -133,7 +151,7 @@ export function NuevaCarpeta({
             <Input name="name" required autoFocus placeholder="Ej. Redes, Impresoras…" />
           </div>
           <div className="space-y-1.5">
-            <Label>Carpeta padre</Label>
+            <Label>Dentro de</Label>
             <Select value={parent} onValueChange={setParent}>
               <SelectTrigger>
                 <SelectValue />
@@ -154,7 +172,7 @@ export function NuevaCarpeta({
             </Button>
             <Button type="submit" disabled={creating}>
               {creating ? <Loader2 className="size-4 animate-spin" /> : <FolderPlus className="size-4" />}
-              {creating ? "Creando…" : "Crear carpeta"}
+              {creating ? "Creando…" : "Crear"}
             </Button>
           </DialogFooter>
         </form>
@@ -167,31 +185,35 @@ export function NuevoDoc({
   carpetas,
   userId,
   onDone,
+  defaultFolder,
 }: {
   carpetas: Carpeta[];
   userId?: string;
   onDone: (created?: Doc) => void | Promise<void>;
+  defaultFolder?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [folder, setFolder] = useState("root");
+  const [folder, setFolder] = useState("none");
   const [creating, setCreating] = useState(false);
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (o) setFolder("root");
+        if (o) setFolder(defaultFolder || "none");
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">
-          <Plus className="size-4" /> Instructivo
+        <Button size="sm" className="h-8">
+          <Plus className="size-3.5" /> Instructivo
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Nuevo instructivo</DialogTitle>
-          <DialogDescription>Se abre listo para editar. Después podés adjuntar PDFs.</DialogDescription>
+          <DialogDescription>
+            Va dentro de una carpeta. Después adjuntás el PDF oficial.
+          </DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-3"
@@ -201,10 +223,13 @@ export function NuevoDoc({
             const fd = new FormData(e.currentTarget);
             const title = String(fd.get("title") ?? "").trim();
             if (!title) return toast.error("Ingresá un título");
+            if (folder === "none" || !folder) {
+              return toast.error("Elegí una carpeta para organizar el instructivo");
+            }
             setCreating(true);
             const payload = {
               title,
-              folder_id: folder === "root" ? null : folder,
+              folder_id: folder,
               content: "<p></p>",
               tags: [] as string[],
               views: 0,
@@ -237,13 +262,19 @@ export function NuevoDoc({
             <Input name="title" required autoFocus placeholder="Ej. Alta de usuario en AD" />
           </div>
           <div className="space-y-1.5">
-            <Label>Carpeta</Label>
+            <Label>
+              Carpeta <span className="text-destructive">*</span>
+            </Label>
             <Select value={folder} onValueChange={setFolder}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Seleccionar carpeta" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="root">Raíz (sin carpeta)</SelectItem>
+                {carpetas.length === 0 && (
+                  <SelectItem value="none" disabled>
+                    Primero creá una carpeta
+                  </SelectItem>
+                )}
                 {carpetas.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -251,12 +282,15 @@ export function NuevoDoc({
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Obligatorio: cada instructivo vive en una carpeta.
+            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={creating}>
+            <Button type="submit" disabled={creating || carpetas.length === 0}>
               {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
               {creating ? "Creando…" : "Crear"}
             </Button>
