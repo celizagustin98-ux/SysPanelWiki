@@ -1,19 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Inbox, Search } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Bell, CheckCircle2, ClipboardList, Search } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
-  BOARD_COLS,
-  ESTADO_STYLE,
-  PRIORIDAD_BAR,
   type Ticket as TicketT,
   estadoLabel,
   isArchivedClosed,
@@ -21,8 +24,9 @@ import {
   ticketLabel,
   tiempoRelativo,
   within30Days,
+  initials,
+  ESTADOS,
 } from "@/components/tickets/constants";
-import { TicketCard } from "@/components/tickets/TicketCard";
 import { ReopenDialog } from "@/components/tickets/ReopenDialog";
 import { TicketDetail } from "@/components/tickets/TicketDetail";
 import { NuevoTicket } from "@/components/tickets/NuevoTicket";
@@ -32,24 +36,48 @@ export const Route = createFileRoute("/_app/tareas")({
   head: () => ({
     meta: [
       { title: "Tickets | Mesa de sistemas" },
-      {
-        name: "description",
-        content: "Cola de tickets internos: incidentes, pedidos y seguimiento operativo.",
-      },
+      { name: "description", content: "Bandeja de trabajo interna." },
       { property: "og:title", content: "Tickets | SysIntranet" },
     ],
   }),
   component: TicketsPage,
 });
 
-type Vista = "lista" | "board" | "historial";
-type FiltroCola = "todos" | "mios" | "sin_asignar" | "criticos";
+type Vista = "bandeja" | "historial";
+
+const PRIO_BADGE: Record<string, string> = {
+  critica: "bg-rose-100 text-rose-700",
+  alta: "bg-amber-100 text-amber-800",
+  media: "bg-slate-100 text-slate-600",
+  baja: "bg-slate-50 text-slate-500",
+};
+const PRIO_LABEL: Record<string, string> = {
+  critica: "Urgente",
+  alta: "Alta",
+  media: "Media",
+  baja: "Baja",
+};
+const ESTADO_BADGE: Record<string, string> = {
+  nuevo: "bg-sky-100 text-sky-800",
+  asignado: "bg-violet-100 text-violet-800",
+  en_curso: "bg-amber-100 text-amber-900",
+  esperando: "bg-yellow-100 text-yellow-900",
+  resuelto: "bg-emerald-100 text-emerald-800",
+  cerrado: "bg-slate-100 text-slate-600",
+  cancelado: "bg-slate-100 text-slate-500",
+};
+
+function progressBucket(estado: string): "nuevo" | "progreso" | "espera" | "resuelto" {
+  if (estado === "nuevo") return "nuevo";
+  if (estado === "esperando") return "espera";
+  if (estado === "resuelto" || estado === "cerrado" || estado === "cancelado") return "resuelto";
+  return "progreso";
+}
 
 function TicketsPage() {
   const { canWrite, user, profile } = useAuth();
   const qc = useQueryClient();
-  const [vista, setVista] = useState<Vista>("lista");
-  const [filtro, setFiltro] = useState<FiltroCola>("todos");
+  const [vista, setVista] = useState<Vista>("bandeja");
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reopenId, setReopenId] = useState<string | null>(null);
@@ -74,72 +102,80 @@ function TicketsPage() {
   const nombre = (id: string | null) =>
     perfiles.find((p) => p.id === id)?.full_name ?? (id ? "Usuario" : "Sin asignar");
 
-  const applySearchAndFiltro = (list: TicketT[]) => {
-    let out = list;
-    if (filtro === "mios") out = out.filter((t) => t.asignado_a === user?.id);
-    if (filtro === "sin_asignar") out = out.filter((t) => !t.asignado_a);
-    if (filtro === "criticos") out = out.filter((t) => t.prioridad === "critica");
+  const openTickets = useMemo(() => tickets.filter((t) => !isArchivedClosed(t.estado)), [tickets]);
+  const historyTickets = useMemo(
+    () => tickets.filter((t) => isArchivedClosed(t.estado) && within30Days(t)),
+    [tickets],
+  );
+
+  const applyQ = (list: TicketT[]) => {
     const term = q.trim().toLowerCase();
-    if (term) {
-      out = out.filter((t) =>
-        [ticketLabel(t), t.titulo, t.descripcion, t.sector, t.categoria, t.solicitante_nombre, t.tipo]
+    if (!term) return sortTickets(list);
+    return sortTickets(
+      list.filter((t) =>
+        [
+          ticketLabel(t),
+          t.titulo,
+          t.descripcion,
+          t.sector,
+          t.categoria,
+          t.solicitante_nombre,
+          t.tipo,
+          ...(t.etiquetas || []),
+        ]
           .filter(Boolean)
           .some((v) => String(v).toLowerCase().includes(term)),
-      );
-    }
-    return sortTickets(out);
+      ),
+    );
   };
 
-  const boardTickets = useMemo(() => {
-    const open = tickets.filter((t) => !isArchivedClosed(t.estado));
-    const closedRecent = tickets.filter((t) => isArchivedClosed(t.estado) && within30Days(t));
-    return applySearchAndFiltro([...open, ...closedRecent]);
-  }, [tickets, filtro, q, user?.id]);
+  const list = useMemo(() => applyQ(openTickets), [openTickets, q]);
+  const hist = useMemo(() => applyQ(historyTickets), [historyTickets, q]);
 
-  const listTickets = useMemo(() => {
-    const list = tickets.filter((t) => !isArchivedClosed(t.estado));
-    return applySearchAndFiltro(list);
-  }, [tickets, filtro, q, user?.id]);
-
-  const historyTickets = useMemo(() => {
-    const list = tickets.filter((t) => isArchivedClosed(t.estado) && within30Days(t));
-    return applySearchAndFiltro(list);
-  }, [tickets, filtro, q, user?.id]);
+  const counts = useMemo(() => {
+    const mios = openTickets.filter((t) => t.asignado_a === user?.id).length;
+    const creados = openTickets.filter((t) => t.solicitante_id === user?.id).length;
+    const sinAsignar = openTickets.filter((t) => !t.asignado_a).length;
+    const buckets = { nuevo: 0, progreso: 0, espera: 0, resuelto: 0 };
+    for (const t of openTickets) buckets[progressBucket(t.estado)]++;
+    buckets.resuelto = openTickets.filter((t) => t.estado === "resuelto").length;
+    return {
+      mios,
+      creados,
+      sinAsignar,
+      ...buckets,
+      total: openTickets.length,
+      historial: historyTickets.length,
+    };
+  }, [openTickets, historyTickets, user?.id]);
 
   const selected = selectedId ? tickets.find((t) => t.id === selectedId) ?? null : null;
+  const reopenTarget = reopenId ? tickets.find((t) => t.id === reopenId) : null;
 
   useEffect(() => {
     if (selectedId && !tickets.some((t) => t.id === selectedId)) setSelectedId(null);
   }, [tickets, selectedId]);
 
-  const counts = useMemo(
-    () => ({
-      mios: tickets.filter((t) => t.asignado_a === user?.id && !isArchivedClosed(t.estado)).length,
-      sin_asignar: tickets.filter((t) => !t.asignado_a && !isArchivedClosed(t.estado)).length,
-      criticos: tickets.filter((t) => t.prioridad === "critica" && !isArchivedClosed(t.estado)).length,
-      historial: tickets.filter((t) => isArchivedClosed(t.estado) && within30Days(t)).length,
-      abiertos: tickets.filter((t) => !isArchivedClosed(t.estado)).length,
-    }),
-    [tickets, user?.id],
-  );
-
   const refetch = () => qc.invalidateQueries({ queryKey: ["tareas"] });
 
-  const changeEstado = async (id: string, estado: string) => {
-    const payload: Record<string, unknown> = { estado };
-    if (estado === "resuelto") payload.resuelto_en = new Date().toISOString();
-    if (estado === "cerrado" || estado === "cancelado") payload.cerrado_en = new Date().toISOString();
-    const { error } = await api.from("tareas").update(payload).eq("id", id);
+  const patchTicket = async (id: string, values: Record<string, unknown>, msg?: string) => {
+    const { error } = await api.from("tareas").update(values).eq("id", id);
     if (error) return toast.error(error.message);
-    toast.success(`Estado → ${estadoLabel(estado)}`);
+    if (msg) toast.success(msg);
     refetch();
   };
 
+  const autoasignar = async (t: TicketT) => {
+    if (!user?.id) return;
+    await patchTicket(
+      t.id,
+      { asignado_a: user.id, estado: t.estado === "nuevo" ? "asignado" : t.estado },
+      "Ticket asignado a vos",
+    );
+  };
+
   const reopenTicket = async (id: string, mode: "nuevo" | "asignar", asignado?: string) => {
-    const payload: Record<string, unknown> = {
-      cerrado_en: null,
-      resuelto_en: null,
-    };
+    const payload: Record<string, unknown> = { cerrado_en: null, resuelto_en: null };
     if (mode === "nuevo") {
       payload.estado = "nuevo";
       payload.asignado_a = null;
@@ -149,273 +185,315 @@ function TicketsPage() {
     }
     const { error } = await api.from("tareas").update(payload).eq("id", id);
     if (error) return toast.error(error.message);
-    toast.success(mode === "nuevo" ? "Reabierto en Backlog" : "Reabierto y asignado");
+    toast.success(mode === "nuevo" ? "Reabierto" : "Reabierto y asignado");
     setReopenId(null);
     refetch();
   };
 
-  const byColumn = (key: string) => {
-    if (key === "cerrado") return boardTickets.filter((t) => isArchivedClosed(t.estado));
-    return boardTickets.filter((t) => t.estado === key);
-  };
-
-  const reopenTarget = reopenId ? tickets.find((t) => t.id === reopenId) : null;
-  const openDetail = (id: string) => setSelectedId(id);
+  const barTotal = Math.max(1, counts.nuevo + counts.progreso + counts.espera + counts.resuelto);
+  const pct = (n: number) => `${Math.round((n / barTotal) * 100)}%`;
 
   return (
-    <div className="flex min-h-[calc(100vh-6rem)] flex-col">
-      <PageHeader
-        title="Tickets"
-        description="Mesa de sistemas"
-        action={
-          canWrite ? (
-            <NuevoTicket
-              perfiles={perfiles}
-              userId={user?.id}
-              userName={profile?.full_name}
-              onDone={(id) => {
-                refetch();
-                if (id) setSelectedId(id);
-              }}
-            />
-          ) : null
-        }
-      />
-
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[
-          { label: "Abiertos", value: counts.abiertos },
-          { label: "Sin asignar", value: counts.sin_asignar },
-          { label: "Críticos", value: counts.criticos },
-          { label: "Historial 30d", value: counts.historial },
-        ].map((k) => (
-          <div key={k.label} className="kpi-cell !py-2.5">
-            <p className="kpi-label">{k.label}</p>
-            <p className="kpi-value !text-lg">{k.value}</p>
-          </div>
-        ))}
+    <div className="page-content min-h-[calc(100vh-6rem)]">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          Trabajo interno <span className="text-muted-foreground/40">/</span> Tickets
+        </p>
+        {canWrite && (
+          <NuevoTicket
+            perfiles={perfiles}
+            userId={user?.id}
+            userName={profile?.full_name}
+            onDone={(id) => {
+              refetch();
+              if (id) setSelectedId(id);
+            }}
+          />
+        )}
       </div>
 
-      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-md border border-border bg-card p-0.5">
-            {(
-              [
-                ["lista", "Cola"],
-                ["board", "Board"],
-                ["historial", "Historial"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setVista(key)}
-                className={cn(
-                  "rounded px-3 py-1.5 text-xs font-medium transition-colors",
-                  vista === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label}
-                {key === "historial" && (
-                  <span className="ml-1.5 font-mono text-[10px] opacity-80">{counts.historial}</span>
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="relative w-full max-w-xs sm:w-56">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-8 pl-8 font-mono text-sm"
-              placeholder="TK-… o título"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-1">
-          {(
-            [
-              ["todos", "Todos"],
-              ["mios", "Míos"],
-              ["sin_asignar", "Cola"],
-              ["criticos", "Críticos"],
-            ] as const
-          ).map(([key, label]) => (
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="mb-1 flex gap-2">
             <button
-              key={key}
               type="button"
-              onClick={() => setFiltro(key)}
+              onClick={() => setVista("bandeja")}
               className={cn(
-                "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
-                filtro === key
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-background text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                "text-[11px] font-medium uppercase tracking-[0.1em]",
+                vista === "bandeja" ? "text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {label}
-              {key !== "todos" && (
-                <span className="font-mono text-[10px] tabular-nums opacity-80">
-                  {counts[key as "mios" | "sin_asignar" | "criticos"]}
-                </span>
-              )}
+              Mis tickets
             </button>
-          ))}
+            <span className="text-muted-foreground/40">/</span>
+            <button
+              type="button"
+              onClick={() => setVista("historial")}
+              className={cn(
+                "text-[11px] font-medium uppercase tracking-[0.1em]",
+                vista === "historial" ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Historial 30d
+            </button>
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {vista === "bandeja" ? "Mis tickets" : "Historial de tickets"}
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            {vista === "bandeja"
+              ? "Un lugar para revisar lo importante, dar seguimiento y cerrar pendientes."
+              : "Los tickets resueltos/cerrados permanecen 30 días. Podés reabrirlos si hace falta."}
+          </p>
+        </div>
+        <div className="relative w-full max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-10 rounded-full border-border/60 bg-card pl-10 shadow-sm"
+            placeholder={vista === "bandeja" ? "Buscar tickets…" : "Buscar en historial…"}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
       </div>
 
-      {vista === "lista" && (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-card">
-          <div className="grid grid-cols-[auto_1fr_auto] gap-0 border-b border-border bg-muted/30 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:grid-cols-[88px_1fr_100px_110px_90px]">
-            <span>ID</span>
-            <span>Ticket</span>
-            <span className="hidden sm:inline">Estado</span>
-            <span className="hidden sm:inline">Asignado</span>
-            <span className="text-right">Activo</span>
+      {vista === "bandeja" && (
+        <>
+          <div className="mb-5 grid gap-3 sm:grid-cols-3">
+            <KpiCard
+              icon={<CheckCircle2 className="size-5 text-sky-600" />}
+              iconBg="bg-sky-50"
+              value={counts.mios}
+              title="Pendientes para mí"
+              hint="Asignados que todavía requieren acción"
+            />
+            <KpiCard
+              icon={<ClipboardList className="size-5 text-amber-600" />}
+              iconBg="bg-amber-50"
+              value={counts.creados}
+              title="Creados por mí"
+              hint="Solicitudes que abriste y siguen activas"
+            />
+            <KpiCard
+              icon={<Bell className="size-5 text-teal-600" />}
+              iconBg="bg-teal-50"
+              value={counts.sinAsignar}
+              title="Sin asignar"
+              hint="Cola libre del equipo"
+            />
           </div>
-          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto">
-            {isLoading && (
-              <div className="space-y-0">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-12 animate-pulse border-b border-border/50 bg-muted/20" />
-                ))}
-              </div>
-            )}
-            {!isLoading && listTickets.length === 0 && (
-              <div className="flex flex-col items-center justify-center gap-2 px-6 py-20 text-center">
-                <Inbox className="size-5 text-muted-foreground" />
-                <p className="text-sm font-medium">Nada en la cola</p>
-                <p className="text-xs text-muted-foreground">Los tickets abiertos aparecen acá.</p>
-              </div>
-            )}
-            {listTickets.map((t) => {
-              const active = selected?.id === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => openDetail(t.id)}
-                  className={cn(
-                    "grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-3 border-b border-border/60 px-3 py-2.5 text-left transition-colors sm:grid-cols-[88px_1fr_100px_110px_90px]",
-                    active ? "bg-primary/[0.07]" : "hover:bg-muted/40",
-                  )}
-                >
-                  <span className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "hidden h-8 w-0.5 rounded-full sm:block",
-                        PRIORIDAD_BAR[t.prioridad] ?? PRIORIDAD_BAR.media,
-                      )}
-                    />
-                    <span className="font-mono text-[11px] text-muted-foreground">{ticketLabel(t)}</span>
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium tracking-tight">{t.titulo}</span>
-                    <span className="block truncate text-[11px] capitalize text-muted-foreground">
-                      {t.tipo || "pedido"}
-                      {t.categoria ? ` · ${t.categoria}` : ""}
-                      {t.sector ? ` · ${t.sector}` : ""}
-                    </span>
-                  </span>
-                  <span className="hidden sm:inline">
-                    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", ESTADO_STYLE[t.estado])}>
-                      {estadoLabel(t.estado)}
-                    </span>
-                  </span>
-                  <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
-                    {nombre(t.asignado_a)}
-                  </span>
-                  <span className="text-right font-mono text-[10px] text-muted-foreground">
-                    {tiempoRelativo(t.updated_at ?? t.created_at)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
-      {vista === "board" && (
-        <div className="min-h-0 flex-1 overflow-x-auto pb-2">
-          {isLoading ? (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-64 animate-pulse rounded-lg bg-muted/40" />
+          <div className="panel mb-6 p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Progreso de los tickets</p>
+                <p className="text-xs text-muted-foreground">Estado actual de cada solicitud abierta</p>
+              </div>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {counts.total} en total
+              </span>
+            </div>
+            <div className="mb-4 flex h-2.5 overflow-hidden rounded-full bg-muted">
+              <span className="bg-slate-400" style={{ width: pct(counts.nuevo) }} />
+              <span className="bg-sky-500" style={{ width: pct(counts.progreso) }} />
+              <span className="bg-amber-400" style={{ width: pct(counts.espera) }} />
+              <span className="bg-emerald-500" style={{ width: pct(counts.resuelto) }} />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Nuevo", n: counts.nuevo, dot: "bg-slate-400" },
+                { label: "En progreso", n: counts.progreso, dot: "bg-sky-500" },
+                { label: "En espera", n: counts.espera, dot: "bg-amber-400" },
+                { label: "Resuelto", n: counts.resuelto, dot: "bg-emerald-500" },
+              ].map((b) => (
+                <div key={b.label} className="rounded-xl bg-muted/40 px-3 py-2.5">
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className={cn("size-1.5 rounded-full", b.dot)} />
+                    {b.label}
+                  </p>
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums">{b.n}</p>
+                </div>
               ))}
             </div>
-          ) : (
-            <div className="flex min-w-max gap-2.5">
-              {BOARD_COLS.map((col) => {
-                const items = byColumn(col.key);
-                return (
-                  <div
-                    key={col.key}
-                    className="flex w-[220px] shrink-0 flex-col rounded-lg border border-border bg-muted/15"
-                  >
-                    <div className="flex items-center gap-2 border-b border-border/60 px-2.5 py-2">
-                      <span className={cn("size-1.5 rounded-full", col.dot)} />
-                      <span className="text-[11px] font-semibold tracking-tight">{col.label}</span>
-                      <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
-                        {items.length}
-                      </span>
-                    </div>
-                    <div className="flex max-h-[calc(100vh-16rem)] flex-col gap-1.5 overflow-y-auto p-1.5">
-                      {items.length === 0 && (
-                        <p className="px-1 py-8 text-center text-[10px] text-muted-foreground">—</p>
-                      )}
-                      {items.map((t) => (
-                        <TicketCard
-                          key={t.id}
-                          ticket={t}
-                          assigneeName={nombre(t.asignado_a)}
-                          canWrite={!!canWrite}
-                          active={selectedId === t.id}
-                          onOpen={() => openDetail(t.id)}
-                          onEstado={(estado) => changeEstado(t.id, estado)}
-                          onReopen={() => setReopenId(t.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+          </div>
+
+          <p className="mb-2 text-sm font-medium">{list.length} tickets</p>
+
+          <div className="overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-panel)]">
+            <div className="hidden grid-cols-[minmax(0,1.6fr)_90px_120px_140px_100px_110px] gap-2 border-b border-border/60 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground lg:grid">
+              <span>Ticket</span>
+              <span>Prioridad</span>
+              <span>Estado</span>
+              <span>Responsable</span>
+              <span>Actividad</span>
+              <span className="text-right">Acción</span>
             </div>
-          )}
-        </div>
+
+            {isLoading &&
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-16 animate-pulse border-b border-border/40 bg-muted/20" />
+              ))}
+
+            {!isLoading && list.length === 0 && (
+              <p className="px-4 py-16 text-center text-sm text-muted-foreground">Nada en la bandeja</p>
+            )}
+
+            {list.map((t) => (
+              <div
+                key={t.id}
+                className="grid grid-cols-1 gap-2 border-b border-border/50 px-4 py-3 transition hover:bg-muted/30 lg:grid-cols-[minmax(0,1.6fr)_90px_120px_140px_100px_110px] lg:items-center"
+              >
+                <button type="button" className="min-w-0 text-left" onClick={() => setSelectedId(t.id)}>
+                  <p className="truncate text-[14px] font-semibold tracking-tight">{t.titulo}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="font-mono">{ticketLabel(t)}</span>
+                    {t.solicitante_nombre && (
+                      <>
+                        <span>·</span>
+                        <span>Solicita {t.solicitante_nombre}</span>
+                      </>
+                    )}
+                    {(t.etiquetas || []).slice(0, 2).map((tag) => (
+                      <span key={tag} className="rounded-full bg-muted px-1.5 py-px text-[10px]">
+                        #{tag}
+                      </span>
+                    ))}
+                    {t.categoria && (
+                      <span className="rounded-full bg-muted px-1.5 py-px text-[10px]">
+                        #{t.categoria.toLowerCase()}
+                      </span>
+                    )}
+                  </p>
+                </button>
+
+                <span
+                  className={cn(
+                    "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    PRIO_BADGE[t.prioridad] ?? PRIO_BADGE.media,
+                  )}
+                >
+                  {PRIO_LABEL[t.prioridad] ?? t.prioridad}
+                </span>
+
+                <div className="min-w-0">
+                  {canWrite ? (
+                    <Select
+                      value={t.estado}
+                      onValueChange={(v) => {
+                        const payload: Record<string, unknown> = { estado: v };
+                        if (v === "resuelto") payload.resuelto_en = new Date().toISOString();
+                        if (v === "cerrado" || v === "cancelado") payload.cerrado_en = new Date().toISOString();
+                        void patchTicket(t.id, payload);
+                      }}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-8 w-full max-w-[130px] rounded-full border-0 text-xs font-medium",
+                          ESTADO_BADGE[t.estado],
+                        )}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ESTADOS.map((e) => (
+                          <SelectItem key={e.key} value={e.key}>
+                            {e.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", ESTADO_BADGE[t.estado])}>
+                      {estadoLabel(t.estado)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 items-center gap-2">
+                  {t.asignado_a ? (
+                    <>
+                      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-semibold">
+                        {initials(nombre(t.asignado_a))}
+                      </span>
+                      <span className="truncate text-xs">{nombre(t.asignado_a)}</span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Sin asignar</span>
+                  )}
+                </div>
+
+                <div className="text-xs text-muted-foreground">
+                  <p>{tiempoRelativo(t.updated_at ?? t.created_at)}</p>
+                  {t.vence_el && (
+                    <p className="text-[11px] text-rose-600">
+                      {new Date(t.vence_el).toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-1.5">
+                  {canWrite && !t.asignado_a && (
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void autoasignar(t)}>
+                      Autoasignar
+                    </Button>
+                  )}
+                  {t.asignado_a && (
+                    <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800">
+                      Asignado
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {vista === "historial" && (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-            <p className="text-sm font-medium">Cerrados · 30 días</p>
-            <span className="font-mono text-xs text-muted-foreground">{historyTickets.length}</span>
+        <section className="rise-in">
+          <div className="mb-4 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+            <span className="font-semibold">{hist.length} tickets</span> en historial. Los que cumplan 30 días salen de
+            esta vista.
           </div>
-          <div className="divide-y divide-border/60">
-            {historyTickets.length === 0 && (
-              <p className="px-4 py-14 text-center text-sm text-muted-foreground">Sin cerrados en el último mes.</p>
+          <div className="space-y-2">
+            {hist.length === 0 && (
+              <p className="py-16 text-center text-sm text-muted-foreground">Sin cerrados en el último mes.</p>
             )}
-            {historyTickets.map((t) => (
-              <div key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 hover:bg-muted/30">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openDetail(t.id)}>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-muted-foreground">{ticketLabel(t)}</span>
-                    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", ESTADO_STYLE[t.estado])}>
+            {hist.map((t) => (
+              <div
+                key={t.id}
+                className="flex flex-wrap items-center gap-3 rounded-2xl bg-card px-4 py-3 shadow-[var(--shadow-panel)]"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold tracking-tight">{t.titulo}</p>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", ESTADO_BADGE[t.estado])}>
                       {estadoLabel(t.estado)}
                     </span>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", PRIO_BADGE[t.prioridad])}>
+                      {PRIO_LABEL[t.prioridad]}
+                    </span>
                   </div>
-                  <p className="mt-0.5 truncate text-[13px] font-medium">{t.titulo}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {nombre(t.asignado_a)} · {tiempoRelativo(t.cerrado_en || t.updated_at)}
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {ticketLabel(t)}
+                    {t.solicitante_nombre ? ` · Solicita ${t.solicitante_nombre}` : ""}
+                    {" · "}
+                    {tiempoRelativo(t.cerrado_en || t.updated_at)}
                   </p>
-                </button>
+                </div>
+                <span className="text-xs text-muted-foreground">{nombre(t.asignado_a)}</span>
+                <Button size="sm" variant="outline" className="h-8" onClick={() => setSelectedId(t.id)}>
+                  Ver detalle
+                </Button>
                 {canWrite && (
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setReopenId(t.id)}>
+                  <Button size="sm" className="h-8" onClick={() => setReopenId(t.id)}>
                     Reabrir
                   </Button>
                 )}
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
@@ -442,6 +520,32 @@ function TicketsPage() {
         onClose={() => setReopenId(null)}
         onConfirm={reopenTicket}
       />
+    </div>
+  );
+}
+
+function KpiCard({
+  icon,
+  iconBg,
+  value,
+  title,
+  hint,
+}: {
+  icon: ReactNode;
+  iconBg: string;
+  value: number;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-card p-5 shadow-[var(--shadow-panel)]">
+      <p className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+        Activos
+      </p>
+      <div className={cn("mb-3 grid size-10 place-items-center rounded-xl", iconBg)}>{icon}</div>
+      <p className="text-3xl font-semibold tabular-nums tracking-tight">{value}</p>
+      <p className="mt-1 text-sm font-semibold">{title}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
