@@ -37,58 +37,66 @@ export function NuevoTicket({
   const [saving, setSaving] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={(o) => {
-      setOpen(o);
-      if (o) {
-        setPrioridad("media");
-        setTipo("pedido");
-        setAsignado("none");
-        setCategoria("Otro");
-      }
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) {
+          setPrioridad("media");
+          setTipo("pedido");
+          setAsignado("none");
+          setCategoria("Otro");
+        }
+      }}
+    >
       <DialogTrigger asChild>
-        <Button><Plus className="size-4" /> Nuevo ticket</Button>
+        <Button className="h-10 rounded-full bg-amber-500 px-5 text-white hover:bg-amber-600">
+          <Plus className="size-4" /> Nuevo ticket
+        </Button>
       </DialogTrigger>
       <DialogContent className="gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-border/70 px-5 py-4">
           <DialogTitle>Nuevo ticket</DialogTitle>
           <DialogDescription>Registrá un incidente o pedido interno.</DialogDescription>
         </DialogHeader>
-        <form className="space-y-5 px-5 py-4" onSubmit={async (e) => {
-          e.preventDefault();
-          if (saving) return;
-          const fd = new FormData(e.currentTarget);
-          const titulo = String(fd.get("titulo") || "").trim();
-          if (titulo.length < 3) return toast.error("Ingresá un título claro");
-          const asignadoId = asignado === "none" ? null : asignado;
-          setSaving(true);
-          const { data, error } = await api.from("tareas").insert({
-            titulo,
-            descripcion: String(fd.get("descripcion") || ""),
-            prioridad,
-            tipo,
-            categoria,
-            sector: String(fd.get("sector") || "") || null,
-            solicitante_nombre: String(fd.get("solicitante") || "") || userName || null,
-            solicitante_id: userId ?? null,
-            canal: "sistema",
-            estado: asignadoId ? "asignado" : "nuevo",
-            asignado_a: asignadoId,
-            vence_el: String(fd.get("vence_el") || "") || null,
-            created_by: userId ?? null,
-          });
-          setSaving(false);
-          if (error) return toast.error(error.message);
-          toast.success("Ticket creado");
-          setOpen(false);
-          const id =
-            data && typeof data === "object" && !Array.isArray(data)
-              ? (data as { id?: string }).id
-              : Array.isArray(data)
-                ? (data[0] as { id?: string })?.id
-                : undefined;
-          onDone(id);
-        }}>
+        <form
+          className="space-y-5 px-5 py-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (saving) return;
+            const fd = new FormData(e.currentTarget);
+            const titulo = String(fd.get("titulo") || "").trim();
+            if (titulo.length < 3) return toast.error("Ingresá un título claro");
+            const asignadoId = asignado === "none" ? null : asignado;
+            setSaving(true);
+            const { data, error } = await api.from("tareas").insert({
+              titulo,
+              descripcion: String(fd.get("descripcion") || ""),
+              prioridad,
+              tipo,
+              categoria,
+              sector: String(fd.get("sector") || "") || null,
+              solicitante_nombre: String(fd.get("solicitante") || "") || userName || null,
+              solicitante_id: userId ?? null,
+              canal: "sistema",
+              estado: asignadoId ? "asignado" : "nuevo",
+              asignado_a: asignadoId,
+              vence_el: String(fd.get("vence_el") || "") || null,
+              created_by: userId ?? null,
+            });
+            setSaving(false);
+            if (error) return toast.error(error.message);
+            toast.success("Ticket creado");
+            setOpen(false);
+            const id =
+              data && typeof data === "object" && !Array.isArray(data)
+                ? (data as { id?: string }).id
+                : Array.isArray(data)
+                  ? (data[0] as { id?: string })?.id
+                  : undefined;
+            onDone(id);
+          }}
+        >
           <div className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Qué pasa</p>
             <div className="space-y-1.5">
@@ -106,22 +114,46 @@ export function NuevoTicket({
               <div className="space-y-1.5">
                 <Label>Tipo</Label>
                 <Select value={tipo} onValueChange={setTipo}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{TIPOS.map((t) => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}</SelectContent>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIPOS.map((t) => (
+                      <SelectItem key={t.key} value={t.key}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Prioridad</Label>
                 <Select value={prioridad} onValueChange={setPrioridad}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{PRIORIDADES.map((p) => <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>)}</SelectContent>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIORIDADES.map((p) => (
+                      <SelectItem key={p} value={p} className="capitalize">
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Categoría</Label>
                 <Select value={categoria} onValueChange={setCategoria}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{CATEGORIAS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIAS.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -144,18 +176,28 @@ export function NuevoTicket({
               <div className="col-span-2 space-y-1.5">
                 <Label>Asignar a</Label>
                 <Select value={asignado} onValueChange={setAsignado}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Cola (sin asignar)</SelectItem>
-                    {perfiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
+                    {perfiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.full_name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
           </div>
           <DialogFooter className="gap-2 border-t border-border/70 pt-4 sm:justify-end">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Creando…" : "Crear ticket"}</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving} className="bg-amber-500 hover:bg-amber-600">
+              {saving ? "Creando…" : "Crear ticket"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
