@@ -10,6 +10,8 @@ const scrypt = promisify(scryptCb);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+  max: Number(process.env.PG_POOL_MAX || 10),
+  idleTimeoutMillis: 30_000,
 });
 
 export type AppRole = "administrador" | "tecnico" | "consulta";
