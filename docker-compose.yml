@@ -1,21 +1,20 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: syswiki-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: syswiki
       POSTGRES_USER: syswiki
-      POSTGRES_PASSWORD: cambia_esta_clave
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cambiá_esta_clave}
+      POSTGRES_DB: syswiki
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U syswiki -d syswiki"]
+      test: ["CMD-SHELL", "pg_isready -U syswiki"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
-  postgres_data:
+  pgdata:
