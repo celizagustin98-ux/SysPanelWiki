@@ -9,6 +9,8 @@ import {
   getSession,
   hashPassword,
   hasModulePermission,
+  invalidateAuthCache,
+  invalidatePermissionCache,
   one,
   query,
   readFileAsDataUrl,
@@ -159,12 +161,17 @@ async function writeAudit(
   const modulo = moduloOverride || meta?.modulo;
   if (!modulo || rows.length === 0) return;
   const actor = await one<{ full_name: string; email: string }>(`select full_name, email from profiles where id = $1`, [actorId]);
-  for (const row of rows.slice(0, 50)) {
-    await query(
-      `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-      [actorId, actor?.full_name ?? String(detalle.actor_nombre ?? ""), actor?.email ?? String(detalle.actor_email ?? ""), modulo, accion, row.id ? String(row.id) : null, rowDescription(table, row) || String(detalle.entidad_desc ?? ""), JSON.stringify({ tabla: table, ...detalle })],
-    );
-  }
+  // Un solo insert para todas las filas (antes era una consulta por fila, en secuencia).
+  const values: unknown[] = [];
+  const tuples = rows.slice(0, 50).map((row) => {
+    values.push(actorId, actor?.full_name ?? String(detalle.actor_nombre ?? ""), actor?.email ?? String(detalle.actor_email ?? ""), modulo, accion, row.id ? String(row.id) : null, rowDescription(table, row) || String(detalle.entidad_desc ?? ""), JSON.stringify({ tabla: table, ...detalle }));
+    const n = values.length;
+    return `($${n - 7}, $${n - 6}, $${n - 5}, $${n - 4}, $${n - 3}, $${n - 2}, $${n - 1}, $${n}::jsonb)`;
+  });
+  await query(
+    `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle) values ${tuples.join(", ")}`,
+    values,
+  );
 }
 
 function prepareCredentialPayload(payload: Record<string, unknown>) {
@@ -300,6 +307,11 @@ export const apiMutate = createServerFn({ method: "POST" })
     const session = await requireSession(data.token);
     const table = tableName(data.table);
     await assertWriteAccess(session.user.id, table);
+    if ((data.action === "update" || data.action === "delete") && !data.filters?.length) {
+      throw new Error("Operación bloqueada: falta indicar qué registros modificar");
+    }
+    if (table === "role_permissions") invalidatePermissionCache();
+    if (table === "user_roles" || table === "profiles") invalidateAuthCache();
     const values: unknown[] = [];
     const where = appendFilters(data.filters, values);
 
@@ -329,7 +341,7 @@ export const apiMutate = createServerFn({ method: "POST" })
       if (assignments.length === 0) throw new Error("Sin datos para actualizar");
       const result = await query<Record<string, unknown>>(`update ${table} set ${assignments.join(", ")}${where} returning *`, values);
       await writeAudit(session.user.id, table, "editar", result.rows, { campos: Object.keys(payload).filter((k) => k !== "secreto") });
-      return { data: null, error: null };
+      return { data: null, count: result.rowCount ?? 0, error: null };
     }
 
     let rows = Array.isArray(data.values) ? data.values : [data.values as Record<string, unknown>];
@@ -381,6 +393,11 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto }, error: null };
     }
+    if (data.name === "registrar_vista_instructivo") {
+      const id = String(data.args?._id ?? "");
+      if (id) await query(`update wiki_docs set views = views + 1 where id = $1`, [id]);
+      return { data: null, error: null };
+    }
     if (data.name === "buscar_instructivos") {
       const term = String(data.args?._q ?? "").trim();
       if (!term) return { data: [], error: null };
@@ -391,8 +408,10 @@ export const apiRpc = createServerFn({ method: "POST" })
     if (data.name === "set_user_role") {
       await assertAdmin(session.user.id);
       if (data.args?._user_id === session.user.id && data.args?._role !== "administrador") throw new Error("No podés quitarte tu propio rol de administrador");
+      if (!["administrador", "tecnico", "consulta"].includes(String(data.args?._role))) throw new Error("Rol inválido");
       await query(`delete from user_roles where user_id = $1`, [data.args?._user_id]);
       await query(`insert into user_roles (user_id, role) values ($1, $2)`, [data.args?._user_id, data.args?._role]);
+      invalidateAuthCache(String(data.args?._user_id));
       await writeAudit(session.user.id, "user_roles", "asignar_rol", [{ id: data.args?._user_id, user_id: data.args?._user_id, role: data.args?._role }], { rol: data.args?._role });
       return { data: null, error: null };
     }
@@ -502,6 +521,9 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
     const session = await requireSession(data.token);
     if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
     await query(`update app_users set password_hash = $1 where id = $2`, [await hashPassword(data.password), session.user.id]);
+    // Cierra las demás sesiones abiertas de este usuario.
+    await query(`delete from app_sessions where user_id = $1 and token_hash <> encode(sha256(convert_to($2, 'utf8')), 'hex')`, [session.user.id, data.token ?? ""]);
+    invalidateAuthCache(session.user.id);
     return { ok: true };
   });
 

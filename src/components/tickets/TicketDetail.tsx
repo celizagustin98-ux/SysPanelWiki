@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/utils";
+import { cn, formatFecha } from "@/lib/utils";
 import {
   ESTADOS,
   ESTADO_STYLE,
@@ -197,7 +197,7 @@ export function TicketDetail({
               <MetaItem label="Categoría">{ticket.categoria || "—"}</MetaItem>
               <MetaItem label="Asignado">{nombre(ticket.asignado_a)}</MetaItem>
               <MetaItem label="Actualizado">{tiempoRelativo(ticket.updated_at ?? ticket.created_at)}</MetaItem>
-              <MetaItem label="Vence">{ticket.vence_el ? new Date(ticket.vence_el).toLocaleDateString("es-AR") : "—"}</MetaItem>
+              <MetaItem label="Vence">{formatFecha(ticket.vence_el)}</MetaItem>
             </div>
 
             <section>
@@ -208,8 +208,8 @@ export function TicketDetail({
             </section>
 
             {ticket.resolucion && (
-              <section className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Resolución</p>
+              <section className="rounded-lg border border-ok/25 bg-ok/9 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ok ">Resolución</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm">{ticket.resolucion}</p>
               </section>
             )}
@@ -339,7 +339,7 @@ export function TicketDetail({
               </PropField>
               {ticket.vence_el && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Clock3 className="size-3.5" /> Vence {new Date(ticket.vence_el).toLocaleDateString("es-AR")}
+                  <Clock3 className="size-3.5" /> Vence {formatFecha(ticket.vence_el)}
                 </p>
               )}
             </div>

@@ -69,8 +69,8 @@ function StatusFrame({
 function NotFoundComponent() {
   return (
     <StatusFrame
-      title="Pagina no encontrada"
-      description="La ruta no existe o fue movida. Volve al panel o usa el menu lateral."
+      title="Página no encontrada"
+      description="La ruta no existe o fue movida. Volvé al panel o usá el menú lateral."
       primaryLabel="Ir al inicio"
       secondaryHref="/dashboard"
       secondaryLabel="Dashboard"
@@ -88,14 +88,14 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 
   return (
     <StatusFrame
-      title="El panel no cargo"
-      description="Ocurrio un error inesperado. Podes reintentar o volver al inicio."
+      title="El panel no cargó"
+      description="Ocurrió un error inesperado. Podés reintentar o volver al inicio."
       primaryLabel="Reintentar"
       onPrimary={() => {
         router.invalidate();
         reset();
       }}
-      code="Error de aplicacion"
+      code="Error de aplicación"
     />
   );
 }
@@ -105,19 +105,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "SysIntranet | Area Wiki" },
+      { title: "SysIntranet | Área de Sistemas" },
       {
         name: "description",
-        content: "Wiki operativa para sistemas: guardias, inventario, toners y tareas.",
+        content: "Centro de operaciones del Área de Sistemas: tickets, inventario, tóners, guardias e instructivos.",
       },
-      { property: "og:title", content: "SysIntranet | Area Wiki" },
+      { property: "og:title", content: "SysIntranet | Área de Sistemas" },
       {
         property: "og:description",
         content: "Wiki operativa, guardias, inventario, toners, tareas y credenciales.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "theme-color", content: "#0b1220" },
+      { name: "theme-color", content: "#14171c" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -132,10 +132,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+// Aplica el tema guardado antes del primer pintado (evita el parpadeo claro/oscuro).
+const THEME_BOOT = `try{var t=localStorage.getItem("intranet-theme");if(t==="light")document.documentElement.classList.remove("dark");else document.documentElement.classList.add("dark")}catch(e){}`;
+
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="es" className="dark">
+    <html lang="es" className="dark" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <HeadContent />
       </head>
       <body>
@@ -154,7 +158,7 @@ function RootComponent() {
       <ThemeProvider>
         <AuthProvider>
           <Outlet />
-          <Toaster richColors position="top-right" closeButton />
+          <Toaster richColors position="bottom-right" closeButton />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

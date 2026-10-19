@@ -5,7 +5,7 @@ export const Route = createFileRoute("/_app/guardias")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Guardias | SysPanelWiki" },
+      { title: "Guardias · SysIntranet" },
       {
         name: "description",
         content: "Planilla de guardias por período 21–20, feriados y liquidación.",

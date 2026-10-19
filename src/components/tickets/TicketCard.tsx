@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, formatFecha } from "@/lib/utils";
 import {
   ESTADOS,
   PRIORIDAD_STYLE,
@@ -59,7 +59,7 @@ export function TicketCard({
           </span>
           <span className="truncate text-[11px] text-muted-foreground">
             {ticket.vence_el
-              ? new Date(ticket.vence_el).toLocaleDateString("es-AR", { day: "numeric", month: "short" })
+              ? formatFecha(ticket.vence_el, { day: "numeric", month: "short" })
               : tiempoRelativo(ticket.updated_at ?? ticket.created_at)}
           </span>
         </div>

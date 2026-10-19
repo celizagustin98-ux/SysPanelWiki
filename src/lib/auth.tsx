@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api } from "@/lib/api/client";
+import { api, getToken } from "@/lib/api/client";
 
 export type AppRole = "administrador" | "tecnico" | "consulta";
 
@@ -36,6 +36,8 @@ type AuthCtx = {
   role: AppRole | null;
   perms: PermRow[];
   loading: boolean;
+  error: string | null;
+  retry: () => Promise<void>;
   isAdmin: boolean;
   canWrite: boolean;
   can: (modulo: Modulo, accion: Accion) => boolean;
@@ -98,66 +100,77 @@ function traducirError(msg: string): string {
   return msg;
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [role, setRole] = useState<AppRole | null>(null);
-  const [perms, setPerms] = useState<PermRow[]>([]);
-  const [loading, setLoading] = useState(true);
+const SESSION_CACHE_KEY = "syswiki.session.cache";
+const PERMS_CACHE_KEY = "syswiki.perms.cache";
 
-  useEffect(() => {
-    const { data: sub } = api.auth.onAuthStateChange((_e, s) => {
-      setSession(s);
-      if (!s) {
-        setProfile(null);
-        setRole(null);
-        setPerms([]);
-      }
-    });
-    api.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-    return () => sub.subscription.unsubscribe();
+function readCache<T>(key: string): T | null {
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key: string, value: unknown) {
+  try {
+    if (value == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* almacenamiento no disponible */
+  }
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  // Si hay una sesión guardada se pinta al instante y se valida en segundo plano.
+  const [session, setSessionState] = useState<Session | null>(() =>
+    getToken() ? readCache<Session>(SESSION_CACHE_KEY) : null,
+  );
+  const [perms, setPerms] = useState<PermRow[]>(() => readCache<PermRow[]>(PERMS_CACHE_KEY) ?? []);
+  const [loading, setLoading] = useState(() => !session);
+  const [error, setError] = useState<string | null>(null);
+
+  const setSession = useCallback((next: Session | null) => {
+    setSessionState(next);
+    writeCache(SESSION_CACHE_KEY, next);
+    if (!next) {
+      setPerms([]);
+      writeCache(PERMS_CACHE_KEY, null);
+    }
   }, []);
 
   const loadPerms = useCallback(async () => {
-    const { data } = await api
+    const { data, error: permsError } = await api
       .from("role_permissions")
       .select("id, role, modulo, can_view, can_create, can_edit, can_delete");
+    if (permsError) return;
     setPerms((data ?? []) as PermRow[]);
+    writeCache(PERMS_CACHE_KEY, data ?? []);
   }, []);
 
-  useEffect(() => {
-    const uid = session?.user?.id;
-    if (!uid) return;
-    let active = true;
-    (async () => {
-      const [{ data: p }, { data: r }] = await Promise.all([
-        api
-          .from("profiles")
-          .select("id, full_name, email, username")
-          .eq("id", uid)
-          .maybeSingle(),
+  const validate = useCallback(async () => {
+    setError(null);
+    if (!getToken()) {
+      setSession(null);
+      setLoading(false);
+      return;
+    }
+    const [{ data, error: sessionError }] = await Promise.all([api.auth.getSession(), loadPerms()]);
+    if (sessionError) {
+      // Falla de red o de base: se mantiene la sesión guardada si existe; si no, se muestra el error.
+      if (!readCache<Session>(SESSION_CACHE_KEY)) setError(traducirError(sessionError.message));
+    } else {
+      setSession((data?.session as Session | null) ?? null);
+    }
+    setLoading(false);
+  }, [loadPerms, setSession]);
 
-        api.from("user_roles").select("role").eq("user_id", uid),
-      ]);
-      if (!active) return;
-      setProfile((p as Profile) ?? null);
-      const roles = (r ?? []).map((x) => x.role as AppRole);
-      setRole(
-        roles.includes("administrador")
-          ? "administrador"
-          : roles.includes("tecnico")
-            ? "tecnico"
-            : "consulta",
-      );
-      await loadPerms();
-    })();
-    return () => {
-      active = false;
-    };
-  }, [session?.user?.id, loadPerms]);
+  useEffect(() => {
+    void validate();
+  }, [validate]);
+
+  const profile = session?.profile ?? null;
+  const role = session?.role ?? null;
 
   const isAdmin = role === "administrador";
 
@@ -185,6 +198,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role,
     perms,
     loading,
+    error,
+    retry: validate,
     isAdmin,
     canWrite: role === "administrador" || role === "tecnico",
     can,
@@ -198,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error) return { error: traducirError(error.message) };
         if (!data.session?.token) return { error: "Usuario o contraseña incorrectos" };
         setSession(data.session);
+        void loadPerms();
         return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo ingresar" };
@@ -212,7 +228,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
         });
         if (error) return { error: traducirError(error.message) };
-        if (data.session?.token) setSession(data.session);
+        if (data.session?.token) {
+          setSession(data.session);
+          void loadPerms();
+        }
         return { error: null };
       } catch (e) {
         return { error: e instanceof Error ? traducirError(e.message) : "No se pudo crear la cuenta" };
@@ -228,9 +247,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await api.auth.signOut();
       } finally {
         setSession(null);
-        setProfile(null);
-        setRole(null);
-        setPerms([]);
       }
     },
   };

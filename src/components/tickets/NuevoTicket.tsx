@@ -50,7 +50,7 @@ export function NuevoTicket({
       }}
     >
       <DialogTrigger asChild>
-        <Button className="h-10 rounded-full bg-amber-500 px-5 text-white hover:bg-amber-600">
+        <Button className="h-9">
           <Plus className="size-4" /> Nuevo ticket
         </Button>
       </DialogTrigger>
@@ -195,7 +195,7 @@ export function NuevoTicket({
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={saving} className="bg-amber-500 hover:bg-amber-600">
+            <Button type="submit" disabled={saving}>
               {saving ? "Creando…" : "Crear ticket"}
             </Button>
           </DialogFooter>

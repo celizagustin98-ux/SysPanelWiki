@@ -5,6 +5,7 @@ import { Bell, CheckCircle2, ClipboardList, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/AppShell";
 import {
   Select,
   SelectContent,
@@ -15,7 +16,7 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/utils";
+import { cn, formatFecha } from "@/lib/utils";
 import {
   type Ticket as TicketT,
   estadoLabel,
@@ -35,7 +36,7 @@ export const Route = createFileRoute("/_app/tareas")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Tickets | Bandeja de trabajo" },
+      { title: "Tickets · SysIntranet" },
       { name: "description", content: "Bandeja de trabajo interna de sistemas." },
       { property: "og:title", content: "Tickets | SysIntranet" },
     ],
@@ -46,10 +47,10 @@ export const Route = createFileRoute("/_app/tareas")({
 type Vista = "activos" | "historial";
 
 const PRIO_BADGE: Record<string, string> = {
-  critica: "bg-rose-100 text-rose-700",
-  alta: "bg-amber-100 text-amber-800",
-  media: "bg-slate-100 text-slate-600",
-  baja: "bg-slate-50 text-slate-500",
+  critica: "bg-crit/12 text-crit",
+  alta: "bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]",
+  media: "bg-muted text-muted-foreground",
+  baja: "bg-muted text-muted-foreground",
 };
 const PRIO_LABEL: Record<string, string> = {
   critica: "Urgente",
@@ -58,13 +59,13 @@ const PRIO_LABEL: Record<string, string> = {
   baja: "Baja",
 };
 const ESTADO_BADGE: Record<string, string> = {
-  nuevo: "bg-sky-100 text-sky-800",
-  asignado: "bg-violet-100 text-violet-800",
-  en_curso: "bg-sky-100 text-sky-900",
-  esperando: "bg-amber-100 text-amber-900",
-  resuelto: "bg-emerald-100 text-emerald-800",
-  cerrado: "bg-slate-100 text-slate-600",
-  cancelado: "bg-slate-100 text-slate-500",
+  nuevo: "bg-info/12 text-info",
+  asignado: "bg-chart-4/12 text-chart-4",
+  en_curso: "bg-info/12 text-info",
+  esperando: "bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]",
+  resuelto: "bg-ok/12 text-ok",
+  cerrado: "bg-muted text-muted-foreground",
+  cancelado: "bg-muted text-muted-foreground",
 };
 
 function progressBucket(estado: string): "nuevo" | "progreso" | "espera" | "resuelto" {
@@ -76,9 +77,7 @@ function progressBucket(estado: string): "nuevo" | "progreso" | "espera" | "resu
 
 function formatDay(iso?: string | null) {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+  return formatFecha(iso, { day: "2-digit", month: "short" });
 }
 
 function TicketsPage() {
@@ -158,28 +157,28 @@ function TicketsPage() {
         key: "sin",
         title: "Sin asignar",
         hint: "Tickets que todavía necesitan una persona responsable.",
-        dot: "bg-slate-400",
+        dot: "bg-muted-foreground/50",
         items: sinAsignar,
       },
       {
         key: "prog",
         title: "En progreso",
         hint: "Tickets con trabajo activo y seguimiento en curso.",
-        dot: "bg-sky-500",
+        dot: "bg-info",
         items: enProgreso,
       },
       {
         key: "esp",
         title: "Pendiente de respuesta",
         hint: "Tickets en espera de información o una dependencia.",
-        dot: "bg-amber-400",
+        dot: "bg-warn",
         items: pendiente,
       },
       {
         key: "res",
         title: "Resuelto (abierto)",
         hint: "Resueltos pendientes de cierre formal.",
-        dot: "bg-emerald-500",
+        dot: "bg-ok",
         items: resueltos,
       },
       {
@@ -261,81 +260,67 @@ function TicketsPage() {
 
   return (
     <div className="page-content min-h-[calc(100vh-6rem)]">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-            Trabajo interno <span className="text-muted-foreground/40">/</span> Tickets
-          </p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight text-foreground/90 sm:text-2xl">
-            Bandeja de trabajo
-          </h1>
-        </div>
-        {canWrite && (
-          <NuevoTicket
-            perfiles={perfiles}
-            userId={user?.id}
-            userName={profile?.full_name}
-            onDone={(id) => {
-              refetch();
-              if (id) setSelectedId(id);
-            }}
-          />
-        )}
-      </div>
+      <PageHeader
+        title="Bandeja de tickets"
+        description="Qué está sin asignar, qué está en curso y qué necesita respuesta."
+        action={
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-9 pl-9"
+                placeholder="Buscar por número, título, sector…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            {canWrite && (
+              <NuevoTicket
+                perfiles={perfiles}
+                userId={user?.id}
+                userName={profile?.full_name}
+                onDone={(id) => {
+                  refetch();
+                  if (id) setSelectedId(id);
+                }}
+              />
+            )}
+          </div>
+        }
+      />
 
-      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-        Mi espacio <span className="text-muted-foreground/40">/</span> Tickets internos
-      </p>
-      <div className="mb-6 mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Mis tickets</h2>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            Una bandeja clara para saber qué está sin asignar, qué está en curso y qué necesita respuesta.
-          </p>
-        </div>
-        <div className="relative w-full max-w-xs shrink-0">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-10 rounded-full border-border/60 bg-card pl-10 shadow-sm"
-            placeholder="Buscar tickets…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid gap-3 sm:grid-cols-3 stagger">
         <KpiCard
-          icon={<CheckCircle2 className="size-5 text-sky-600" />}
-          iconBg="bg-sky-50"
+          icon={<CheckCircle2 className="size-4" />}
+          tone="info"
           value={counts.mios}
           title="Pendientes para mí"
           hint="Asignados que todavía requieren una acción"
         />
         <KpiCard
-          icon={<ClipboardList className="size-5 text-amber-600" />}
-          iconBg="bg-amber-50"
+          icon={<ClipboardList className="size-4" />}
+          tone="warn"
           value={counts.creados}
           title="Creados por mí"
           hint="Solicitudes que abriste y siguen activas"
         />
         <KpiCard
-          icon={<Bell className="size-5 text-teal-600" />}
-          iconBg="bg-teal-50"
+          icon={<Bell className="size-4" />}
+          tone="ok"
           value={counts.seguimiento}
           title="Seguimiento"
           hint="Cambios recientes en tickets que seguís"
         />
       </div>
 
-      <div className="mb-5 inline-flex rounded-full bg-muted/70 p-1">
+      <div className="mb-5 inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
         <button
           type="button"
           onClick={() => setVista("activos")}
           className={cn(
-            "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
+            "inline-flex items-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition",
             vista === "activos"
-              ? "bg-foreground text-background shadow-sm"
+              ? "bg-primary/12 text-primary"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -343,8 +328,8 @@ function TicketsPage() {
           Activos
           <span
             className={cn(
-              "inline-flex min-w-5 justify-center rounded-full px-1.5 text-[11px] font-semibold",
-              vista === "activos" ? "bg-amber-400 text-amber-950" : "bg-background text-muted-foreground",
+              "num inline-flex min-w-5 justify-center rounded px-1.5 text-[11px] font-semibold",
+              vista === "activos" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
             )}
           >
             {counts.total}
@@ -354,17 +339,17 @@ function TicketsPage() {
           type="button"
           onClick={() => setVista("historial")}
           className={cn(
-            "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
+            "inline-flex items-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition",
             vista === "historial"
-              ? "bg-foreground text-background shadow-sm"
+              ? "bg-primary/12 text-primary"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
           Historial · 30 días
           <span
             className={cn(
-              "inline-flex min-w-5 justify-center rounded-full px-1.5 text-[11px] font-semibold",
-              vista === "historial" ? "bg-amber-400 text-amber-950" : "bg-background text-muted-foreground",
+              "num inline-flex min-w-5 justify-center rounded px-1.5 text-[11px] font-semibold",
+              vista === "historial" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
             )}
           >
             {counts.historial}
@@ -387,24 +372,24 @@ function TicketsPage() {
               </span>
             </div>
             <div className="mb-4 flex h-2 overflow-hidden rounded-full bg-muted">
-              <span className="bg-slate-400" style={{ width: pct(counts.nuevo) }} />
-              <span className="bg-sky-600" style={{ width: pct(counts.progreso) }} />
-              <span className="bg-amber-400" style={{ width: pct(counts.espera) }} />
-              <span className="bg-emerald-500" style={{ width: pct(counts.resuelto) }} />
+              <span className="bg-muted-foreground/50 transition-[width] duration-700" style={{ width: pct(counts.nuevo) }} />
+              <span className="bg-info transition-[width] duration-700" style={{ width: pct(counts.progreso) }} />
+              <span className="bg-warn transition-[width] duration-700" style={{ width: pct(counts.espera) }} />
+              <span className="bg-ok transition-[width] duration-700" style={{ width: pct(counts.resuelto) }} />
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
-                { label: "Nuevo", n: counts.nuevo, dot: "bg-slate-400" },
-                { label: "En progreso", n: counts.progreso, dot: "bg-sky-600" },
-                { label: "En espera", n: counts.espera, dot: "bg-amber-400" },
-                { label: "Resuelto", n: counts.resuelto, dot: "bg-emerald-500" },
+                { label: "Nuevo", n: counts.nuevo, dot: "bg-muted-foreground/60" },
+                { label: "En progreso", n: counts.progreso, dot: "bg-info" },
+                { label: "En espera", n: counts.espera, dot: "bg-warn" },
+                { label: "Resuelto", n: counts.resuelto, dot: "bg-ok" },
               ].map((b) => (
-                <div key={b.label} className="rounded-xl bg-muted/35 px-3 py-2.5">
+                <div key={b.label} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
                   <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className={cn("size-1.5 rounded-full", b.dot)} />
                     {b.label}
                   </p>
-                  <p className="mt-0.5 text-lg font-semibold tabular-nums">{b.n}</p>
+                  <p className="num mt-0.5 text-lg font-semibold">{b.n}</p>
                 </div>
               ))}
             </div>
@@ -423,7 +408,7 @@ function TicketsPage() {
           {isLoading && (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-28 animate-pulse rounded-2xl bg-muted/40" />
+                <div key={i} className="h-28 skeleton rounded-xl" />
               ))}
             </div>
           )}
@@ -459,7 +444,7 @@ function TicketsPage() {
 
       {vista === "historial" && (
         <section className="rise-in">
-          <div className="mb-4 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+          <div className="mb-4 rounded-2xl border border-warn/60 bg-warn/12 px-4 py-3 text-sm text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">
             <span className="font-semibold">{hist.length} tickets</span> en historial. Los que cumplan 30 días salen de
             esta vista.
           </div>
@@ -644,7 +629,7 @@ function TicketTable({
 
           <div className="text-xs text-muted-foreground">
             <p>{formatDay(t.updated_at ?? t.created_at) || tiempoRelativo(t.updated_at)}</p>
-            {t.vence_el && <p className="text-[11px] text-rose-600">{formatDay(t.vence_el)}</p>}
+            {t.vence_el && <p className="text-[11px] text-crit">{formatDay(t.vence_el)}</p>}
           </div>
 
           <div className="flex justify-end gap-1.5">
@@ -654,7 +639,7 @@ function TicketTable({
               </Button>
             )}
             {t.asignado_a && (
-              <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800">
+              <span className="inline-flex items-center rounded-full bg-warn/12 px-2.5 py-1 text-[11px] font-medium text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">
                 Asignado
               </span>
             )}
@@ -667,26 +652,26 @@ function TicketTable({
 
 function KpiCard({
   icon,
-  iconBg,
+  tone,
   value,
   title,
   hint,
 }: {
   icon: ReactNode;
-  iconBg: string;
+  tone: "ok" | "warn" | "info";
   value: number;
   title: string;
   hint: string;
 }) {
+  const toneClass = { ok: "bg-ok/12 text-ok", warn: "bg-warn/14 text-warn", info: "bg-info/12 text-info" }[tone];
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-card p-5 shadow-[var(--shadow-panel)]">
-      <p className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/55">
-        Activos
-      </p>
-      <div className={cn("mb-3 grid size-10 place-items-center rounded-xl", iconBg)}>{icon}</div>
-      <p className="text-3xl font-semibold tabular-nums tracking-tight">{value}</p>
-      <p className="mt-1 text-sm font-semibold">{title}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+    <div className="kpi-cell">
+      <div className="flex items-center justify-between">
+        <p className="kpi-label">{title}</p>
+        <div className={cn("grid size-8 place-items-center rounded-lg", toneClass)}>{icon}</div>
+      </div>
+      <p className="kpi-value">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }

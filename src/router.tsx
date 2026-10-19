@@ -21,6 +21,8 @@ export const getRouter = () => {
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
+    // Precarga el código de la pantalla al pasar el mouse por el menú.
+    defaultPreload: "intent",
     defaultPreloadStaleTime: 30_000,
   });
 

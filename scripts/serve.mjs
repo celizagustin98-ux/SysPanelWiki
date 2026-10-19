@@ -446,9 +446,31 @@ function formatDisplayVersion(version) {
   return raw.includes("beta") ? `V ${base} beta${beta && beta !== "0" ? ` ${beta}` : ""}` : `V ${base} oficial`;
 }
 
+// Qué ofrece la pantalla de acceso: registro público, o alta del primer administrador si no hay usuarios.
+let authFlagsCache = { value: null, expires: 0 };
+async function publicAuthFlags() {
+  if (authFlagsCache.value && authFlagsCache.expires > Date.now()) return authFlagsCache.value;
+  let setupRequired = false;
+  let database = true;
+  try {
+    const row = await one(`select exists(select 1 from app_users) as has_users`);
+    setupRequired = !row?.has_users;
+  } catch {
+    database = false;
+  }
+  const value = { database, setupRequired, signupEnabled: setupRequired || process.env.ALLOW_PUBLIC_SIGNUP === "true" };
+  authFlagsCache = { value, expires: Date.now() + (database ? 30_000 : 5_000) };
+  return value;
+}
+
 async function handleSystem(req, res) {
   if (req.method === "GET" && req.url?.startsWith("/api/system/health")) {
-    sendJson(res, 200, { ok: true, maintenance: maintenanceEnabled() });
+    sendJson(res, 200, {
+      ok: true,
+      maintenance: maintenanceEnabled(),
+      version: formatDisplayVersion(packageInfo.version || buildInfo.version || "1.0.0"),
+      ...(await publicAuthFlags()),
+    });
     return true;
   }
   if (req.method !== "GET" || !req.url?.startsWith("/api/system/info")) return false;

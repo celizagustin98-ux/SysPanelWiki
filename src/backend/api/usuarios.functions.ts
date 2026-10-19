@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireAppAuth } from "@/backend/core/auth-middleware";
-import { assertAdmin, hashPassword, query } from "@/backend/core/db";
+import { assertAdmin, hashPassword, invalidateAuthCache, query } from "@/backend/core/db";
 
 type AppRole = "administrador" | "tecnico" | "consulta";
 
@@ -94,6 +94,7 @@ export const eliminarUsuario = createServerFn({ method: "POST" })
       [data.userId],
     );
     await query(`delete from app_users where id = $1`, [data.userId]);
+    invalidateAuthCache(data.userId);
     await auditarUsuario(
       context.userId,
       "eliminar",
@@ -124,6 +125,9 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
         await hashPassword(data.password),
         data.userId,
       ]);
+      // Contraseña restablecida: se cierran todas sus sesiones abiertas.
+      await query(`delete from app_sessions where user_id = $1`, [data.userId]);
+      invalidateAuthCache(data.userId);
     }
     if (data.fullName) {
       await query(`update profiles set full_name = $1 where id = $2`, [data.fullName, data.userId]);

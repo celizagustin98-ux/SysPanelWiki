@@ -1,12 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
   BookOpen,
   Boxes,
   CalendarClock,
-  CheckCircle2,
   ClipboardList,
   Clock3,
   KeyRound,
@@ -17,7 +17,6 @@ import {
 import { format, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/AppShell";
 import { coversNight, isVacacion, parseLocal } from "@/components/guardias/domain";
 import { api } from "@/lib/api/client";
@@ -28,7 +27,7 @@ export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Dashboard | SysIntranet" },
+      { title: "Dashboard · SysIntranet" },
       {
         name: "description",
         content: "Alertas operativas, guardia del día y cola de trabajo.",
@@ -87,6 +86,13 @@ function n(value: unknown, fallback = 0) {
   return Number.isFinite(x) ? x : fallback;
 }
 
+// Estados que cierran un ticket (ver ESTADOS en components/tickets/constants.ts).
+const ESTADOS_CERRADOS = ["resuelto", "cerrado", "cancelado", "hecha"];
+
+function isAbierto(estado?: string | null) {
+  return !ESTADOS_CERRADOS.includes((estado ?? "").toLowerCase());
+}
+
 function isCritico(t: TonerRow) {
   return n(t.stock) <= n(t.stock_minimo, 2);
 }
@@ -94,13 +100,6 @@ function isCritico(t: TonerRow) {
 function isAltaPrioridad(p?: string | null) {
   const v = (p ?? "").toLowerCase();
   return v === "alta" || v === "urgente" || v === "critica" || v === "crítica";
-}
-
-function prioridadTone(p: string) {
-  if (isAltaPrioridad(p)) return "bg-destructive/15 text-destructive border-destructive/30";
-  if ((p ?? "").toLowerCase() === "media")
-    return "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30";
-  return "bg-muted text-muted-foreground border-border";
 }
 
 async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }>): Promise<T[]> {
@@ -169,7 +168,7 @@ function fmtRango(desde: string, hasta: string) {
 }
 
 function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, can } = useAuth();
   const nombre = prettyName(profile?.full_name);
   const fecha = hoyLabel().charAt(0).toUpperCase() + hoyLabel().slice(1);
 
@@ -183,8 +182,7 @@ function Dashboard() {
         safeList<TareaLite>(
           api
             .from("tareas")
-            .select("id, titulo, estado, prioridad, vence_el, asignado_a")
-            .neq("estado", "hecha") as Promise<{ data: TareaLite[] | null; error: unknown }>,
+            .select("id, titulo, estado, prioridad, vence_el, asignado_a") as Promise<{ data: TareaLite[] | null; error: unknown }>,
         ),
         safeList<TonerRow>(
           api.from("toner_modelos").select("id, nombre, stock, stock_minimo") as Promise<{
@@ -193,23 +191,25 @@ function Dashboard() {
           }>,
         ),
         safeList<GuardiaLite>(
+          // Solo guardias vigentes o futuras: antes traía las 120 más viejas y nunca encontraba la actual.
           api
             .from("guardias")
             .select("id, operador_nombre, desde, hasta, notas")
+            .gte("hasta", new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
             .order("desde")
-            .limit(120) as Promise<{ data: GuardiaLite[] | null; error: unknown }>,
+            .limit(60) as Promise<{ data: GuardiaLite[] | null; error: unknown }>,
         ),
         safeList<TareaLite>(
           api
             .from("tareas")
             .select("id, titulo, estado, prioridad, vence_el")
             .eq("asignado_a", user?.id ?? "")
-            .neq("estado", "hecha")
-            .limit(8) as Promise<{ data: TareaLite[] | null; error: unknown }>,
+            .order("updated_at", { ascending: false })
+            .limit(40) as Promise<{ data: TareaLite[] | null; error: unknown }>,
         ),
       ]);
 
-      const abiertas = tareas.filter((t) => (t.estado ?? "").toLowerCase() !== "hecha");
+      const abiertas = tareas.filter((t) => isAbierto(t.estado));
       const urgentes = abiertas.filter((t) => isAltaPrioridad(t.prioridad));
       const vencidas = abiertas.filter(
         (t) => t.vence_el && String(t.vence_el).slice(0, 10) < today,
@@ -224,6 +224,7 @@ function Dashboard() {
 
       return {
         abiertas: abiertas.length,
+        sinAsignar: abiertas.filter((t) => !t.asignado_a).length,
         urgentes: urgentes.length,
         vencidas: vencidas.length,
         criticos,
@@ -232,315 +233,351 @@ function Dashboard() {
           .sort((a, b) => rank(a.prioridad) - rank(b.prioridad))
           .slice(0, 6),
         guardia: resolveGuardiaAhora(guardias, now),
-        misTareas: misTareas.slice(0, 8),
+        misTareas: misTareas.filter((t) => isAbierto(t.estado)).slice(0, 8),
       };
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 
-  const criticalCount = data?.criticos ?? 0;
-  const urgentes = data?.urgentes ?? 0;
-  const vencidas = data?.vencidas ?? 0;
-  const abiertas = data?.abiertas ?? 0;
+  const guardia = data?.guardia ?? null;
+  const saludo = saludoSegunHora();
 
-  type AlertItem = { key: string; text: string; to: string; tone: "danger" | "warn" };
-  const alerts: AlertItem[] = [];
-  if (criticalCount > 0) {
-    alerts.push({
-      key: "toners",
-      text: `${criticalCount} tóner${criticalCount === 1 ? "" : "s"} bajo mínimo`,
-      to: "/toners",
-      tone: "danger",
-    });
-  }
-  if (urgentes > 0) {
-    alerts.push({
-      key: "urgentes",
-      text: `${urgentes} ticket${urgentes === 1 ? "" : "s"} de prioridad alta`,
-      to: "/tareas",
-      tone: "danger",
-    });
-  }
-  if (vencidas > 0) {
-    alerts.push({
-      key: "vencidas",
-      text: `${vencidas} con fecha vencida`,
-      to: "/tareas",
-      tone: "warn",
-    });
-  }
-  if (!isLoading && !data?.guardia) {
-    alerts.push({
-      key: "guardia",
-      text: "Sin cobertura de guardia cargada",
-      to: "/guardias",
-      tone: "warn",
-    });
-  }
-
-  const kpis = [
+  type Kpi = {
+    label: string;
+    value: number;
+    detail: string;
+    icon: typeof Ticket;
+    to: string;
+    tone: "ok" | "warn" | "crit" | "info";
+  };
+  const kpis: Kpi[] = [
     {
-      label: "Abiertos",
-      value: abiertas,
-      detail: "tickets / tareas",
+      label: "Tickets abiertos",
+      value: data?.abiertas ?? 0,
+      detail: `${data?.sinAsignar ?? 0} sin asignar`,
       icon: Ticket,
       to: "/tareas",
-      alert: abiertas >= 10,
+      tone: (data?.sinAsignar ?? 0) > 0 ? "warn" : "info",
     },
     {
-      label: "Urgentes",
-      value: urgentes,
-      detail: vencidas > 0 ? `${vencidas} vencidos` : "prioridad alta",
+      label: "Prioridad alta",
+      value: data?.urgentes ?? 0,
+      detail: "críticos y altos",
       icon: AlertTriangle,
       to: "/tareas",
-      alert: urgentes > 0 || vencidas > 0,
+      tone: (data?.urgentes ?? 0) > 0 ? "crit" : "ok",
+    },
+    {
+      label: "Vencidos",
+      value: data?.vencidas ?? 0,
+      detail: "fecha límite superada",
+      icon: Clock3,
+      to: "/tareas",
+      tone: (data?.vencidas ?? 0) > 0 ? "warn" : "ok",
     },
     {
       label: "Tóners críticos",
-      value: criticalCount,
-      detail: "bajo mínimo",
+      value: data?.criticos ?? 0,
+      detail: "bajo stock mínimo",
       icon: Printer,
       to: "/toners",
-      alert: criticalCount > 0,
+      tone: (data?.criticos ?? 0) > 0 ? "crit" : "ok",
     },
-  ] as const;
+  ];
 
   const atajos = [
-    { label: "Tickets", to: "/tareas", icon: ClipboardList },
-    { label: "Tóners", to: "/toners", icon: Printer },
-    { label: "Instructivos", to: "/instructivos", icon: BookOpen },
-    { label: "Inventario", to: "/inventario", icon: Boxes },
-    { label: "Guardias", to: "/guardias", icon: CalendarClock },
-    { label: "Credenciales", to: "/credenciales", icon: KeyRound },
-  ] as const;
-
-  const guardia = data?.guardia ?? null;
+    { label: "Tickets", to: "/tareas", icon: ClipboardList, modulo: "tareas" as const },
+    { label: "Tóners", to: "/toners", icon: Printer, modulo: "toners" as const },
+    { label: "Instructivos", to: "/instructivos", icon: BookOpen, modulo: "instructivos" as const },
+    { label: "Inventario", to: "/inventario", icon: Boxes, modulo: "inventario" as const },
+    { label: "Guardias", to: "/guardias", icon: CalendarClock, modulo: "guardias" as const },
+    { label: "Credenciales", to: "/credenciales", icon: KeyRound, modulo: "credenciales" as const },
+  ].filter((a) => can(a.modulo, "view"));
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader title={`Hola, ${nombre}`} description={fecha} />
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow={fecha}
+        title={`${saludo}, ${nombre}`}
+        description="Estado del área en tiempo real: cola de tickets, guardia y stock crítico."
+        action={
+          <div className="flex items-center gap-2">
+            {isFetching && !isLoading && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="led" data-tone="info" data-pulse="true" /> Actualizando
+              </span>
+            )}
+            {can("tareas", "view") && (
+              <Button asChild size="sm">
+                <Link to="/tareas">
+                  <Ticket /> Ir a la bandeja
+                </Link>
+              </Button>
+            )}
+          </div>
+        }
+      />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 stagger">
         {kpis.map((k) => (
-          <Link key={k.label} to={k.to} className="group block">
-            <Card
+          <Link key={k.label} to={k.to} className="kpi-cell panel-hover group block">
+            <div className="flex items-start justify-between gap-2">
+              <p className="kpi-label flex items-center gap-2">
+                <span className="led" data-tone={k.tone} data-pulse={k.tone === "crit"} />
+                {k.label}
+              </p>
+              <k.icon className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+            </div>
+            <p
               className={cn(
-                "h-full border-border/80 bg-card/90 shadow-sm transition-all duration-150",
-                "hover:border-primary/35 hover:shadow-md",
-                k.alert && "border-destructive/40 bg-destructive/[0.04]",
+                "kpi-value",
+                k.tone === "crit" && "text-crit",
+                k.tone === "warn" && "text-[color-mix(in_oklab,var(--warn),var(--foreground)_20%)]",
               )}
             >
-              <CardContent className="p-4 sm:p-5">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                    {k.label}
-                  </p>
-                  <span
-                    className={cn(
-                      "grid size-8 place-items-center rounded-lg border",
-                      k.alert
-                        ? "border-destructive/25 bg-destructive/10 text-destructive"
-                        : "border-border bg-muted/50 text-muted-foreground group-hover:border-primary/30 group-hover:text-primary",
-                    )}
-                  >
-                    <k.icon className="size-4" />
-                  </span>
-                </div>
-                <p
-                  className={cn(
-                    "mt-3 text-3xl font-semibold tabular-nums tracking-tight sm:text-[2rem]",
-                    k.alert && "text-destructive",
-                  )}
-                >
-                  {isLoading ? "—" : k.value}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">{k.detail}</p>
-              </CardContent>
-            </Card>
+              {isLoading ? <span className="skeleton inline-block h-7 w-14 align-middle" /> : <CountUp value={k.value} />}
+            </p>
+            <p className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+              {k.detail}
+              <ArrowRight className="size-3.5 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+            </p>
           </Link>
         ))}
       </div>
 
-      {isLoading ? (
-        <div className="h-11 animate-pulse rounded-xl bg-muted/40" />
-      ) : alerts.length > 0 ? (
-        <div className="grid gap-2">
-          {alerts.map((a) => (
-            <Link
-              key={a.key}
-              to={a.to}
-              className={cn(
-                "flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm transition-colors",
-                a.tone === "danger"
-                  ? "border-destructive/30 bg-destructive/[0.07] text-destructive hover:bg-destructive/12"
-                  : "border-amber-500/30 bg-amber-500/[0.08] text-amber-900 hover:bg-amber-500/15 dark:text-amber-200",
-              )}
-            >
-              <AlertTriangle className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1 font-medium">{a.text}</span>
-              <span className="inline-flex items-center gap-1 text-xs opacity-80">
-                Ver <ArrowRight className="size-3.5" />
-              </span>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-muted/25 px-3.5 py-2.5 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-primary" />
-          Sin alertas operativas
-          {isFetching && <span className="ml-auto text-[11px]">Actualizando…</span>}
-        </div>
-      )}
-
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-border/80 bg-card/90 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
-                <UserRound className="size-3.5" />
-              </span>
-              Guardia ahora
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {guardia ? (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-lg font-semibold tracking-tight">{guardia.operador_nombre}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {fmtRango(guardia.desde, guardia.hasta)}
-                  </p>
-                </div>
-                {guardia.modo === "activa" && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                    <CheckCircle2 className="size-3.5" /> En turno
-                  </div>
-                )}
-                {guardia.modo === "hoy" && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-700 dark:text-sky-300">
-                    <CalendarClock className="size-3.5" /> Asignado hoy
-                  </div>
-                )}
-                {guardia.modo === "proxima" && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-                    <Clock3 className="size-3.5" /> Próximo turno
-                  </div>
-                )}
-                <Button asChild size="sm" variant="outline" className="mt-1 h-8">
-                  <Link to="/guardias">Abrir planilla</Link>
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">No hay turnos cargados en la planilla.</p>
-                <Button asChild size="sm" variant="outline" className="h-8">
-                  <Link to="/guardias">Cargar en planilla</Link>
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <GuardiaCard guardia={guardia} loading={isLoading} canOpen={can("guardias", "view")} />
 
-        <Card className="border-border/80 bg-card/90 shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
-                  <Clock3 className="size-3.5" />
-                </span>
-                Para vos
-              </CardTitle>
-              <Link to="/tareas" className="text-xs font-medium text-primary hover:underline">
-                Ver todas
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-0.5">
-            {(data?.misTareas ?? []).length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                No tenés ítems asignados
-              </p>
-            )}
-            {(data?.misTareas ?? []).map((t) => (
-              <Link
-                key={t.id}
-                to="/tareas"
-                className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted/60"
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">{t.titulo}</span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize",
-                    prioridadTone(t.prioridad),
-                  )}
-                >
-                  {t.prioridad}
-                </span>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
+        <TicketList
+          title="Asignados a vos"
+          icon={UserRound}
+          loading={isLoading}
+          items={data?.misTareas ?? []}
+          empty="No tenés tickets asignados. Buen momento para tomar uno de la cola."
+        />
 
-        <Card className="border-border/80 bg-card/90 shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
-                  <ClipboardList className="size-3.5" />
-                </span>
-                Cola del área
-              </CardTitle>
-              <Link to="/tareas" className="text-xs font-medium text-primary hover:underline">
-                Abrir cola
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-0.5">
-            {(data?.colaArea ?? []).length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">Cola vacía</p>
-            )}
-            {(data?.colaArea ?? []).map((t) => (
-              <Link
-                key={t.id}
-                to="/tareas"
-                className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted/60"
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">{t.titulo}</span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize",
-                    prioridadTone(t.prioridad),
-                  )}
-                >
-                  {t.prioridad}
-                </span>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
+        <TicketList
+          title="Cola del área"
+          icon={ClipboardList}
+          loading={isLoading}
+          items={data?.colaArea ?? []}
+          empty="Cola vacía: no hay tickets abiertos."
+        />
       </div>
 
-      <div>
-        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          Accesos rápidos
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {atajos.map((a) => (
-            <Button
-              key={a.to}
-              asChild
-              size="sm"
-              variant="secondary"
-              className="h-9 rounded-lg border border-border/60 bg-card/80 shadow-xs hover:border-primary/30 hover:bg-accent/60"
-            >
-              <Link to={a.to}>
-                <a.icon className="size-3.5" />
+      {atajos.length > 0 && (
+        <div>
+          <p className="eyebrow mb-2.5">Accesos rápidos</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {atajos.map((a) => (
+              <Link
+                key={a.to}
+                to={a.to}
+                className="panel panel-hover group flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium"
+              >
+                <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary transition-transform group-hover:scale-110">
+                  <a.icon className="size-3.5" />
+                </span>
                 {a.label}
               </Link>
-            </Button>
-          ))}
+            ))}
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function saludoSegunHora(date = new Date()) {
+  const h = date.getHours();
+  if (h < 6) return "Buenas noches";
+  if (h < 13) return "Buen día";
+  if (h < 20) return "Buenas tardes";
+  return "Buenas noches";
+}
+
+/** Número que cuenta desde 0 hasta el valor (respeta "reducir movimiento"). */
+function CountUp({ value, duration = 700 }: { value: number; duration?: number }) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(0);
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setShown(value);
+      return;
+    }
+    const start = performance.now();
+    const initial = from.current;
+    let raf = 0;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setShown(Math.round(initial + (value - initial) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else from.current = value;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return <>{shown}</>;
+}
+
+function PanelHeader({
+  icon: Icon,
+  title,
+  action,
+}: {
+  icon: typeof Ticket;
+  title: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
+      <p className="flex items-center gap-2 text-[13px] font-semibold">
+        <Icon className="size-4 text-primary" />
+        {title}
+      </p>
+      {action}
+    </div>
+  );
+}
+
+function GuardiaCard({
+  guardia,
+  loading,
+  canOpen,
+}: {
+  guardia: GuardiaEstado | null;
+  loading: boolean;
+  canOpen: boolean;
+}) {
+  const now = Date.now();
+  const s = guardia ? (parseLocal(guardia.desde) ?? new Date(guardia.desde)).getTime() : 0;
+  const e = guardia ? (parseLocal(guardia.hasta) ?? new Date(guardia.hasta)).getTime() : 0;
+  const progreso = guardia && guardia.modo === "activa" && e > s ? Math.min(100, Math.max(0, ((now - s) / (e - s)) * 100)) : 0;
+  const restanteMin = guardia && guardia.modo === "activa" ? Math.max(0, Math.round((e - now) / 60000)) : 0;
+
+  return (
+    <div className="panel flex flex-col overflow-hidden">
+      <PanelHeader
+        icon={CalendarClock}
+        title="Guardia"
+        action={
+          canOpen ? (
+            <Link to="/guardias" className="text-xs font-medium text-primary hover:underline">
+              Planilla
+            </Link>
+          ) : null
+        }
+      />
+      <div className="flex flex-1 flex-col gap-4 p-4">
+        {loading ? (
+          <div className="space-y-3">
+            <div className="skeleton h-5 w-40" />
+            <div className="skeleton h-3 w-28" />
+            <div className="skeleton h-2 w-full" />
+          </div>
+        ) : guardia ? (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="grid size-11 place-items-center rounded-xl bg-primary/12 font-mono text-sm font-semibold text-primary ring-1 ring-primary/20">
+                {guardia.operador_nombre
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((p) => p[0])
+                  .join("")}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-semibold tracking-tight">{guardia.operador_nombre}</p>
+                <p className="num text-xs text-muted-foreground">{fmtRango(guardia.desde, guardia.hasta)}</p>
+              </div>
+            </div>
+            {guardia.modo === "activa" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-ok">
+                    <span className="led" data-tone="ok" data-pulse="true" /> En turno
+                  </span>
+                  <span className="num text-muted-foreground">
+                    termina en {Math.floor(restanteMin / 60)}h {String(restanteMin % 60).padStart(2, "0")}m
+                  </span>
+                </div>
+                <div className="meter" style={{ ["--meter" as string]: "var(--ok)" }}>
+                  <span style={{ width: `${progreso}%` }} />
+                </div>
+              </div>
+            ) : (
+              <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-info/12 px-2 py-1 text-xs font-medium text-info">
+                <span className="led" data-tone="info" />
+                {guardia.modo === "hoy" ? "Asignado hoy" : "Próximo turno"}
+              </span>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-1 flex-col items-start justify-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[color-mix(in_oklab,var(--warn),var(--foreground)_25%)]">
+              <span className="led" data-tone="warn" data-pulse="true" /> Sin cobertura cargada
+            </span>
+            <p className="text-xs text-muted-foreground">No hay un turno vigente ni próximo en la planilla.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const PRIORIDAD_DOT: Record<string, "crit" | "warn" | "info" | undefined> = {
+  critica: "crit",
+  crítica: "crit",
+  urgente: "crit",
+  alta: "warn",
+  media: "info",
+};
+
+function TicketList({
+  title,
+  icon,
+  items,
+  loading,
+  empty,
+}: {
+  title: string;
+  icon: typeof Ticket;
+  items: TareaLite[];
+  loading: boolean;
+  empty: string;
+}) {
+  return (
+    <div className="panel flex flex-col overflow-hidden">
+      <PanelHeader
+        icon={icon}
+        title={title}
+        action={<span className="num rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{items.length}</span>}
+      />
+      <div className="flex-1 p-1.5">
+        {loading ? (
+          <div className="space-y-2 p-2.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="skeleton h-5" />
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <p className="px-3 py-8 text-center text-[13px] text-muted-foreground">{empty}</p>
+        ) : (
+          <div className="stagger">
+            {items.map((t) => (
+              <Link
+                key={t.id}
+                to="/tareas"
+                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-accent/50"
+              >
+                <span className="led" data-tone={PRIORIDAD_DOT[(t.prioridad ?? "").toLowerCase()]} />
+                <span className="min-w-0 flex-1 truncate">{t.titulo}</span>
+                <span className="shrink-0 text-[11px] capitalize text-muted-foreground">{t.prioridad}</span>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

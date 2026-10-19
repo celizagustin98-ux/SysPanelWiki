@@ -31,7 +31,7 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/_app/auditoria")({
   head: () => ({
     meta: [
-      { title: "Auditoría | SysIntranet | Área Wiki" },
+      { title: "Auditoría · SysIntranet" },
       {
         name: "description",
         content:
