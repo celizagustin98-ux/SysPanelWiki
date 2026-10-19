@@ -385,56 +385,39 @@ export function GuardiasPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Card className="panel">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="grid size-10 place-items-center rounded-lg bg-primary/15 text-primary">
-              <UserRound className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">De guardia ahora</p>
-              <p className="truncate font-semibold">
-                {actual?.operador_nombre ?? "Sin cobertura"}
-              </p>
-              {actual && (
-                <p className="text-[11px] text-muted-foreground">
-                  hasta {format(parseLocal(actual.hasta) ?? parseISO(actual.hasta), "dd/MM HH:mm")}
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="panel">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div
-              className={cn(
-                "grid size-10 place-items-center rounded-lg",
-                huecos.length
-                  ? "bg-destructive/15 text-destructive"
-                  : "bg-primary/15 text-primary",
-              )}
-            >
-              {huecos.length ? (
-                <AlertTriangle className="size-5" />
-              ) : (
-                <CheckCircle2 className="size-5" />
-              )}
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Cobertura del período</p>
-              <p className="font-semibold">
-                {huecos.length === 0
-                  ? "Completa"
-                  : `${huecos.length} día${huecos.length === 1 ? "" : "s"} sin asignar`}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 stagger">
+        <div className="kpi-cell">
+          <p className="kpi-label flex items-center gap-2">
+            <span className="led" data-tone={actual ? "ok" : "crit"} data-pulse="true" />
+            De guardia ahora
+          </p>
+          <p className="mt-2 truncate text-lg font-semibold tracking-tight">{actual?.operador_nombre ?? "Sin cobertura"}</p>
+          <p className="num mt-0.5 text-xs text-muted-foreground">
+            {actual
+              ? `hasta ${format(parseLocal(actual.hasta) ?? parseISO(actual.hasta), "EEE dd/MM HH:mm", { locale: es })}`
+              : "No hay un turno vigente en este momento"}
+          </p>
+        </div>
+        <div className="kpi-cell">
+          <p className="kpi-label flex items-center gap-2">
+            <span className="led" data-tone={huecos.length ? "warn" : "ok"} />
+            Cobertura del período
+          </p>
+          <p className="mt-2 flex items-baseline gap-2">
+            <span className="num text-lg font-semibold">
+              {days.length - huecos.length}/{days.length}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {huecos.length === 0 ? "días cubiertos · completa" : `${huecos.length} día${huecos.length === 1 ? "" : "s"} sin asignar`}
+            </span>
+          </p>
+          <div className="meter mt-2" style={{ ["--meter" as string]: huecos.length ? "var(--warn)" : "var(--ok)" }}>
+            <span style={{ width: `${days.length ? ((days.length - huecos.length) / days.length) * 100 : 0}%` }} />
+          </div>
+        </div>
         <Card className="panel sm:col-span-2 xl:col-span-1">
           <CardContent className="flex flex-wrap items-center gap-2 p-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Referencia
-            </span>
+            <span className="eyebrow w-full">Referencia</span>
             {operarios.map((o) => (
               <span
                 key={o.code + o.nombre}
@@ -476,24 +459,29 @@ export function GuardiasPage() {
             <table className="w-max min-w-full border-collapse text-xs">
               <thead>
                 <tr className="bg-muted/40">
-                  <th className="sticky left-0 z-10 border border-border bg-muted/80 px-2 py-1.5 text-left font-semibold">
-                    Empleado
+                  <th className="sticky left-0 z-10 border-b border-r border-border bg-muted px-3 py-2 text-left text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    Operario
                   </th>
                   {days.map((d) => {
                     const fer = isFeriado(d);
-                    const isFirst = d.getDate() === 1;
+                    const finde = d.getDay() === 0 || d.getDay() === 6;
+                    const hoy = ymd(d) === ymd(new Date());
                     return (
                       <th
                         key={ymd(d)}
                         className={cn(
-                          "min-w-[2.25rem] border border-border px-0.5 py-1 text-center font-medium",
-                          fer && !isFirst && "bg-crit/14",
-                          isFirst && "bg-ok/29 text-ok ",
+                          "min-w-[2.4rem] border-b border-border px-0.5 py-1.5 text-center font-medium",
+                          d.getDay() === 1 && "border-l-2 border-l-border",
+                          finde && "bg-muted/70",
+                          fer && "bg-crit/12 text-crit",
+                          hoy && "bg-primary text-primary-foreground",
                         )}
-                        title={format(d, "EEEE dd/MM", { locale: es })}
+                        title={`${format(d, "EEEE dd/MM", { locale: es })}${fer ? " · feriado" : ""}${finde ? " · fin de semana" : ""}`}
                       >
-                        <div className="text-[10px] text-muted-foreground">{weekdayLetter(d)}</div>
-                        <div className="tabular-nums">{format(d, "d/M")}</div>
+                        <div className={cn("text-[10px]", hoy ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                          {hoy ? "HOY" : weekdayLetter(d)}
+                        </div>
+                        <div className="num">{format(d, "d/M")}</div>
                       </th>
                     );
                   })}
@@ -511,31 +499,41 @@ export function GuardiasPage() {
                   </tr>
                 )}
                 {operarios.map((op) => (
-                  <tr key={op.id ?? op.nombre}>
-                    <td className="sticky left-0 z-10 border border-border bg-card px-2 py-1 font-medium whitespace-nowrap">
-                      {op.nombre}
+                  <tr key={op.id ?? op.nombre} className="group/row">
+                    <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-border bg-card px-3 py-1.5 font-medium group-hover/row:bg-accent">
+                      <span className="flex items-center gap-2">
+                        <span className={cn("grid size-6 place-items-center rounded-md border text-[11px] font-bold", op.color)}>{op.code}</span>
+                        {op.nombre}
+                      </span>
                     </td>
                     {days.map((d) => {
                       const cell = cellFor(op, d);
-                      const isFirst = d.getDate() === 1;
                       return (
                         <td
                           key={ymd(d)}
                           className={cn(
-                            "border border-border p-0.5 text-center",
-                            isFeriado(d) && !isFirst && "bg-crit/9",
-                            isFirst && "bg-ok/14",
-                            canWrite && "cursor-pointer hover:bg-accent/50",
+                            "group/cell border-b border-border/70 p-0.5 text-center transition-colors group-hover/row:bg-accent/30",
+                            d.getDay() === 1 && "border-l-2 border-l-border",
+                            (d.getDay() === 0 || d.getDay() === 6) && "bg-muted/40",
+                            isFeriado(d) && "bg-crit/7",
+                            ymd(d) === ymd(new Date()) && "bg-primary/10",
+                            canWrite && "cursor-pointer hover:!bg-accent",
                           )}
+                          title={`${op.nombre} · ${format(d, "EEEE d/M", { locale: es })}`}
                           onClick={() => {
                             if (!canWrite) return;
                             setCellDialog({ op, day: d });
                           }}
                         >
+                          {cell.kind === "empty" && canWrite && (
+                            <span className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/0 transition-colors group-hover/cell:text-muted-foreground">
+                              +
+                            </span>
+                          )}
                           {cell.kind !== "empty" && (
                             <span
                               className={cn(
-                                "inline-flex size-7 min-w-7 items-center justify-center rounded-md border text-xs font-extrabold shadow-sm",
+                                "inline-flex size-7 min-w-7 items-center justify-center rounded-md border text-xs font-extrabold shadow-sm transition-transform group-hover/cell:scale-110",
                                 cell.kind === "code" && op.color,
                                 cell.kind === "F" && "border-crit/35 bg-crit text-white",
                                 cell.kind === "V" && "border-ok/35 bg-ok text-background",
@@ -549,10 +547,33 @@ export function GuardiasPage() {
                     })}
                   </tr>
                 ))}
+                {operarios.length > 0 && (
+                  <tr>
+                    <td className="sticky left-0 z-10 border-r border-border bg-muted px-3 py-1.5 text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Cobertura
+                    </td>
+                    {days.map((d) => {
+                      const cubierto = assignmentByDay.has(ymd(d));
+                      return (
+                        <td
+                          key={ymd(d)}
+                          className={cn("bg-muted/50 py-1.5 text-center", d.getDay() === 1 && "border-l-2 border-l-border")}
+                          title={cubierto ? "Cubierto" : "Sin asignar"}
+                        >
+                          {cubierto ? (
+                            <span className="text-[11px] font-bold text-ok">✓</span>
+                          ) : (
+                            <span className="inline-grid size-4 place-items-center rounded-full bg-crit text-[10px] font-bold text-white">!</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-          {isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando turnos…</p>}
+          {isLoading && <div className="skeleton m-4 h-24" />}
         </CardContent>
       </Card>
 
@@ -693,52 +714,100 @@ export function GuardiasPage() {
       </Dialog>
 
       <Dialog open={!!cellDialog} onOpenChange={(o) => !o && setCellDialog(null)}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Celda de planilla</DialogTitle>
+            <DialogTitle>Cargar guardia</DialogTitle>
           </DialogHeader>
-          {cellDialog && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{cellDialog.op.nombre}</span>
-                <br />
-                {format(cellDialog.day, "EEEE d 'de' MMMM", { locale: es })}
-                {isFeriado(cellDialog.day) && (
-                  <Badge variant="secondary" className="ml-2">
-                    Feriado
-                  </Badge>
-                )}
-              </p>
-              <div className="grid gap-2">
-                <Button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void assignCell(cellDialog.op, cellDialog.day, "guardia")}
-                >
-                  Asignar guardia ({cellDialog.op.code}
-                  {isFeriado(cellDialog.day) ? " → F" : ""})
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => void assignCell(cellDialog.op, cellDialog.day, "vacacion")}
-                >
-                  Marcar vacaciones (V)
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void assignCell(cellDialog.op, cellDialog.day, "quitar")}
-                >
-                  Quitar de esta celda
-                </Button>
+          {cellDialog && (() => {
+            const actualCelda = cellFor(cellDialog.op, cellDialog.day);
+            const fer = isFeriado(cellDialog.day);
+            const finde = cellDialog.day.getDay() === 0 || cellDialog.day.getDay() === 6;
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+                  <span className={cn("grid size-10 place-items-center rounded-lg border text-sm font-bold", cellDialog.op.color)}>
+                    {cellDialog.op.code}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{cellDialog.op.nombre}</p>
+                    <p className="text-xs text-muted-foreground first-letter:uppercase">
+                      {format(cellDialog.day, "EEEE d 'de' MMMM", { locale: es })} · 20:00 → 08:00
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {fer && <Badge variant="crit">Feriado</Badge>}
+                    {finde && <Badge variant="info">Fin de semana</Badge>}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Estado actual:{" "}
+                  <strong className="text-foreground">
+                    {actualCelda.kind === "empty" ? "sin asignar" : actualCelda.kind === "V" ? "vacaciones" : `guardia (${actualCelda.label})`}
+                  </strong>
+                </p>
+                <div className="grid gap-2">
+                  <OpcionCelda
+                    disabled={busy}
+                    onClick={() => void assignCell(cellDialog.op, cellDialog.day, "guardia")}
+                    icon={<CalendarRange className="size-4" />}
+                    titulo={`Asignar guardia${fer ? " (se liquida como feriado)" : ""}`}
+                    detalle={`${cellDialog.op.nombre} queda de guardia esa noche.`}
+                    tono="primary"
+                  />
+                  <OpcionCelda
+                    disabled={busy}
+                    onClick={() => void assignCell(cellDialog.op, cellDialog.day, "vacacion")}
+                    icon={<UserRound className="size-4" />}
+                    titulo="Marcar vacaciones"
+                    detalle="No cuenta como guardia ni en la liquidación."
+                    tono="ok"
+                  />
+                  <OpcionCelda
+                    disabled={busy || actualCelda.kind === "empty"}
+                    onClick={() => void assignCell(cellDialog.op, cellDialog.day, "quitar")}
+                    icon={<AlertTriangle className="size-4" />}
+                    titulo="Quitar de esta celda"
+                    detalle="La noche queda sin asignar."
+                    tono="crit"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function OpcionCelda({
+  icon,
+  titulo,
+  detalle,
+  tono,
+  disabled,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  titulo: string;
+  detalle: string;
+  tono: "primary" | "ok" | "crit";
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const color = { primary: "bg-primary/12 text-primary", ok: "bg-ok/12 text-ok", crit: "bg-crit/12 text-crit" }[tono];
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-45"
+    >
+      <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", color)}>{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold">{titulo}</span>
+        <span className="block text-xs text-muted-foreground">{detalle}</span>
+      </span>
+    </button>
   );
 }

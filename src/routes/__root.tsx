@@ -79,10 +79,36 @@ function NotFoundComponent() {
   );
 }
 
+// Después de una actualización, las pestañas abiertas piden partes de la versión anterior que ya
+// no existen. En ese caso se recarga la página (como mucho una vez cada 10 s, para no entrar en bucle).
+const CHUNK_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i;
+
+export function reloadOnStaleChunk(error: unknown) {
+  if (typeof window === "undefined" || !CHUNK_ERROR.test(String((error as Error)?.message ?? error))) return false;
+  try {
+    const last = Number(sessionStorage.getItem("syswiki.chunk-reload") || 0);
+    if (Date.now() - last < 10_000) return false;
+    sessionStorage.setItem("syswiki.chunk-reload", String(Date.now()));
+  } catch {
+    /* sin almacenamiento */
+  }
+  window.location.reload();
+  return true;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("vite:preloadError", (event) => {
+    if (reloadOnStaleChunk((event as Event & { payload?: unknown }).payload ?? "Failed to fetch dynamically imported module")) {
+      event.preventDefault();
+    }
+  });
+}
+
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
+    if (reloadOnStaleChunk(error)) return;
     reportSysWikiError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
 

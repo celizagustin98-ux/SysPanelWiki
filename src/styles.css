@@ -683,10 +683,12 @@
   }
 }
 
-/* Barra de desplazamiento discreta */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent) transparent;
+/* Barra de desplazamiento discreta (en base: los estilos puntuales pueden ocultarla) */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent) transparent;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

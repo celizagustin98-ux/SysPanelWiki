@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import QRCode from "qrcode";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useId, useMemo, useState } from "react";
 import { strToU8, zipSync } from "fflate";
@@ -15,10 +16,13 @@ import {
   Pencil,
   Plus,
   Printer,
+  QrCode,
   Search,
+  Tag,
   Trash2,
   Upload,
 } from "lucide-react";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import {
@@ -68,6 +72,7 @@ import { StatTile } from "@/components/StatTile";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
+  validateSearch: (s: Record<string, unknown>) => ({ item: (s.item as string) || undefined }),
   head: () => ({
     meta: [
       { title: "Inventario · SysIntranet" },
@@ -75,8 +80,7 @@ export const Route = createFileRoute("/_app/inventario")({
         name: "description",
         content: "Inventario operativo por planta, sector, rubro, tipo y propiedad.",
       },
-      { property: "og:title", content: "Inventario | SysIntranet | Area Wiki" },
-      { property: "og:description", content: "Control de bienes y stock del area." },
+
     ],
   }),
   component: InventarioPage,
@@ -345,6 +349,56 @@ function exportXlsx(rows: Item[]) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** Dirección que abre la ficha del equipo (es lo que codifica el QR). */
+function itemUrl(id: string) {
+  return `${window.location.origin}/inventario?item=${encodeURIComponent(id)}`;
+}
+
+function esc(value: unknown) {
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Hoja A4 de etiquetas con QR (3 columnas), lista para imprimir y pegar en cada equipo. */
+async function printEtiquetas(rows: Item[]) {
+  if (!rows.length) return toast.error("No hay equipos para imprimir");
+  if (rows.length > 300) return toast.error("Filtrá hasta 300 equipos por hoja de etiquetas");
+  const win = window.open("", "_blank");
+  if (!win) return toast.error("El navegador bloqueó la ventana de impresión");
+  const etiquetas = await Promise.all(
+    rows.map(async (r) => {
+      const svg = await QRCode.toString(itemUrl(r.id), { type: "svg", margin: 0, errorCorrectionLevel: "M" });
+      return `<div class="et">
+        <div class="qr">${svg}</div>
+        <div class="tx">
+          <div class="cod">${esc(r.codigo || "")}</div>
+          <div class="desc">${esc(r.descripcion || r.nombre)}</div>
+          <div class="ubi">${esc([r.sector, r.planta].filter(Boolean).join(" · "))}</div>
+          <div class="sn">${r.numero_serie ? "S/N " + esc(r.numero_serie) : ""}</div>
+        </div>
+      </div>`;
+    }),
+  );
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>Etiquetas de inventario</title>
+    <style>
+      @page { size: A4; margin: 8mm; }
+      body { margin: 0; font-family: Arial, sans-serif; color: #111; }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
+      .et { display: flex; gap: 2.5mm; align-items: center; border: 0.3mm dashed #999; border-radius: 2mm; padding: 2.5mm; height: 30mm; box-sizing: border-box; break-inside: avoid; }
+      .qr { width: 24mm; height: 24mm; flex-shrink: 0; }
+      .qr svg { width: 100%; height: 100%; }
+      .tx { min-width: 0; font-size: 7.5pt; line-height: 1.25; }
+      .cod { font-family: monospace; font-weight: bold; font-size: 9pt; }
+      .desc { font-weight: bold; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+      .ubi, .sn { color: #444; }
+      .pie { margin-top: 4mm; font-size: 7pt; color: #777; }
+    </style></head><body>
+    <div class="grid">${etiquetas.join("")}</div>
+    <div class="pie">SysIntranet · Área de Sistemas — escaneá el QR para abrir la ficha y registrar el control.</div>
+    <script>window.onload = () => { window.focus(); window.print(); };</script>
+    </body></html>`);
+  win.document.close();
 }
 
 function printRows(rows: Item[]) {
@@ -1161,9 +1215,132 @@ function FilterSelect({
   );
 }
 
+/** Ficha del equipo: pensada para abrirse desde el celular escaneando el QR. */
+function FichaEquipo({
+  item,
+  canEdit,
+  onClose,
+  onDone,
+}: {
+  item: Item;
+  canEdit: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [qr, setQr] = useState("");
+  useEffect(() => {
+    let alive = true;
+    QRCode.toString(itemUrl(item.id), { type: "svg", margin: 1, errorCorrectionLevel: "M" }).then((svg) => alive && setQr(svg));
+    return () => {
+      alive = false;
+    };
+  }, [item.id]);
+
+  const dias = daysSince(item.ultima_vez_controlada);
+  const tono = dias == null ? "warn" : dias > 180 ? "crit" : dias > 90 ? "warn" : "ok";
+  const datos: [string, string | number | null | undefined][] = [
+    ["Código", item.codigo],
+    ["Planta", item.planta],
+    ["Sector", item.sector],
+    ["Rubro", item.rubro ?? item.categoria],
+    ["Tipo", item.tipo ?? item.modelo],
+    ["Marca", item.marca],
+    ["N° de serie", item.numero_serie],
+    ["Propiedad", item.propiedad],
+    ["Cantidad", item.cantidad],
+    ["Asignado a", item.asignado_a],
+  ];
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto">
+      <div className="border-b border-border p-5">
+        <p className="eyebrow">Ficha del equipo</p>
+        <h2 className="mt-1 text-lg font-semibold leading-snug">{item.descripcion || item.nombre}</h2>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Badge variant={item.estado === "baja" ? "crit" : item.estado === "operativo" ? "ok" : "secondary"}>
+            {estadoLabel(item.estado)}
+          </Badge>
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="led" data-tone={tono} />
+            {dias == null ? "Nunca controlado" : `Controlado hace ${dias} día${dias === 1 ? "" : "s"}`}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-2 p-5 sm:grid-cols-3">
+        {canEdit && (
+          <ControlDialog
+            item={item}
+            onDone={onDone}
+            trigger={
+              <Button className="h-11 sm:col-span-3">
+                <ClipboardCheck /> Registrar control
+              </Button>
+            }
+          />
+        )}
+        <HistorialDialog
+          item={item}
+          trigger={
+            <Button variant="outline" className="h-10">
+              <History /> Historial
+            </Button>
+          }
+        />
+        {canEdit && (
+          <ItemDialog
+            item={item}
+            onDone={onDone}
+            trigger={
+              <Button variant="outline" className="h-10">
+                <Pencil /> Modificar
+              </Button>
+            }
+          />
+        )}
+        <Button variant="outline" className="h-10" onClick={() => void printEtiquetas([item])}>
+          <Tag /> Etiqueta
+        </Button>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pb-5 text-sm">
+        {datos.map(([label, value]) => (
+          <div key={label} className="min-w-0">
+            <dt className="eyebrow">{label}</dt>
+            <dd className={cn("mt-0.5 truncate font-medium", (label === "Código" || label === "N° de serie") && "num")}>
+              {value === null || value === undefined || value === "" ? "—" : value}
+            </dd>
+          </div>
+        ))}
+        {item.notas && (
+          <div className="col-span-2">
+            <dt className="eyebrow">Notas</dt>
+            <dd className="mt-0.5 whitespace-pre-line text-[13px] text-muted-foreground">{item.notas}</dd>
+          </div>
+        )}
+      </dl>
+
+      <div className="mt-auto flex items-center gap-4 border-t border-border bg-muted/30 p-5">
+        <div className="size-24 shrink-0 rounded-lg bg-white p-1.5" dangerouslySetInnerHTML={{ __html: qr }} />
+        <div className="min-w-0 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">QR de este equipo</p>
+          <p className="mt-1">Imprimí la etiqueta y pegala en el equipo. Al escanearla con el celular se abre esta ficha.</p>
+          <Button variant="link" className="mt-1 h-auto p-0 text-xs" onClick={onClose}>
+            Cerrar ficha
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InventarioPage() {
   const { canWrite, isAdmin, can } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { item: itemParam } = Route.useSearch();
+  const abrirFicha = (id: string | null) =>
+    navigate({ to: "/inventario", search: { item: id ?? undefined }, replace: !id });
   const [q, setQ] = useState("");
   const [planta, setPlanta] = useState("todos");
   const [sector, setSector] = useState("todos");
@@ -1307,6 +1484,7 @@ function InventarioPage() {
   };
   const canCreate = can("inventario", "create");
   const canEdit = can("inventario", "edit");
+  const fichaItem = itemParam ? (data.find((i) => i.id === itemParam) ?? null) : null;
   const canDelete = can("inventario", "delete") || isAdmin;
 
   useEffect(() => {
@@ -1374,7 +1552,10 @@ function InventarioPage() {
                 }}
               />
             </div>
-            <div className="grid gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <Button variant="outline" onClick={() => void printEtiquetas(rows)} title="Imprime etiquetas QR de los equipos filtrados">
+                <QrCode className="size-4" /> Etiquetas
+              </Button>
               <Button variant="outline" onClick={() => exportXlsx(rows)}>
                 <FileSpreadsheet className="size-4" /> Excel
               </Button>
@@ -1493,7 +1674,7 @@ function InventarioPage() {
                       />
                     )}
                     <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{item.descripcion || item.nombre}</p>
+                    <button type="button" onClick={() => abrirFicha(item.id)} className="block max-w-full truncate text-left text-sm font-semibold text-primary underline-offset-2 hover:underline">{item.descripcion || item.nombre}</button>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {[item.planta, item.sector, item.rubro ?? item.categoria, item.tipo ?? item.modelo]
                           .filter(Boolean)
@@ -1613,7 +1794,7 @@ function InventarioPage() {
                         className={cn(
                           "max-w-[220px] truncate text-xs",
                           column === "Cantidad" && "text-right num",
-                          (column === "N° de serie" || column === "Codigo") && "num",
+                          column === "N° de serie" && "num",
                           column === "Descripcion" && "text-sm font-medium",
                         )}
                       >
@@ -1632,6 +1813,9 @@ function InventarioPage() {
                     ))}
                     <TableCell className="sticky right-0 bg-card text-right">
                       <div className="flex justify-end gap-0.5">
+                      <Button size="icon" variant="ghost" className="size-8" title="Ficha y QR" aria-label="Ficha y QR" onClick={() => abrirFicha(item.id)}>
+                        <QrCode className="size-4" />
+                      </Button>
                       {canEdit && (
                         <ItemDialog
                           item={item}
@@ -1693,6 +1877,23 @@ function InventarioPage() {
           </div>
         </CardContent>
       </Card>
+      <Sheet open={!!fichaItem} onOpenChange={(o) => !o && abrirFicha(null)}>
+        <SheetContent side="right" className="w-full p-0 sm:max-w-md">
+          <SheetTitle className="sr-only">Ficha del equipo</SheetTitle>
+          {fichaItem && (
+            <FichaEquipo
+              item={fichaItem}
+              canEdit={canEdit}
+              onClose={() => abrirFicha(null)}
+              onDone={() => {
+                qc.invalidateQueries({ queryKey: ["inventario"] });
+                qc.invalidateQueries({ queryKey: ["inventario-controles"] });
+              }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
       <AlertDialog open={pendingDeleteIds.length > 0} onOpenChange={(open) => !open && setPendingDeleteIds([])}>
         <AlertDialogContent>
           <AlertDialogHeader>
