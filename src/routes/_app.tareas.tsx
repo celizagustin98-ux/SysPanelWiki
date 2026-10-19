@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {

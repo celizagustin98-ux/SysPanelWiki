@@ -1,6 +1,6 @@
 import { addDays, format, isSaturday, isSunday, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 
 export type Guardia = {
   id: string;

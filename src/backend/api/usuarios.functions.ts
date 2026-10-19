@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireAppAuth } from "@/integrations/api/auth-middleware";
-import { assertAdmin, hashPassword, query } from "@/lib/server/postgres";
+import { requireAppAuth } from "@/backend/core/auth-middleware";
+import { assertAdmin, hashPassword, query } from "@/backend/core/db";
 
 type AppRole = "administrador" | "tecnico" | "consulta";
 

@@ -24,6 +24,20 @@ Wiki operativa con modulos de gestion para sistemas internos. Es una aplicacion 
 - Sesiones y roles persistidos en PostgreSQL
 - Almacenamiento local configurable para adjuntos
 
+## Estructura
+
+```
+db/            Base de datos: schema.sql + migrations/
+scripts/       Servidor de producción (serve.mjs) e inicialización de BD
+src/backend/   BACKEND: conexión PostgreSQL, sesiones, permisos, API (server functions)
+src/routes/    FRONTEND: páginas
+src/components FRONTEND: componentes (ui/ base + uno por módulo)
+src/lib/       FRONTEND: cliente de API, auth, tema, PDFs
+.github/       CI y plantillas de PR / issues
+```
+
+Detalle y reglas: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
 ## Configuracion
 
 Copiar `.env.example` a `.env` y ajustar valores:

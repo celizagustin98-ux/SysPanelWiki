@@ -7,7 +7,7 @@ import {
   storageRemove,
   storageSignedUrl,
   storageUpload,
-} from "@/lib/server/data";
+} from "@/backend/api/data.functions";
 
 const TOKEN_KEY = "syswiki.session";
 

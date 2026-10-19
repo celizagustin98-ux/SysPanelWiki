@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 
 export type AppRole = "administrador" | "tecnico" | "consulta";
 

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Si esto falla, el PR no se puede mergear: protege el botón "Actualizar" de producción.
+      - name: Build de producción
+        run: npm run build
+
+      - name: Sintaxis del servidor
+        run: node --check scripts/serve.mjs
+
+      # Informativo hasta resolver los errores de tipado preexistentes.
+      - name: Typecheck
+        run: npx tsc --noEmit
+        continue-on-error: true
