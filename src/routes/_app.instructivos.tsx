@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { NuevaCarpeta, NuevoDoc } from "@/components/instructivos/InstructivosHelpers";

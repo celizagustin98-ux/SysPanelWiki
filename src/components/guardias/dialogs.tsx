@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import {
   type OperarioRow,

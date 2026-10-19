@@ -16,8 +16,8 @@ import {
   requireSession,
   saveFile,
   verifyPassword,
-} from "@/lib/server/postgres";
-import { decryptSecret, encryptSecret, maskCredentialRow } from "@/lib/server/crypto-secrets";
+} from "@/backend/core/db";
+import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
 type Order = { column: string; ascending?: boolean };

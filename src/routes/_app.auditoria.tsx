@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/auditoria")({

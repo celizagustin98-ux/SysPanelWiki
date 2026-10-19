@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 
 export const Route = createFileRoute("/reset-password")({
   ssr: false,

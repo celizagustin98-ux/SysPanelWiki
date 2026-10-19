@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 

@@ -1,6 +1,6 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { requireSession } from "@/lib/server/postgres";
+import { requireSession } from "@/backend/core/db";
 
 export const requireAppAuth = createMiddleware({ type: "function" }).server(async ({ next }) => {
   const request = getRequest();

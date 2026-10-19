@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
 type Carpeta = { id: string; name: string; parent_id: string | null };
