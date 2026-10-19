@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bell, CheckCircle2, ClipboardList, Search } from "lucide-react";
+import { Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/AppShell";
+import { StatTile } from "@/components/StatTile";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,6 @@ import {
   sortTickets,
   ticketLabel,
   tiempoRelativo,
-  within30Days,
   initials,
   ESTADOS,
 } from "@/components/tickets/constants";
@@ -91,7 +91,13 @@ function TicketsPage() {
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ["tareas"],
     queryFn: async () => {
-      const { data, error } = await api.from("tareas").select("*").order("updated_at", { ascending: false });
+      // Solo los activos: el historial se consulta por mes (antes se traía todo el historial siempre).
+      const { data, error } = await api
+        .from("tareas")
+        .select("*")
+        .neq("estado", "cerrado")
+        .neq("estado", "cancelado")
+        .order("updated_at", { ascending: false });
       if (error) throw error;
       return data as TicketT[];
     },
@@ -109,10 +115,26 @@ function TicketsPage() {
     perfiles.find((p) => p.id === id)?.full_name ?? (id ? "Usuario" : "Sin asignar");
 
   const openTickets = useMemo(() => tickets.filter((t) => !isArchivedClosed(t.estado)), [tickets]);
-  const historyTickets = useMemo(
-    () => tickets.filter((t) => isArchivedClosed(t.estado) && within30Days(t)),
-    [tickets],
-  );
+  const [mes, setMes] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const mesKey = `${mes.getFullYear()}-${String(mes.getMonth() + 1).padStart(2, "0")}`;
+  const { data: historyTickets = [], isLoading: loadingHist } = useQuery({
+    queryKey: ["tareas", "historial", mesKey],
+    queryFn: async () => {
+      const desde = new Date(mes.getFullYear(), mes.getMonth(), 1);
+      const hasta = new Date(mes.getFullYear(), mes.getMonth() + 1, 1, 0, 0, 0, -1);
+      const { data, error } = await api
+        .from("tareas")
+        .select("*")
+        .gte("cerrado_en", desde.toISOString())
+        .lte("cerrado_en", hasta.toISOString())
+        .order("cerrado_en", { ascending: false });
+      if (error) throw error;
+      return ((data ?? []) as TicketT[]).filter((t) => isArchivedClosed(t.estado));
+    },
+  });
 
   const applyQ = (list: TicketT[]) => {
     const term = q.trim().toLowerCase();
@@ -210,8 +232,12 @@ function TicketsPage() {
     };
   }, [openTickets, historyTickets, user?.id]);
 
-  const selected = selectedId ? tickets.find((t) => t.id === selectedId) ?? null : null;
-  const reopenTarget = reopenId ? tickets.find((t) => t.id === reopenId) : null;
+  const selected = selectedId
+    ? (tickets.find((t) => t.id === selectedId) ?? historyTickets.find((t) => t.id === selectedId) ?? null)
+    : null;
+  const reopenTarget = reopenId
+    ? (tickets.find((t) => t.id === reopenId) ?? historyTickets.find((t) => t.id === reopenId))
+    : null;
 
   useEffect(() => {
     if (selectedId && !tickets.some((t) => t.id === selectedId)) setSelectedId(null);
@@ -345,7 +371,7 @@ function TicketsPage() {
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          Historial · 30 días
+          Historial
           <span
             className={cn(
               "num inline-flex min-w-5 justify-center rounded px-1.5 text-[11px] font-semibold",
@@ -443,50 +469,18 @@ function TicketsPage() {
       )}
 
       {vista === "historial" && (
-        <section className="rise-in">
-          <div className="mb-4 rounded-2xl border border-warn/60 bg-warn/12 px-4 py-3 text-sm text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">
-            <span className="font-semibold">{hist.length} tickets</span> en historial. Los que cumplan 30 días salen de
-            esta vista.
-          </div>
-          <div className="space-y-2">
-            {hist.length === 0 && (
-              <p className="py-16 text-center text-sm text-muted-foreground">Sin cerrados en el último mes.</p>
-            )}
-            {hist.map((t) => (
-              <div
-                key={t.id}
-                className="flex flex-wrap items-center gap-3 rounded-2xl bg-card px-4 py-3 shadow-[var(--shadow-panel)]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold tracking-tight">{t.titulo}</p>
-                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", ESTADO_BADGE[t.estado])}>
-                      {estadoLabel(t.estado)}
-                    </span>
-                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", PRIO_BADGE[t.prioridad])}>
-                      {PRIO_LABEL[t.prioridad]}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {ticketLabel(t)}
-                    {t.solicitante_nombre ? ` · Solicita ${t.solicitante_nombre}` : ""}
-                    {" · "}
-                    {tiempoRelativo(t.cerrado_en || t.updated_at)}
-                  </p>
-                </div>
-                <span className="text-xs text-muted-foreground">{nombre(t.asignado_a)}</span>
-                <Button size="sm" variant="outline" className="h-8" onClick={() => setSelectedId(t.id)}>
-                  Ver detalle
-                </Button>
-                {canWrite && (
-                  <Button size="sm" className="h-8" onClick={() => setReopenId(t.id)}>
-                    Reabrir
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+        <HistorialMes
+          mes={mes}
+          onMes={setMes}
+          tickets={hist}
+          total={historyTickets.length}
+          loading={loadingHist}
+          filtrando={!!q.trim()}
+          nombre={nombre}
+          canWrite={!!canWrite}
+          onOpen={setSelectedId}
+          onReopen={setReopenId}
+        />
       )}
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
@@ -672,6 +666,202 @@ function KpiCard({
       </div>
       <p className="kpi-value">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+function duracion(t: TicketT) {
+  const fin = t.cerrado_en || t.resuelto_en;
+  if (!fin || !t.created_at) return null;
+  const ms = new Date(fin).getTime() - new Date(t.created_at).getTime();
+  return ms > 0 ? ms : null;
+}
+
+function fmtDuracion(ms: number | null) {
+  if (ms == null) return "—";
+  const h = ms / 3_600_000;
+  if (h < 1) return `${Math.max(1, Math.round(ms / 60_000))} min`;
+  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)} h`;
+  return `${Math.round(h / 24)} días`;
+}
+
+/** Historial mensual: navegación mes a mes, resumen y listado de cerrados/cancelados. */
+function HistorialMes({
+  mes,
+  onMes,
+  tickets,
+  total,
+  loading,
+  filtrando,
+  nombre,
+  canWrite,
+  onOpen,
+  onReopen,
+}: {
+  mes: Date;
+  onMes: (d: Date) => void;
+  tickets: TicketT[];
+  total: number;
+  loading: boolean;
+  filtrando: boolean;
+  nombre: (id: string | null) => string;
+  canWrite: boolean;
+  onOpen: (id: string) => void;
+  onReopen: (id: string) => void;
+}) {
+  const hoy = new Date();
+  const esMesActual = mes.getFullYear() === hoy.getFullYear() && mes.getMonth() === hoy.getMonth();
+  const mover = (delta: number) => onMes(new Date(mes.getFullYear(), mes.getMonth() + delta, 1));
+
+  const resumen = useMemo(() => {
+    const cerrados = tickets.filter((t) => t.estado === "cerrado");
+    const tiempos = cerrados.map(duracion).filter((x): x is number => x != null).sort((a, b) => a - b);
+    const mediana = tiempos.length ? tiempos[Math.floor(tiempos.length / 2)] : null;
+    const contar = (key: (t: TicketT) => string) => {
+      const m = new Map<string, number>();
+      for (const t of tickets) m.set(key(t), (m.get(key(t)) ?? 0) + 1);
+      return [...m.entries()].sort((a, b) => b[1] - a[1]);
+    };
+    return {
+      cerrados: cerrados.length,
+      cancelados: tickets.length - cerrados.length,
+      mediana,
+      porCategoria: contar((t) => t.categoria || "Sin categoría").slice(0, 6),
+      porTecnico: contar((t) => nombre(t.asignado_a)).slice(0, 6),
+    };
+  }, [tickets, nombre]);
+
+  // Agrupado por día de cierre
+  const porDia = useMemo(() => {
+    const m = new Map<string, TicketT[]>();
+    for (const t of tickets) {
+      const d = new Date(t.cerrado_en || t.updated_at || t.created_at || "");
+      const key = Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+      m.set(key, [...(m.get(key) ?? []), t]);
+    }
+    return [...m.entries()];
+  }, [tickets]);
+
+  const maxCat = Math.max(1, ...resumen.porCategoria.map(([, n]) => n));
+  const maxTec = Math.max(1, ...resumen.porTecnico.map(([, n]) => n));
+
+  return (
+    <section className="space-y-5 rise-in">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center rounded-lg border border-border bg-card p-1 shadow-xs">
+          <Button variant="ghost" size="icon" className="size-8" onClick={() => mover(-1)} aria-label="Mes anterior">
+            <ChevronLeft className="size-4" />
+          </Button>
+          <p className="min-w-40 text-center text-sm font-semibold capitalize">
+            {MESES[mes.getMonth()]} {mes.getFullYear()}
+          </p>
+          <Button variant="ghost" size="icon" className="size-8" onClick={() => mover(1)} disabled={esMesActual} aria-label="Mes siguiente">
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+        {!esMesActual && (
+          <Button variant="outline" size="sm" onClick={() => onMes(new Date(hoy.getFullYear(), hoy.getMonth(), 1))}>
+            Ir al mes actual
+          </Button>
+        )}
+        {filtrando && (
+          <span className="text-xs text-muted-foreground">
+            Mostrando {tickets.length} de {total} por la búsqueda
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 stagger">
+        <StatTile label="Cerrados" value={loading ? "—" : resumen.cerrados} tone="ok" hint="resueltos y cerrados" />
+        <StatTile label="Cancelados" value={loading ? "—" : resumen.cancelados} hint="sin resolución" />
+        <StatTile label="Tiempo típico" value={loading ? "—" : fmtDuracion(resumen.mediana)} hint="de apertura a cierre (mediana)" />
+        <StatTile label="Total del mes" value={loading ? "—" : tickets.length} hint="tickets archivados" />
+      </div>
+
+      {tickets.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Ranking titulo="Por categoría" items={resumen.porCategoria} max={maxCat} color="var(--info)" />
+          <Ranking titulo="Por técnico" items={resumen.porTecnico} max={maxTec} color="var(--primary)" />
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="skeleton h-14" />
+          ))}
+        </div>
+      ) : tickets.length === 0 ? (
+        <div className="empty-state panel bg-grid">
+          <p className="text-sm font-semibold">Sin tickets archivados en {MESES[mes.getMonth()]}</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Usá las flechas para recorrer otros meses.</p>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {porDia.map(([dia, items]) => (
+            <div key={dia}>
+              <p className="eyebrow mb-2 first-letter:uppercase">
+                {dia} · {items.length}
+              </p>
+              <div className="panel divide-y divide-border/60 overflow-hidden">
+                {items.map((t) => (
+                  <div key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/30">
+                    <span className="led" data-tone={t.estado === "cerrado" ? "ok" : undefined} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13.5px] font-medium">{t.titulo}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        <span className="num">{ticketLabel(t)}</span>
+                        {t.categoria ? ` · ${t.categoria}` : ""}
+                        {t.sector ? ` · ${t.sector}` : ""}
+                        {t.solicitante_nombre ? ` · ${t.solicitante_nombre}` : ""}
+                      </p>
+                    </div>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", ESTADO_BADGE[t.estado])}>
+                      {estadoLabel(t.estado)}
+                    </span>
+                    <span className="hidden w-32 truncate text-xs text-muted-foreground sm:block">{nombre(t.asignado_a)}</span>
+                    <span className="num hidden w-16 text-right text-xs text-muted-foreground md:block" title="Tiempo de apertura a cierre">
+                      {fmtDuracion(duracion(t))}
+                    </span>
+                    <div className="flex gap-1.5">
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => onOpen(t.id)}>
+                        Ver
+                      </Button>
+                      {canWrite && (
+                        <Button size="sm" variant="ghost" className="h-8" onClick={() => onReopen(t.id)}>
+                          Reabrir
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Ranking({ titulo, items, max, color }: { titulo: string; items: [string, number][]; max: number; color: string }) {
+  return (
+    <div className="panel p-4">
+      <p className="eyebrow mb-3">{titulo}</p>
+      <div className="space-y-2.5">
+        {items.map(([label, n]) => (
+          <div key={label} className="grid grid-cols-[minmax(0,9rem)_1fr_2rem] items-center gap-3 text-[13px]">
+            <span className="truncate">{label}</span>
+            <div className="meter" style={{ ["--meter" as string]: color }}>
+              <span style={{ width: `${(n / max) * 100}%` }} />
+            </div>
+            <span className="num text-right text-xs text-muted-foreground">{n}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

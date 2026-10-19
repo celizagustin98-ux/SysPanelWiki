@@ -352,7 +352,7 @@ export function TicketDetail({
                   if (!d) return null;
                   return (
                     <div key={id} className="flex items-center gap-1">
-                      <Link to="/instructivos" search={{ doc: id }} className="flex-1 truncate text-sm text-primary hover:underline">{d.title}</Link>
+                      <Link to="/instructivos" search={{ doc: id as string, folder: undefined }} className="flex-1 truncate text-sm text-primary hover:underline">{d.title}</Link>
                       {canWrite && (
                         <Button size="icon" variant="ghost" className="size-7" onClick={async () => {
                           await api.from("tarea_instructivos").delete().eq("tarea_id", ticket.id).eq("doc_id", id);

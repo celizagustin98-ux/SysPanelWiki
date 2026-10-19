@@ -99,6 +99,9 @@ type Unidad = {
   generado_por_nombre: string | null;
   lote_generacion_id: string | null;
   created_at: string;
+  usado_at?: string | null;
+  usado_sector?: string | null;
+  usado_por_nombre?: string | null;
   toner_modelos: { nombre: string } | null;
 };
 
@@ -163,9 +166,9 @@ function TonersPage() {
     queryFn: async () => {
       const { data, error } = await api
         .from("toner_unidades")
-        .select("*, toner_modelos(nombre)")
+        .select("*")
         .order("created_at", { ascending: false })
-        .limit(300);
+        .limit(2000);
       if (error) throw error;
       return data as Unidad[];
     },
@@ -598,13 +601,14 @@ function TonersPage() {
             <CardContent className="space-y-3">
               <div className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-9" value={codigoQuery} onChange={(e) => setCodigoQuery(e.target.value)} placeholder="Buscar…" />
+                <Input className="pl-9" value={codigoQuery} onChange={(e) => setCodigoQuery(e.target.value)} placeholder="Buscar lote o código (ej. HP58 012)…" />
               </div>
+              <CodigoEncontrado unidades={unidades} modelos={modelos} query={codigoQuery} />
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Códigos</TableHead><TableHead>Modelo</TableHead><TableHead>Cant.</TableHead><TableHead>Generado por</TableHead><TableHead>Fecha</TableHead>
+                      <TableHead>Códigos</TableHead><TableHead>Modelo</TableHead><TableHead>Cant.</TableHead><TableHead>Usados</TableHead><TableHead>Generado por</TableHead><TableHead>Fecha</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -613,6 +617,14 @@ function TonersPage() {
                         <TableCell className="font-mono text-sm font-semibold">{lote.codigoGenerado}</TableCell>
                         <TableCell>{lote.modelo}</TableCell>
                         <TableCell><Badge variant="secondary">{lote.cantidad}</Badge></TableCell>
+                        <TableCell className="min-w-32">
+                          <div className="flex items-center gap-2">
+                            <div className="meter w-16" style={{ ["--meter" as string]: lote.usados === lote.cantidad ? "var(--muted-foreground)" : "var(--ok)" }}>
+                              <span style={{ width: `${(lote.usados / Math.max(1, lote.cantidad)) * 100}%` }} />
+                            </div>
+                            <span className="num text-xs text-muted-foreground">{lote.usados}/{lote.cantidad}</span>
+                          </div>
+                        </TableCell>
                         <TableCell>{lote.generadoPor}</TableCell>
                         <TableCell className="text-xs">{lote.fechaGenerado}</TableCell>
                       </TableRow>
@@ -859,63 +871,208 @@ function UsoDialog({ modelos, modeloFijo, responsableDefault, onDone, trigger }:
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modeloId, setModeloId] = useState(modeloFijo?.id ?? "");
+  const [elegidos, setElegidos] = useState<string[]>([]);
+  const [scan, setScan] = useState("");
   const modelo = modeloFijo || modelos.find((m) => m.id === modeloId);
+  const mid = modeloFijo?.id || modeloId;
+
+  const { data: disponibles = [], isLoading: cargandoCodigos } = useQuery({
+    queryKey: ["toner_unidades", "disponibles", mid],
+    enabled: open && !!mid,
+    queryFn: async () => {
+      const { data, error } = await api
+        .from("toner_unidades")
+        .select("id, codigo, created_at")
+        .eq("modelo_id", mid)
+        .eq("estado", "en_stock")
+        .order("codigo");
+      if (error) throw error;
+      return ((data ?? []) as { id: string; codigo: string }[]).sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
+    },
+  });
+
+  const porCodigo = useMemo(() => new Map(disponibles.map((u) => [u.codigo.replace(/\s+/g, "").toUpperCase(), u])), [disponibles]);
+  const toggle = (id: string) => setElegidos((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const agregarEscaneado = () => {
+    const key = scan.replace(/\s+/g, "").toUpperCase();
+    if (!key) return;
+    const u = porCodigo.get(key);
+    if (!u) return toast.error(`"${scan}" no está disponible en el depósito de este modelo`);
+    if (!elegidos.includes(u.id)) setElegidos((prev) => [...prev, u.id]);
+    setScan("");
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o && modeloFijo) setModeloId(modeloFijo.id); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        setElegidos([]);
+        setScan("");
+        if (o && modeloFijo) setModeloId(modeloFijo.id);
+      }}
+    >
       <DialogTrigger asChild>{trigger ?? <Button size="sm" variant="secondary"><PackageMinus className="size-4" /> Usar / reponer</Button>}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Usar tóner del depósito</DialogTitle>
-          <DialogDescription>Descuenta stock al instalar en un sector.</DialogDescription>
+          <DialogDescription>Elegí el código pegado en cada tóner que instalás: queda registrado dónde y cuándo se usó.</DialogDescription>
         </DialogHeader>
-        <form className="grid gap-3" onSubmit={async (e) => {
-          e.preventDefault();
-          if (saving) return;
-          const fd = new FormData(e.currentTarget);
-          const mid = modeloFijo?.id || modeloId;
-          if (!mid) return toast.error("Elegí un modelo");
-          const cantidad = Number(fd.get("cantidad") || 1);
-          const stock = modelo?.stock ?? 0;
-          if (!Number.isFinite(cantidad) || cantidad < 1) return toast.error("Cantidad inválida");
-          if (cantidad > stock) return toast.error("No hay stock suficiente");
-          const sector = String(fd.get("sector") || "").trim();
-          if (!sector) return toast.error("Indicá el sector");
-          setSaving(true);
-          const { error } = await api.from("toner_movimientos").insert({
-            modelo_id: mid, tipo: "uso", cantidad, sector,
-            responsable: String(fd.get("responsable") || responsableDefault),
-            toner_entra: String(fd.get("toner_entra") || "").trim() || null,
-            toner_sale: String(fd.get("toner_sale") || "").trim() || null,
-            notas: String(fd.get("notas") || ""),
-          });
-          setSaving(false);
-          if (error) return toast.error(error.message);
-          toast.success(`-${cantidad} del depósito`);
-          setOpen(false);
-          onDone();
-        }}>
+        <form
+          className="grid gap-3.5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (saving) return;
+            const fd = new FormData(e.currentTarget);
+            if (!mid) return toast.error("Elegí un modelo");
+            const cantidad = elegidos.length || Number(fd.get("cantidad") || 1);
+            const stock = modelo?.stock ?? 0;
+            if (!Number.isFinite(cantidad) || cantidad < 1) return toast.error("Cantidad inválida");
+            if (cantidad > stock) return toast.error("No hay stock suficiente");
+            const sector = String(fd.get("sector") || "").trim();
+            if (!sector) return toast.error("Indicá el sector");
+            const responsable = String(fd.get("responsable") || responsableDefault);
+            const codigos = disponibles.filter((u) => elegidos.includes(u.id));
+            setSaving(true);
+            const { data, error } = await api.from("toner_movimientos").insert({
+              modelo_id: mid,
+              tipo: "uso",
+              cantidad,
+              sector,
+              responsable,
+              toner_entra: codigos.map((u) => u.codigo).join(", ") || null,
+              toner_sale: String(fd.get("toner_sale") || "").trim() || null,
+              notas: String(fd.get("notas") || ""),
+            });
+            if (error) {
+              setSaving(false);
+              return toast.error(error.message);
+            }
+            const mov = (Array.isArray(data) ? data[0] : data) as { id?: string } | null;
+            let fallidos = 0;
+            for (const u of codigos) {
+              const r = (await api
+                .from("toner_unidades")
+                .update({ estado: "usado", usado_at: new Date().toISOString(), usado_sector: sector, usado_por_nombre: responsable, movimiento_id: mov?.id ?? null })
+                .eq("id", u.id)
+                .eq("estado", "en_stock")) as { count?: number; error: Error | null };
+              if (r.error || !r.count) fallidos++;
+            }
+            setSaving(false);
+            if (fallidos) toast.warning(`${fallidos} código(s) ya figuraban como usados`);
+            toast.success(codigos.length ? `${codigos.map((u) => u.codigo).join(", ")} instalado en ${sector}` : `-${cantidad} del depósito`);
+            setOpen(false);
+            onDone();
+          }}
+        >
           {!modeloFijo && (
             <div className="space-y-1.5">
               <Label>Modelo</Label>
-              <Select value={modeloId} onValueChange={setModeloId}>
+              <Select value={modeloId} onValueChange={(v) => { setModeloId(v); setElegidos([]); }}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
                 <SelectContent>{modelos.map((m) => <SelectItem key={m.id} value={m.id}>{m.nombre} (disp. {m.stock})</SelectItem>)}</SelectContent>
               </Select>
             </div>
           )}
-          {modeloFijo && <p className="text-sm"><span className="font-medium">{modeloFijo.nombre}</span><span className="text-muted-foreground"> · disp. {modeloFijo.stock}</span></p>}
+          {modeloFijo && (
+            <p className="text-sm">
+              <span className="font-medium">{modeloFijo.nombre}</span>
+              <span className="text-muted-foreground"> · disponibles {modeloFijo.stock}</span>
+            </p>
+          )}
+
+          {mid && (
+            <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+              <div className="flex items-center justify-between">
+                <Label>Códigos a instalar</Label>
+                <span className="num text-xs text-muted-foreground">{elegidos.length} elegido(s) · {disponibles.length} en depósito</span>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={scan}
+                  onChange={(e) => setScan(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      agregarEscaneado();
+                    }
+                  }}
+                  placeholder="Escribí o escaneá el código y Enter"
+                  className="h-9 font-mono"
+                />
+                <Button type="button" variant="outline" className="h-9" onClick={agregarEscaneado}>Agregar</Button>
+              </div>
+              {cargandoCodigos ? (
+                <div className="skeleton h-16" />
+              ) : disponibles.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No hay códigos generados en depósito para este modelo. Podés registrar el uso igual indicando la cantidad.</p>
+              ) : (
+                <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+                  {disponibles.map((u) => {
+                    const on = elegidos.includes(u.id);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => toggle(u.id)}
+                        className={cn(
+                          "rounded-md border px-2 py-1 font-mono text-xs transition-colors",
+                          on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary/50",
+                        )}
+                      >
+                        {u.codigo}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>Cantidad</Label><Input type="number" name="cantidad" min={1} defaultValue={1} /></div>
-            <div className="space-y-1.5"><Label>Sector</Label><Input name="sector" required placeholder="RRHH…" /></div>
-            <div className="space-y-1.5"><Label>Código entra (opc.)</Label><Input name="toner_entra" /></div>
-            <div className="space-y-1.5"><Label>Código sale (opc.)</Label><Input name="toner_sale" /></div>
+            {elegidos.length === 0 && (
+              <div className="space-y-1.5"><Label>Cantidad</Label><Input type="number" name="cantidad" min={1} defaultValue={1} /></div>
+            )}
+            <div className={cn("space-y-1.5", elegidos.length > 0 && "col-span-2")}><Label>Sector</Label><Input name="sector" required placeholder="Ej. Guardia" /></div>
+            <div className="col-span-2 space-y-1.5"><Label>Código del tóner retirado (opcional)</Label><Input name="toner_sale" className="font-mono" placeholder="Si tenía código" /></div>
             <div className="col-span-2 space-y-1.5"><Label>Responsable</Label><Input name="responsable" defaultValue={responsableDefault} /></div>
             <div className="col-span-2 space-y-1.5"><Label>Notas</Label><Input name="notas" /></div>
           </div>
-          <DialogFooter><Button type="submit" disabled={saving}>{saving ? "Registrando…" : "Descontar"}</Button></DialogFooter>
+          <DialogFooter>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Registrando…" : elegidos.length ? `Instalar ${elegidos.length} tóner(es)` : "Descontar del depósito"}
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Resultado de buscar un código puntual: en qué estado está y dónde se usó. */
+function CodigoEncontrado({ unidades, modelos, query }: { unidades: Unidad[]; modelos: Modelo[]; query: string }) {
+  const key = query.replace(/\s+/g, "").toUpperCase();
+  if (key.length < 4) return null;
+  const u = unidades.find((x) => x.codigo.replace(/\s+/g, "").toUpperCase() === key);
+  if (!u) return null;
+  const modelo = modelos.find((m) => m.id === u.modelo_id)?.nombre ?? "—";
+  const usado = u.estado === "usado";
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 rise-in">
+      <span className="num text-base font-semibold">{u.codigo}</span>
+      <span className="text-sm text-muted-foreground">{modelo}</span>
+      <Badge variant={usado ? "info" : "ok"}>{usado ? "Usado" : "En depósito"}</Badge>
+      {usado ? (
+        <span className="text-sm">
+          Instalado en <strong>{u.usado_sector || "—"}</strong>
+          {u.usado_at ? ` el ${new Date(u.usado_at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}` : ""}
+          {u.usado_por_nombre ? ` por ${u.usado_por_nombre}` : ""}
+        </span>
+      ) : (
+        <span className="text-sm text-muted-foreground">Generado el {new Date(u.created_at).toLocaleDateString("es-AR")}</span>
+      )}
+    </div>
   );
 }
 
@@ -1210,7 +1367,7 @@ function exportCsv(fileName: string, headers: string[], rows: Array<Array<string
   URL.revokeObjectURL(url);
 }
 
-type LoteCodigos = { id: string; codigoGenerado: string; modelo: string; cantidad: number; generadoPor: string; fechaGenerado: string; sortDate: number };
+type LoteCodigos = { id: string; codigoGenerado: string; modelo: string; cantidad: number; usados: number; generadoPor: string; fechaGenerado: string; sortDate: number };
 function agruparCodigosGenerados(unidades: Unidad[]): LoteCodigos[] {
   const grupos = new Map<string, Unidad[]>();
   for (const u of unidades) {
@@ -1230,6 +1387,7 @@ function agruparCodigosGenerados(unidades: Unidad[]): LoteCodigos[] {
         codigoGenerado: ordenados.length === 1 ? desde : desde + " al " + hasta,
         modelo: primero.toner_modelos?.nombre ?? "—",
         cantidad: ordenados.length,
+        usados: ordenados.filter((u) => u.estado === "usado").length,
         generadoPor: primero.generado_por_nombre || "—",
         fechaGenerado: new Date(primero.created_at).getTime() ? new Date(primero.created_at).toLocaleString("es-AR") : "—",
         sortDate: new Date(primero.created_at).getTime(),

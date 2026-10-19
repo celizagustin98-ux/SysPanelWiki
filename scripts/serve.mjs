@@ -642,19 +642,19 @@ async function handleInstructivoPdf(req, res) {
       sendJson(res, 400, { error: "Falta el id del adjunto" });
       return true;
     }
-    const row = await one(`select id, file_name, storage_path, mime_type from wiki_attachments where id = $1`, [id]);
+    const row = await one(`select id, file_name, file_path from wiki_attachments where id = $1`, [id]);
     if (!row) {
       sendJson(res, 404, { error: "Adjunto inexistente" });
       return true;
     }
-    const file = storageFilePath("instructivos", row.storage_path || row.file_name);
+    const file = storageFilePath("instructivos", row.file_path || row.file_name);
     if (!file) {
       sendJson(res, 404, { error: "Archivo no encontrado en almacenamiento" });
       return true;
     }
     res.statusCode = 200;
     setSecurityHeaders(req, res);
-    res.setHeader("content-type", row.mime_type || "application/pdf");
+    res.setHeader("content-type", "application/pdf");
     res.setHeader("content-disposition", `inline; filename="${safeDownloadName(row.file_name || "instructivo.pdf")}"`);
     res.setHeader("cache-control", "private, no-store");
     createReadStream(file.filePath).pipe(res);
