@@ -64,6 +64,7 @@ import {
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn, fechaLocal } from "@/lib/utils";
+import { StatTile } from "@/components/StatTile";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
@@ -1340,38 +1341,22 @@ function InventarioPage() {
         }
       />
 
-      <div className="grid gap-3 md:grid-cols-5">
-        <Card className="panel">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Registros visibles</p>
-            <p className="mt-1 text-2xl font-semibold">{rows.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="panel">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Cantidad total</p>
-            <p className="mt-1 text-2xl font-semibold">{totalCantidad}</p>
-          </CardContent>
-        </Card>
-        <Card className="panel">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Sectores</p>
-            <p className="mt-1 text-2xl font-semibold">{options.sectores.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="panel">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Sin control registrado</p>
-            <p className="mt-1 text-2xl font-semibold">{sinControl}</p>
-          </CardContent>
-        </Card>
-        <Card className="panel">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Control vencido</p>
-            <p className="mt-1 text-2xl font-semibold">{control180}</p>
-            <p className="text-xs text-muted-foreground">{control90} con más de 90 días</p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 stagger">
+        <StatTile label="Registros visibles" value={rows.length} hint="según filtros" />
+        <StatTile label="Cantidad total" value={totalCantidad} hint="unidades" />
+        <StatTile label="Sectores" value={options.sectores.length} hint="con equipos" />
+        <StatTile
+          label="Sin control"
+          value={sinControl}
+          hint="nunca controlados"
+          tone={sinControl > 0 ? "warn" : "ok"}
+        />
+        <StatTile
+          label="Control vencido"
+          value={control180}
+          hint={`${control90} con más de 90 días`}
+          tone={control180 > 0 ? "crit" : "ok"}
+        />
       </div>
 
       <Card className="panel">

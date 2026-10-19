@@ -54,6 +54,7 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { abrirPdfPedido } from "@/lib/toner-pedido-pdf";
 import { cn } from "@/lib/utils";
+import { StatTile } from "@/components/StatTile";
 
 export const Route = createFileRoute("/_app/toners")({
   ssr: false,
@@ -303,10 +304,10 @@ function TonersPage() {
     <div>
       <PageHeader title="Tóners" description="Depósito en tiempo real: stock, movimientos y pedidos al proveedor." />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid gap-3 sm:grid-cols-3 stagger">
         <Kpi label="Modelos" value={modelos.length} icon={<Boxes className="size-4" />} />
         <Kpi label="Unidades en depósito" value={totalUnidades} icon={<PackageCheck className="size-4" />} />
-        <Kpi label="Stock crítico" value={criticos.length} icon={<AlertTriangle className="size-4" />} danger={criticos.length > 0} />
+        <Kpi label="Stock crítico" value={criticos.length} icon={<AlertTriangle className="size-4" />} danger />
       </div>
 
       {criticos.length > 0 && (
@@ -408,9 +409,20 @@ function TonersPage() {
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell>
-                            <span className="font-mono text-lg font-bold tabular-nums">{m.stock}</span>
-                            <Badge variant={bajo ? "destructive" : "secondary"} className="ml-2">{bajo ? "Crítico" : "OK"}</Badge>
+                          <TableCell className="min-w-44">
+                            <div className="flex items-center gap-2">
+                              <span className="num text-lg font-semibold">{m.stock}</span>
+                              <Badge variant={bajo ? "crit" : m.stock <= m.stock_minimo * 2 ? "warn" : "ok"}>
+                                {bajo ? "Crítico" : m.stock <= m.stock_minimo * 2 ? "Bajo" : "OK"}
+                              </Badge>
+                            </div>
+                            <div
+                              className="meter mt-1.5 w-32"
+                              style={{ ["--meter" as string]: bajo ? "var(--crit)" : m.stock <= m.stock_minimo * 2 ? "var(--warn)" : "var(--ok)" }}
+                              title={`${m.stock} de ${Math.max(m.stock_minimo * 3, 1)} recomendadas`}
+                            >
+                              <span style={{ width: `${Math.min(100, (m.stock / Math.max(m.stock_minimo * 3, 1)) * 100)}%` }} />
+                            </div>
                             {modeloIdsPendientes.has(m.id) && (
                               <Badge variant="outline" className="ml-1 border-warn/50 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">En pedido</Badge>
                             )}
@@ -790,17 +802,7 @@ function RecibirPedidoDialog({
 }
 
 function Kpi({ label, value, icon, danger }: { label: string; value: number; icon: ReactNode; danger?: boolean }) {
-  return (
-    <Card className={cn("panel", danger && "border-destructive/40")}>
-      <CardContent className="flex items-center gap-3 p-4">
-        <div className={cn("grid size-9 place-items-center rounded-lg", danger ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary")}>{icon}</div>
-        <div>
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="font-mono text-xl font-bold tabular-nums">{value}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  return <StatTile label={label} value={value} icon={icon} tone={danger ? (value > 0 ? "crit" : "ok") : "neutral"} />;
 }
 
 function IngresoDialog({ modelos, modeloFijo, responsableDefault, onDone, trigger }: { modelos: Modelo[]; modeloFijo?: Modelo; responsableDefault: string; onDone: () => void; trigger?: ReactNode }) {

@@ -148,7 +148,9 @@ export function periodLabel(desde: Date, hasta: Date) {
   const year = format(hasta, "yyyy");
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   if (a === b) return `${cap(a)} ${year}`;
-  return `${cap(a)}/${cap(b).slice(0, 4)} ${year}`;
+  // "Sep – Oct 2026": abreviado y legible (antes cortaba a "Septiembre/Octu").
+  const corto = (d: Date) => cap(format(d, "MMM", { locale: es }).replace(".", ""));
+  return `${corto(desde)} – ${corto(hasta)} ${year}`;
 }
 
 export function weekdayLetter(d: Date) {
@@ -164,6 +166,11 @@ function localDT(day: Date, hours: number, minutes = 0) {
 export function parseLocal(iso: string): Date | null {
   const s = String(iso ?? "").trim();
   if (!s) return null;
+  // Con zona horaria explícita ("Z" o "-03:00") se respeta: leerla como hora local corría los turnos 3 h.
+  if (/[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (m) {
     return new Date(

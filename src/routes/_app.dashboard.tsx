@@ -319,7 +319,7 @@ function Dashboard() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 stagger">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 stagger">
         {kpis.map((k) => (
           <Link key={k.label} to={k.to} className="kpi-cell panel-hover group block">
             <div className="flex items-start justify-between gap-2">
