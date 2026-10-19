@@ -35,9 +35,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
-import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/lib/usuarios.functions";
+import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/backend/api/usuarios.functions";
 
 export const Route = createFileRoute("/_app/configuracion")({
   head: () => ({

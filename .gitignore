@@ -30,3 +30,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secretos y datos locales (nunca al repo)
+.env
+.env.*
+!.env.example
+storage/

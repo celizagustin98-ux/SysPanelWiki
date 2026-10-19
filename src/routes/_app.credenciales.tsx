@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api } from "@/integrations/api/client";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/_app/credenciales")({
