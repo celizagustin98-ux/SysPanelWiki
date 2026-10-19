@@ -42,7 +42,7 @@ import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/backend/api/
 export const Route = createFileRoute("/_app/configuracion")({
   head: () => ({
     meta: [
-      { title: "Configuración | SysPanelWiki" },
+      { title: "Configuración · SysIntranet" },
       {
         name: "description",
         content: "Usuarios, roles, permisos, estado del sistema y auditoría.",
@@ -191,11 +191,11 @@ function ConfiguracionPage() {
     try {
       const { data, error } = await api
         .from("audit_log")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("id, actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
       if (error) throw error;
-      const list = (data as AuditRow[]) ?? [];
-      setAuditRows(list.slice(0, 100));
+      setAuditRows((data as AuditRow[]) ?? []);
     } catch {
       setAuditRows([]);
     } finally {

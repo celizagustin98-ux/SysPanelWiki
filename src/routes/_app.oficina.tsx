@@ -40,7 +40,7 @@ export const Route = createFileRoute("/_app/oficina")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Oficina | SysPanelWiki" },
+      { title: "Oficina · SysIntranet" },
       {
         name: "description",
         content: "Herramientas del día a día: teléfonos internos y más.",

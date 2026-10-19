@@ -59,7 +59,7 @@ export const Route = createFileRoute("/_app/toners")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Tóners | Depósito y pedidos" },
+      { title: "Tóners · SysIntranet" },
       { name: "description", content: "Inventario en tiempo real: ingreso, uso y pedidos al proveedor." },
     ],
   }),
@@ -412,7 +412,7 @@ function TonersPage() {
                             <span className="font-mono text-lg font-bold tabular-nums">{m.stock}</span>
                             <Badge variant={bajo ? "destructive" : "secondary"} className="ml-2">{bajo ? "Crítico" : "OK"}</Badge>
                             {modeloIdsPendientes.has(m.id) && (
-                              <Badge variant="outline" className="ml-1 border-amber-500/50 text-amber-600">En pedido</Badge>
+                              <Badge variant="outline" className="ml-1 border-warn/50 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">En pedido</Badge>
                             )}
                           </TableCell>
                           <TableCell className="font-mono tabular-nums">{m.stock_minimo}</TableCell>
@@ -647,7 +647,26 @@ function RecibirPedidoDialog({
   const recibir = async (recibidos: { item: PedidoItem; cantidad: number }[]) => {
     const validos = recibidos.filter((r) => r.cantidad > 0);
     if (!validos.length) return toast.error("Indicá al menos una cantidad recibida");
+    if (saving) return;
     setSaving(true);
+    // Se marca el pedido como recibido solo si todavía no lo estaba: evita ingresar el stock dos veces
+    // (doble clic o dos personas recibiendo el mismo pedido).
+    const claim = (await api
+      .from("toner_pedidos")
+      .update({ estado: "recibido", recibido_at: new Date().toISOString() })
+      .eq("id", pedido.id)
+      .neq("estado", "recibido")) as { count?: number; error: Error | null };
+    if (claim.error) {
+      setSaving(false);
+      return toast.error(claim.error.message);
+    }
+    if (!claim.count) {
+      setSaving(false);
+      setConfirmOpen(false);
+      setParcialOpen(false);
+      onDone();
+      return toast.info(`PED-${pedido.numero} ya estaba recibido`);
+    }
     for (const { item, cantidad } of validos) {
       const { error } = await api.from("toner_movimientos").insert({
         modelo_id: item.modelo_id,
@@ -662,12 +681,7 @@ function RecibirPedidoDialog({
       }
       await api.from("toner_pedido_items").update({ cantidad_recibida: cantidad }).eq("id", item.id);
     }
-    const { error } = await api
-      .from("toner_pedidos")
-      .update({ estado: "recibido", recibido_at: new Date().toISOString() })
-      .eq("id", pedido.id);
     setSaving(false);
-    if (error) return toast.error(error.message);
     toast.success(`Recibidas ${validos.reduce((s, r) => s + r.cantidad, 0)} u. · stock actualizado`);
     setConfirmOpen(false);
     setParcialOpen(false);
@@ -676,7 +690,7 @@ function RecibirPedidoDialog({
 
   return (
     <>
-      <Button size="sm" onClick={abrirConfirm}>
+      <Button size="sm" onClick={abrirConfirm} disabled={saving || pedido.estado === "recibido"}>
         <PackagePlus className="size-3.5" /> Recibir
       </Button>
 

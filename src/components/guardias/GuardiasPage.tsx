@@ -449,10 +449,10 @@ export function GuardiasPage() {
                 </span>
               </span>
             ))}
-            <span className="inline-flex items-center rounded border border-rose-400/40 bg-rose-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+            <span className="inline-flex items-center rounded border border-crit/40 bg-crit px-1.5 py-0.5 text-xs font-semibold text-white">
               F Feriado
             </span>
-            <span className="inline-flex items-center rounded border border-lime-400/40 bg-lime-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+            <span className="inline-flex items-center rounded border border-ok/40 bg-ok px-1.5 py-0.5 text-xs font-semibold text-background">
               V Vacaciones
             </span>
           </CardContent>
@@ -487,8 +487,8 @@ export function GuardiasPage() {
                         key={ymd(d)}
                         className={cn(
                           "min-w-[2.25rem] border border-border px-0.5 py-1 text-center font-medium",
-                          fer && !isFirst && "bg-rose-500/10",
-                          isFirst && "bg-emerald-500/25 text-emerald-900 dark:text-emerald-100",
+                          fer && !isFirst && "bg-crit/14",
+                          isFirst && "bg-ok/29 text-ok ",
                         )}
                         title={format(d, "EEEE dd/MM", { locale: es })}
                       >
@@ -523,8 +523,8 @@ export function GuardiasPage() {
                           key={ymd(d)}
                           className={cn(
                             "border border-border p-0.5 text-center",
-                            isFeriado(d) && !isFirst && "bg-rose-500/5",
-                            isFirst && "bg-emerald-500/10",
+                            isFeriado(d) && !isFirst && "bg-crit/9",
+                            isFirst && "bg-ok/14",
                             canWrite && "cursor-pointer hover:bg-accent/50",
                           )}
                           onClick={() => {
@@ -537,8 +537,8 @@ export function GuardiasPage() {
                               className={cn(
                                 "inline-flex size-7 min-w-7 items-center justify-center rounded-md border text-xs font-extrabold shadow-sm",
                                 cell.kind === "code" && op.color,
-                                cell.kind === "F" && "border-rose-400 bg-rose-600 text-white",
-                                cell.kind === "V" && "border-lime-400 bg-lime-600 text-white",
+                                cell.kind === "F" && "border-crit/35 bg-crit text-white",
+                                cell.kind === "V" && "border-ok/35 bg-ok text-background",
                               )}
                             >
                               {cell.label}
@@ -600,7 +600,7 @@ export function GuardiasPage() {
                       {row.nombre}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">{row.normales}</TableCell>
-                    <TableCell className="text-right tabular-nums font-medium text-rose-600 dark:text-rose-300">
+                    <TableCell className="text-right tabular-nums font-medium text-crit ">
                       {row.feriados}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
@@ -616,7 +616,7 @@ export function GuardiasPage() {
         <Card className="panel">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
-              <Palmtree className="size-4 text-lime-500" />
+              <Palmtree className="size-4 text-ok" />
               Vacaciones del período
             </CardTitle>
           </CardHeader>
@@ -629,7 +629,7 @@ export function GuardiasPage() {
             {vacacionesResumen.map((v) => (
               <div
                 key={v.code + v.nombre}
-                className="flex items-start gap-3 rounded-lg border border-lime-500/30 bg-lime-500/5 px-3 py-2.5 text-sm"
+                className="flex items-start gap-3 rounded-lg border border-ok/30 bg-ok/9 px-3 py-2.5 text-sm"
               >
                 <span
                   className={cn(
@@ -653,7 +653,7 @@ export function GuardiasPage() {
                       : ` · ${v.dias.slice(0, 6).join(", ")}…`}
                   </p>
                 </div>
-                <span className="inline-flex items-center rounded border border-lime-400 bg-lime-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                <span className="inline-flex items-center rounded border border-ok/35 bg-ok px-1.5 py-0.5 text-[10px] font-bold text-background">
                   V
                 </span>
               </div>

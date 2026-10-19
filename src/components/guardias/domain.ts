@@ -20,15 +20,16 @@ export type OperarioRow = {
 
 export type Operario = { id?: string; nombre: string; code: string; color: string };
 
+// Colores de operadores: tonos bien distintos entre sí y legibles en claro y oscuro.
 export const COLOR_PALETTE = [
-  "bg-teal-600 text-white border-teal-400",
-  "bg-sky-600 text-white border-sky-400",
-  "bg-violet-600 text-white border-violet-400",
-  "bg-indigo-600 text-white border-indigo-400",
-  "bg-amber-600 text-white border-amber-400",
-  "bg-rose-600 text-white border-rose-400",
-  "bg-cyan-600 text-white border-cyan-400",
-  "bg-fuchsia-600 text-white border-fuchsia-400",
+  "bg-[oklch(0.6_0.12_200)] text-white border-[oklch(0.75_0.1_200)]",
+  "bg-[oklch(0.55_0.15_265)] text-white border-[oklch(0.7_0.12_265)]",
+  "bg-[oklch(0.58_0.16_310)] text-white border-[oklch(0.72_0.13_310)]",
+  "bg-[oklch(0.6_0.14_150)] text-white border-[oklch(0.74_0.12_150)]",
+  "bg-[oklch(0.72_0.14_75)] text-[oklch(0.22_0.04_75)] border-[oklch(0.82_0.11_75)]",
+  "bg-[oklch(0.58_0.18_25)] text-white border-[oklch(0.72_0.14_25)]",
+  "bg-[oklch(0.62_0.13_230)] text-white border-[oklch(0.76_0.1_230)]",
+  "bg-[oklch(0.6_0.17_350)] text-white border-[oklch(0.74_0.13_350)]",
 ];
 
 export const SEED_OPERARIOS = [

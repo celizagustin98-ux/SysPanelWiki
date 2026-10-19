@@ -6,7 +6,7 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "SysIntranet | Área Wiki" },
+      { title: "SysIntranet · Área de Sistemas" },
       {
         name: "description",
         content:

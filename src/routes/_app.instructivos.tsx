@@ -39,7 +39,7 @@ export const Route = createFileRoute("/_app/instructivos")({
   }),
   head: () => ({
     meta: [
-      { title: "Instructivos | Biblioteca" },
+      { title: "Instructivos · SysIntranet" },
       { name: "description", content: "Biblioteca de instructivos por carpetas con PDF." },
       { property: "og:title", content: "Instructivos | SysIntranet" },
     ],
@@ -60,12 +60,12 @@ type Doc = {
 type Adjunto = { id: string; doc_id: string; file_name: string; file_path: string };
 
 const FOLDER_STYLES = [
-  { icon: "bg-amber-100 text-amber-600", blob: "bg-amber-100/80" },
-  { icon: "bg-violet-100 text-violet-600", blob: "bg-violet-100/80" },
-  { icon: "bg-rose-100 text-rose-500", blob: "bg-rose-100/80" },
-  { icon: "bg-teal-100 text-teal-600", blob: "bg-teal-100/80" },
-  { icon: "bg-sky-100 text-sky-600", blob: "bg-sky-100/80" },
-  { icon: "bg-orange-100 text-orange-600", blob: "bg-orange-100/80" },
+  { icon: "bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]", blob: "bg-warn/12" },
+  { icon: "bg-chart-4/12 text-chart-4", blob: "bg-chart-4/12" },
+  { icon: "bg-crit/12 text-crit", blob: "bg-crit/12" },
+  { icon: "bg-primary/12 text-primary", blob: "bg-primary/12" },
+  { icon: "bg-info/12 text-info", blob: "bg-info/12" },
+  { icon: "bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]", blob: "bg-warn/12" },
 ];
 
 function folderStyle(id: string) {
@@ -113,13 +113,37 @@ function InstructivosPage() {
   const { data: docs = [], isLoading: loadingDocs } = useQuery({
     queryKey: ["wiki_docs"],
     queryFn: async () => {
-      const { data, error } = await api.from("wiki_docs").select("*").order("updated_at", { ascending: false });
+      // Sin `content`: el listado no necesita el cuerpo de cada documento (eran cientos de KB).
+      const { data, error } = await api
+        .from("wiki_docs")
+        .select("id, folder_id, title, tags, views, created_by, created_at, updated_at")
+        .order("updated_at", { ascending: false });
       if (error) throw error;
       return data as Doc[];
     },
   });
 
   const activo = docs.find((d) => d.id === selectedDocId) ?? null;
+
+  const { data: activoContent = "" } = useQuery({
+    queryKey: ["wiki_doc_content", selectedDocId],
+    enabled: !!selectedDocId,
+    queryFn: async () => {
+      const { data } = await api.from("wiki_docs").select("content").eq("id", selectedDocId!).maybeSingle();
+      return ((data as { content?: string } | null)?.content ?? "") as string;
+    },
+  });
+
+  const term = q.trim();
+  const { data: contentMatches = [] } = useQuery({
+    queryKey: ["wiki_search", term.toLowerCase()],
+    enabled: term.length >= 3,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await api.rpc("buscar_instructivos", { _q: term });
+      return ((data ?? []) as { id: string }[]).map((d) => d.id);
+    },
+  });
 
   const { data: adjuntos = [] } = useQuery({
     queryKey: ["wiki_attachments", selectedDocId],
@@ -154,22 +178,20 @@ function InstructivosPage() {
 
   const searchResults = useMemo(() => {
     if (!q.trim()) return null;
-    const term = q.toLowerCase();
+    const lower = q.toLowerCase();
+    const enContenido = new Set(contentMatches);
     return docs.filter(
       (d) =>
-        d.title.toLowerCase().includes(term) ||
-        d.tags.join(" ").toLowerCase().includes(term) ||
-        stripHtml(d.content).toLowerCase().includes(term),
+        d.title.toLowerCase().includes(lower) ||
+        (d.tags ?? []).join(" ").toLowerCase().includes(lower) ||
+        enContenido.has(d.id),
     );
-  }, [q, docs]);
+  }, [q, docs, contentMatches]);
 
   useEffect(() => {
     if (!activo) return;
-    api
-      .from("wiki_docs")
-      .update({ views: (activo.views ?? 0) + 1 })
-      .eq("id", activo.id)
-      .then(() => {});
+    // Contador dedicado: antes era un update que generaba una revisión y un registro de auditoría por cada vista.
+    void api.rpc("registrar_vista_instructivo", { _id: activo.id });
   }, [activo?.id]);
 
   const pdfActivo = adjuntos[0] ?? null;
@@ -321,7 +343,7 @@ function InstructivosPage() {
           {loading && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-36 animate-pulse rounded-2xl bg-muted/50" />
+                <div key={i} className="h-36 skeleton rounded-xl" />
               ))}
             </div>
           )}
@@ -508,20 +530,20 @@ function InstructivosPage() {
 
             <aside className="panel h-fit space-y-5 p-5">
               <div className="flex items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-600">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">
                   <FileText className="size-5" />
                 </span>
                 <div className="min-w-0">
-                  <span className="inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal-700">
+                  <span className="inline-flex rounded-full bg-primary/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                     Disponible
                   </span>
                   <p className="mt-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                     {carpetas.find((c) => c.id === activo.folder_id)?.name ?? "Sin carpeta"}
                   </p>
                   <h2 className="mt-0.5 text-lg font-semibold leading-snug tracking-tight">{activo.title}</h2>
-                  {stripHtml(activo.content) ? (
+                  {stripHtml(activoContent) ? (
                     <p className="mt-2 line-clamp-4 text-sm leading-relaxed text-muted-foreground">
-                      {stripHtml(activo.content)}
+                      {stripHtml(activoContent)}
                     </p>
                   ) : null}
                 </div>
@@ -608,7 +630,7 @@ function DocList({
               i > 0 && "border-t border-border/50",
             )}
           >
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-600">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]">
               <FileText className="size-4" />
             </span>
             <span className="min-w-0 flex-1">

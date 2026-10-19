@@ -47,33 +47,33 @@ export const CATEGORIAS = ["Red", "PC", "Impresora", "Accesos", "Correo", "Servi
 export const PRIORIDAD_STYLE: Record<string, string> = {
   baja: "bg-muted text-muted-foreground",
   media: "bg-primary/15 text-primary",
-  alta: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  alta: "bg-warn/19 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)] ",
   critica: "bg-destructive/15 text-destructive",
 };
 
 export const PRIORIDAD_BAR: Record<string, string> = {
   baja: "bg-muted-foreground/40",
   media: "bg-primary",
-  alta: "bg-amber-500",
+  alta: "bg-warn",
   critica: "bg-destructive",
 };
 
 export const ESTADO_STYLE: Record<string, string> = {
-  nuevo: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
-  asignado: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+  nuevo: "bg-info/19 text-info ",
+  asignado: "bg-chart-4/19 text-chart-4 ",
   en_curso: "bg-primary/15 text-primary",
-  esperando: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
-  resuelto: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  esperando: "bg-warn/19 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)] ",
+  resuelto: "bg-ok/19 text-ok ",
   cerrado: "bg-muted text-muted-foreground",
   cancelado: "bg-muted text-muted-foreground line-through",
 };
 
 export const BOARD_COLS = [
-  { key: "nuevo", label: "Backlog", dot: "bg-slate-400" },
-  { key: "asignado", label: "Asignado", dot: "bg-violet-500" },
-  { key: "en_curso", label: "En curso", dot: "bg-teal-500" },
-  { key: "esperando", label: "Esperando", dot: "bg-amber-500" },
-  { key: "resuelto", label: "Resuelto", dot: "bg-emerald-500" },
+  { key: "nuevo", label: "Backlog", dot: "bg-muted-foreground/50" },
+  { key: "asignado", label: "Asignado", dot: "bg-chart-4" },
+  { key: "en_curso", label: "En curso", dot: "bg-primary" },
+  { key: "esperando", label: "Esperando", dot: "bg-warn" },
+  { key: "resuelto", label: "Resuelto", dot: "bg-ok" },
   { key: "cerrado", label: "Cerrado", dot: "bg-muted-foreground" },
 ] as const;
 

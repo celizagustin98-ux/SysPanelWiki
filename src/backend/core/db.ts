@@ -4,7 +4,10 @@ import { dirname, join, normalize, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// Columnas `date` como texto "YYYY-MM-DD": evita que se corran un día por zona horaria.
+types.setTypeParser(1082, (value: string) => value);
 const scrypt = promisify(scryptCb);
 
 const pool = new Pool({
@@ -67,13 +70,58 @@ export async function createSession(userId: string): Promise<string> {
   return token;
 }
 
+// Caché en memoria de sesión, rol y permisos. Cada request validaba la sesión y el rol
+// contra la BD (2-4 consultas extra); con TTL corto los cambios se ven en segundos.
+const CACHE_TTL_MS = 20_000;
+const sessionCache = new Map<string, { value: AuthSession; expires: number }>();
+const roleCache = new Map<string, { value: AppRole | null; expires: number }>();
+const permCache = new Map<string, { value: boolean; expires: number }>();
+
+function cacheGet<T>(map: Map<string, { value: T; expires: number }>, key: string) {
+  const hit = map.get(key);
+  if (!hit) return undefined;
+  if (hit.expires <= Date.now()) {
+    map.delete(key);
+    return undefined;
+  }
+  return hit.value;
+}
+
+function cacheSet<T>(map: Map<string, { value: T; expires: number }>, key: string, value: T) {
+  if (map.size > 5000) map.clear();
+  map.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+}
+
+/** Invalida la caché de un usuario (cambio de rol, contraseña o baja). Sin argumento, limpia todo. */
+export function invalidateAuthCache(userId?: string) {
+  permCache.clear();
+  if (!userId) {
+    sessionCache.clear();
+    roleCache.clear();
+    return;
+  }
+  roleCache.delete(userId);
+  for (const [key, entry] of sessionCache) {
+    if (entry.value.user.id === userId) sessionCache.delete(key);
+  }
+}
+
+/** Invalida solo los permisos por módulo (al editar role_permissions). */
+export function invalidatePermissionCache() {
+  permCache.clear();
+}
+
 export async function deleteSession(token: string | null | undefined) {
   if (!token) return;
+  sessionCache.delete(hashToken(token));
   await query(`delete from app_sessions where token_hash = $1`, [hashToken(token)]);
 }
 
 export async function getSession(token: string | null | undefined): Promise<AuthSession | null> {
   if (!token) return null;
+  const tokenHash = hashToken(token);
+  const cached = cacheGet(sessionCache, tokenHash);
+  if (cached) return cached;
   const session = await one<{
     user_id: string;
     email: string;
@@ -91,10 +139,10 @@ export async function getSession(token: string | null | undefined): Promise<Auth
          limit 1
        ) ur on true
       where s.token_hash = $1 and s.expires_at > now()`,
-    [hashToken(token)],
+    [tokenHash],
   );
   if (!session) return null;
-  return {
+  const result: AuthSession = {
     token,
     user: { id: session.user_id, email: session.email },
     profile: {
@@ -105,6 +153,9 @@ export async function getSession(token: string | null | undefined): Promise<Auth
     },
     role: session.role ?? "consulta",
   };
+  cacheSet(sessionCache, tokenHash, result);
+  cacheSet(roleCache, result.user.id, result.role);
+  return result;
 }
 
 export async function requireSession(token: string | null | undefined) {
@@ -113,20 +164,27 @@ export async function requireSession(token: string | null | undefined) {
   return session;
 }
 
-export async function isAdmin(userId: string) {
-  const row = await one<{ ok: boolean }>(
-    `select exists(select 1 from user_roles where user_id = $1 and role = 'administrador') as ok`,
+export async function getUserRole(userId: string): Promise<AppRole | null> {
+  const cached = cacheGet(roleCache, userId);
+  if (cached !== undefined) return cached;
+  const row = await one<{ role: AppRole }>(
+    `select role from user_roles where user_id = $1
+     order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end
+     limit 1`,
     [userId],
   );
-  return !!row?.ok;
+  const role = row?.role ?? null;
+  cacheSet(roleCache, userId, role);
+  return role;
+}
+
+export async function isAdmin(userId: string) {
+  return (await getUserRole(userId)) === "administrador";
 }
 
 export async function canWrite(userId: string) {
-  const row = await one<{ ok: boolean }>(
-    `select exists(select 1 from user_roles where user_id = $1 and role in ('administrador','tecnico')) as ok`,
-    [userId],
-  );
-  return !!row?.ok;
+  const role = await getUserRole(userId);
+  return role === "administrador" || role === "tecnico";
 }
 
 export async function assertCanWrite(userId: string) {
@@ -142,14 +200,12 @@ export async function hasModulePermission(
   modulo: string,
   accion: "ver" | "crear" | "editar" | "eliminar",
 ) {
-  if (await isAdmin(userId)) return true;
-  const roleRow = await one<{ role: AppRole }>(
-    `select role from user_roles where user_id = $1
-     order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end
-     limit 1`,
-    [userId],
-  );
-  if (!roleRow?.role) return false;
+  const role = await getUserRole(userId);
+  if (role === "administrador") return true;
+  if (!role) return false;
+  const cacheKey = `${role}:${modulo}:${accion}`;
+  const cached = cacheGet(permCache, cacheKey);
+  if (cached !== undefined) return cached;
   const col =
     accion === "ver"
       ? "can_view"
@@ -163,8 +219,9 @@ export async function hasModulePermission(
         select 1 from role_permissions
          where role = $1 and modulo = $2 and ${col} = true
       ) as ok`,
-    [roleRow.role, modulo],
+    [role, modulo],
   );
+  cacheSet(permCache, cacheKey, !!row?.ok);
   return !!row?.ok;
 }
 

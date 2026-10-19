@@ -63,13 +63,13 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/utils";
+import { cn, fechaLocal } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Inventario | SysIntranet | Area Wiki" },
+      { title: "Inventario · SysIntranet" },
       {
         name: "description",
         content: "Inventario operativo por planta, sector, rubro, tipo y propiedad.",
@@ -907,9 +907,9 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
             </div>
           )}
           {fileName && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
+            <div className="rounded-lg border border-ok/30 bg-ok/14 p-3 text-sm">
               <div className="flex items-start gap-2">
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-ok" />
                 <div>
                   <p className="font-medium">{fileName}</p>
                   <p className="text-muted-foreground">{previewCount} registro(s) detectados para importar.</p>
@@ -1000,7 +1000,7 @@ function ControlDialog({
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const fecha = text(fd.get("fecha_control")) || new Date().toISOString().slice(0, 10);
+    const fecha = text(fd.get("fecha_control")) || fechaLocal();
     const observacion = text(fd.get("observacion"));
     setIsSaving(true);
     try {
@@ -1039,7 +1039,7 @@ function ControlDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Fecha de control</Label>
-              <Input name="fecha_control" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+              <Input name="fecha_control" type="date" defaultValue={fechaLocal()} />
             </div>
             <div className="space-y-1.5">
               <Label>Estado</Label>
@@ -1589,8 +1589,8 @@ function InventarioPage() {
             )}
           </div>
 
-          <div className="hidden overflow-hidden rounded-lg border border-border/70 lg:block">
-            <Table className="table-fixed">
+          <div className="hidden overflow-x-auto rounded-lg border border-border/70 lg:block">
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   {canDelete && (
@@ -1603,11 +1603,11 @@ function InventarioPage() {
                     </TableHead>
                   )}
                   {INVENTARIO_COLUMNS.map((column) => (
-                    <TableHead key={column} className="whitespace-normal break-words text-xs">
+                    <TableHead key={column}>
                       {column}
                     </TableHead>
                   ))}
-                  <TableHead className="w-64 text-right">Acciones</TableHead>
+                  <TableHead className="sticky right-0 w-40 bg-card text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1626,8 +1626,9 @@ function InventarioPage() {
                       <TableCell
                         key={column}
                         className={cn(
-                          "max-w-0 break-words text-xs",
-                          column === "Cantidad" && "text-right tabular-nums",
+                          "max-w-[220px] truncate text-xs",
+                          column === "Cantidad" && "text-right num",
+                          (column === "N° de serie" || column === "Codigo") && "num",
                           column === "Descripcion" && "text-sm font-medium",
                         )}
                       >
@@ -1644,14 +1645,14 @@ function InventarioPage() {
                         )}
                       </TableCell>
                     ))}
-                    <TableCell className="text-right">
-                      <div className="flex flex-wrap justify-end gap-1">
+                    <TableCell className="sticky right-0 bg-card text-right">
+                      <div className="flex justify-end gap-0.5">
                       {canEdit && (
                         <ItemDialog
                           item={item}
                           trigger={
-                            <Button size="sm" variant="ghost" title="Modificar registro">
-                              <Pencil className="size-4" /> Modificar
+                            <Button size="icon" variant="ghost" className="size-8" title="Modificar registro" aria-label="Modificar registro">
+                              <Pencil className="size-4" />
                             </Button>
                           }
                           onDone={refresh}
@@ -1661,8 +1662,8 @@ function InventarioPage() {
                         <ControlDialog
                           item={item}
                           trigger={
-                            <Button size="sm" variant="ghost" title="Registrar control">
-                              <ClipboardCheck className="size-4" /> Controlar
+                            <Button size="icon" variant="ghost" className="size-8" title="Registrar control" aria-label="Registrar control">
+                              <ClipboardCheck className="size-4" />
                             </Button>
                           }
                           onDone={refresh}
@@ -1671,19 +1672,21 @@ function InventarioPage() {
                       <HistorialDialog
                         item={item}
                         trigger={
-                          <Button size="sm" variant="ghost" title="Ver historial">
-                            <History className="size-4" /> Historial
+                          <Button size="icon" variant="ghost" className="size-8" title="Ver historial" aria-label="Ver historial">
+                            <History className="size-4" />
                           </Button>
                         }
                       />
                       {canDelete && (
                         <Button
-                          size="sm"
+                          size="icon"
                           variant="ghost"
+                          className="size-8"
                           title="Eliminar registro"
+                          aria-label="Eliminar registro"
                           onClick={() => setPendingDeleteIds([item.id])}
                         >
-                          <Trash2 className="size-4 text-destructive" /> Eliminar
+                          <Trash2 className="size-4 text-destructive" />
                         </Button>
                       )}
                       </div>

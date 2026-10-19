@@ -16,8 +16,14 @@ type Order = { column: string; ascending?: boolean };
 
 function token() {
   if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
+
+export const getToken = token;
 
 function setToken(value: string | null) {
   if (typeof localStorage === "undefined") return;
@@ -83,7 +89,7 @@ class QueryBuilder {
   private filters: Filter[] = [];
   private orders: Order[] = [];
   private limitValue: number | undefined;
-  private single = false;
+  private singleRow = false;
   private pending:
     | { action: "select"; columns?: string; opts?: { count?: "exact"; head?: boolean } }
     | { action: "insert" | "update" | "delete"; values?: any };
@@ -141,12 +147,12 @@ class QueryBuilder {
   }
 
   maybeSingle() {
-    this.single = true;
+    this.singleRow = true;
     return this.execute();
   }
 
   single() {
-    this.single = true;
+    this.singleRow = true;
     return this.execute();
   }
 
@@ -169,7 +175,7 @@ class QueryBuilder {
             filters: this.filters,
             order: this.orders,
             limit: this.limitValue,
-            maybeSingle: this.single,
+            maybeSingle: this.singleRow,
             count: this.pending.opts?.count,
             head: this.pending.opts?.head,
           },
@@ -199,11 +205,8 @@ async function fileToBase64(file: File) {
 
 export const api = {
   auth: {
-    onAuthStateChange(callback: (_event: string, session: any) => void) {
-      void api.auth.getSession().then(({ data }) => callback("INITIAL_SESSION", data.session));
-      return { data: { subscription: { unsubscribe() {} } } };
-    },
     async getSession() {
+      if (!token()) return { data: { session: null }, error: null };
       return postAuth<{ session: any }>("session", { token: token() });
     },
     async setSession(tokens: { access_token: string }) {
@@ -274,6 +277,18 @@ export const api = {
     },
   },
   system: {
+    async health() {
+      const response = await fetch("/api/system/health", { cache: "no-store" });
+      if (!response.ok) throw new Error("Servidor sin respuesta");
+      return (await response.json()) as {
+        ok: boolean;
+        maintenance: boolean;
+        version?: string;
+        database?: boolean;
+        setupRequired?: boolean;
+        signupEnabled?: boolean;
+      };
+    },
     info<T>() {
       return getApp<T>("/api/system/info");
     },
