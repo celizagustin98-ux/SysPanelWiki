@@ -44,9 +44,11 @@ const TABLES = new Set([
   "app_settings",
   "audit_log",
   "credenciales",
+  "guardia_operarios",
   "guardias",
   "inventario",
   "inventario_controles",
+  "oficina_telefonos",
   "profiles",
   "role_permissions",
   "tarea_comentarios",
@@ -66,9 +68,11 @@ const TABLES = new Set([
 ]);
 
 const WRITABLE_BY_TECH = new Set([
+  "guardia_operarios",
   "guardias",
   "inventario",
   "inventario_controles",
+  "oficina_telefonos",
   "tarea_comentarios",
   "tarea_instructivos",
   "tarea_subtareas",
@@ -86,9 +90,11 @@ const WRITABLE_BY_TECH = new Set([
 const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   app_settings: { modulo: "configuracion", fields: ["version_actual"] },
   credenciales: { modulo: "credenciales", fields: ["servicio", "usuario", "ip", "url"] },
+  guardia_operarios: { modulo: "guardias", fields: ["nombre", "code"] },
   guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
   inventario: { modulo: "inventario", fields: ["planta", "sector", "descripcion", "numero_serie"] },
   inventario_controles: { modulo: "inventario", fields: ["fecha_control", "estado", "observacion"] },
+  oficina_telefonos: { modulo: "oficina", fields: ["sector", "nombre", "interno"] },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
   tareas: { modulo: "tareas", fields: ["numero", "titulo", "estado", "prioridad"] },
