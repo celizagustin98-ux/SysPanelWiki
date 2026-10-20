@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, getToken } from "@/lib/api/client";
+import { olvidarQrDesbloqueo } from "@/lib/qr";
 
 /** Clave del rol: administrador, tecnico, consulta o uno creado en Configuración. */
 export type AppRole = string;
@@ -249,6 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
 
     async signOut() {
+      olvidarQrDesbloqueo();
       try {
         await api.auth.signOut();
       } finally {

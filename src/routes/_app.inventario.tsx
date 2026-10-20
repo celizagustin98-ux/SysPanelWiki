@@ -1,11 +1,11 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import QRCode from "qrcode";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useId, useMemo, useState } from "react";
 import { strToU8, zipSync } from "fflate";
 import {
   CheckCircle2,
   ClipboardCheck,
+  ClipboardList,
   Columns3,
   Download,
   FileJson,
@@ -33,7 +33,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { QrLock, qrVerificado } from "@/components/activos/QrLock";
+import { QrLock } from "@/components/activos/QrLock";
+import { useQrAjustes } from "@/components/activos/useQrAjustes";
+import { qrDesbloqueado } from "@/lib/qr";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import {
@@ -76,6 +78,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ThOrden, useOrden } from "@/components/tabla/Tabla";
+import { ImprimirEtiquetas } from "@/components/activos/ImprimirEtiquetas";
+import { etiquetasMarcar, qrAjustes } from "@/backend/api/qr.functions";
+import { imprimirEtiquetas, type FormatoEtiqueta } from "@/lib/etiquetas";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { StatTile } from "@/components/StatTile";
@@ -83,7 +88,6 @@ import { cn } from "@/lib/utils";
 import { estadoInfo, garantiaInfo, diasHasta } from "@/components/activos/catalogo";
 import { ACTIVO_COLUMNAS_SQL, ActivoDialog, ControlDialog, type Activo } from "@/components/activos/dialogs";
 import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/FichaActivo";
-import { getMarca } from "@/lib/brand";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
@@ -372,54 +376,23 @@ function exportXlsx(rows: Item[]) {
   URL.revokeObjectURL(url);
 }
 
-/** Dirección que abre la ficha del equipo (es lo que codifica el QR). */
-function itemUrl(id: string) {
-  return `${window.location.origin}/inventario?item=${encodeURIComponent(id)}`;
-}
-
-function esc(value: unknown) {
-  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/** Hoja A4 de etiquetas con QR (3 columnas), lista para imprimir y pegar en cada equipo. */
-async function printEtiquetas(rows: Item[]) {
-  if (!rows.length) return toast.error("No hay equipos para imprimir");
-  if (rows.length > 300) return toast.error("Filtrá hasta 300 equipos por hoja de etiquetas");
-  const win = window.open("", "_blank");
-  if (!win) return toast.error("El navegador bloqueó la ventana de impresión");
-  const etiquetas = await Promise.all(
-    rows.map(async (r) => {
-      const svg = await QRCode.toString(itemUrl(r.id), { type: "svg", margin: 0, errorCorrectionLevel: "M" });
-      return `<div class="et">
-        <div class="qr">${svg}</div>
-        <div class="tx">
-          <div class="cod">${esc(r.codigo || "")}</div>
-          <div class="desc">${esc(r.descripcion || r.nombre)}</div>
-          <div class="ubi">${esc([r.sector, r.planta].filter(Boolean).join(" · "))}</div>
-          <div class="sn">${r.numero_serie ? "S/N " + esc(r.numero_serie) : ""}</div>
-        </div>
-      </div>`;
-    }),
+/** Etiqueta de un solo equipo (desde su planilla) con el formato elegido la última vez. */
+async function printEtiqueta(item: Item) {
+  let formato: FormatoEtiqueta = "rollo";
+  try {
+    const f = localStorage.getItem("nodara.etiquetas.formato");
+    if (f === "rollo" || f === "mini" || f === "a4") formato = f;
+  } catch {
+    /* sin almacenamiento */
+  }
+  const aj = await qrAjustes().catch(() => null);
+  await imprimirEtiquetas(
+    [{ codigo: item.codigo, descripcion: item.descripcion || item.nombre, sector: item.sector, planta: item.planta, ubicacion: item.ubicacion_detalle, serie: item.numero_serie }],
+    formato,
+    aj?.anchoMm ?? 57,
+    aj?.urlBase,
   );
-  win.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>Etiquetas de inventario</title>
-    <style>
-      @page { size: A4; margin: 8mm; }
-      body { margin: 0; font-family: Arial, sans-serif; color: #111; }
-      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
-      .et { display: flex; gap: 2.5mm; align-items: center; border: 0.3mm dashed #999; border-radius: 2mm; padding: 2.5mm; height: 30mm; box-sizing: border-box; break-inside: avoid; }
-      .qr { width: 24mm; height: 24mm; flex-shrink: 0; }
-      .qr svg { width: 100%; height: 100%; }
-      .tx { min-width: 0; font-size: 7.5pt; line-height: 1.25; }
-      .cod { font-family: monospace; font-weight: bold; font-size: 9pt; }
-      .desc { font-weight: bold; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-      .ubi, .sn { color: #444; }
-      .pie { margin-top: 4mm; font-size: 7pt; color: #777; }
-    </style></head><body>
-    <div class="grid">${etiquetas.join("")}</div>
-    <div class="pie">${esc(getMarca().pie)} — escaneá el QR para abrir la ficha y registrar el control.</div>
-    <script>window.onload = () => { window.focus(); window.print(); };</script>
-    </body></html>`);
-  win.document.close();
+  await etiquetasMarcar({ data: { ids: [item.id], impresas: true } }).catch(() => {});
 }
 
 function printRows(rows: Item[]) {
@@ -1017,10 +990,11 @@ function InventarioPage() {
   const navigate = useNavigate();
   const { item: itemParam } = Route.useSearch();
   // Abierto desde un QR (carga directa con ?item=): se pide la clave antes de mostrar nada.
-  const [bloqueadoQr, setBloqueadoQr] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return !!new URLSearchParams(window.location.search).get("item") && !qrVerificado();
-  });
+  const { ajustes: qrAjustes, isLoading: cargandoQr } = useQrAjustes();
+  const [entradaQr] = useState(() => typeof window !== "undefined" && !!new URLSearchParams(window.location.search).get("item"));
+  const [desbloqueadoQr, setDesbloqueadoQr] = useState(false);
+  const bloqueadoQr = entradaQr && !desbloqueadoQr && !cargandoQr && !qrDesbloqueado(qrAjustes.pedirClave);
+  const setBloqueadoQr = (b: boolean) => setDesbloqueadoQr(!b);
   const abrirFicha = (id: string | null) =>
     navigate({ to: "/inventario", search: { item: id ?? undefined }, replace: !id });
   const [q, setQ] = useState("");
@@ -1102,7 +1076,7 @@ function InventarioPage() {
   const rows = useMemo(
     () =>
       data.filter((item) => {
-        const searchable = INVENTARIO_COLUMNS.map((column) => itemField(item, column)).join(" ") + " " + (item.sistema_operativo ?? "");
+        const searchable = INVENTARIO_COLUMNS.map((column) => itemField(item, column)).join(" ") + " " + (item.sistema_operativo ?? "") + " " + (item.ubicacion_detalle ?? "");
         const days = daysSince(item.ultima_vez_controlada);
         const controlMatch =
           control === "todos" ||
@@ -1147,6 +1121,8 @@ function InventarioPage() {
       }
       return next;
     });
+
+  const pendientesEtiqueta = useMemo(() => data.filter((a) => (!a.etiqueta_impresa_at && a.estado !== "baja") || a.etiqueta_reimprimir).length, [data]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -1245,9 +1221,6 @@ function InventarioPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">Con los {rows.length} filtrados</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => void printEtiquetas(rows)}>
-                  <QrCode /> Imprimir etiquetas QR
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => exportXlsx(rows)}>
                   <FileSpreadsheet /> Exportar a Excel
                 </DropdownMenuItem>
@@ -1262,6 +1235,22 @@ function InventarioPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <ImprimirEtiquetas
+              seleccionados={selectedRows}
+              filtrados={rows}
+              todos={data}
+              trigger={
+                <Button variant="outline">
+                  <QrCode /> Etiquetas
+                  {pendientesEtiqueta > 0 && <span className="num rounded bg-warn/20 px-1.5 text-[10px]">{pendientesEtiqueta}</span>}
+                </Button>
+              }
+            />
+            <Button variant="outline" asChild>
+              <Link to="/inventario-auditoria">
+                <ClipboardList /> Auditoría
+              </Link>
+            </Button>
             {canWrite && <ImportDialog onDone={refresh} />}
             {canWrite && canCreate && (
               <ActivoDialog
@@ -1510,7 +1499,7 @@ function InventarioPage() {
                       {ver("ubicacion") && (
                       <TableCell className="max-w-[180px] text-xs">
                         <p className="truncate">{item.sector || "—"}</p>
-                        <p className="truncate text-muted-foreground">{item.planta}</p>
+                        <p className="truncate text-muted-foreground">{[item.ubicacion_detalle, item.planta].filter(Boolean).join(" · ")}</p>
                       </TableCell>
                       )}
                       {ver("asignado") && <TableCell className="max-w-[160px] truncate text-xs">{item.asignado_a || <span className="text-muted-foreground">—</span>}</TableCell>}
@@ -1647,7 +1636,7 @@ function InventarioPage() {
               codigos={codigos}
               plantas={options.plantas}
               sectores={options.sectores}
-              onPrintEtiqueta={(it) => void printEtiquetas([it])}
+              onPrintEtiqueta={(it) => void printEtiqueta(it as Item).then(refresh)}
               onChanged={refresh}
             />
           )}

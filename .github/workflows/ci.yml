@@ -27,7 +27,7 @@ jobs:
         run: |
           node --check scripts/serve.mjs
           node --check scripts/init-db.mjs
-          bash -n scripts/actualizar.sh deploy/instalar.sh deploy/reinstalar.sh deploy/proxmox/crear-lxc.sh deploy/docker/entrypoint.sh
+          bash -n scripts/actualizar.sh deploy/instalar.sh deploy/reinstalar.sh deploy/https.sh deploy/proxmox/crear-lxc.sh deploy/docker/entrypoint.sh
 
       # Informativo hasta resolver los errores de tipado preexistentes.
       - name: Typecheck

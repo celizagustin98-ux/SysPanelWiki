@@ -701,6 +701,129 @@ async function handleAdjunto(req, res) {
   }
 }
 
+// ── QR público: quien escanea una etiqueta sin cuenta ve el equipo y puede reportar una falla ──
+async function qrAjustesPublicos() {
+  try {
+    return (await one(`select qr_reporte_publico, org_nombre, org_area from app_settings where singleton = true`)) || {};
+  } catch {
+    return {};
+  }
+}
+
+async function handleQrPublico(req, res) {
+  const url = new URL(req.url || "/", "http://localhost");
+  const m = /^\/api\/qr\/(info|reporte)\/([^/]+)$/.exec(url.pathname);
+  if (!m) return false;
+  const [, accion, codigoRaw] = m;
+  const codigo = decodeURIComponent(codigoRaw).trim().slice(0, 80);
+  try {
+    const ip = clientIp(req);
+    const ajustes = await qrAjustesPublicos();
+    const reportePublico = ajustes.qr_reporte_publico !== false;
+    const activo = await one(
+      `select id, codigo, coalesce(descripcion, nombre) as descripcion, coalesce(rubro, categoria) as rubro, sector, planta, ubicacion_detalle, estado
+         from inventario where upper(codigo) = upper($1) order by created_at limit 1`,
+      [codigo],
+    ).catch(() => null);
+
+    if (accion === "info" && req.method === "GET") {
+      rateLimit(`qrinfo:${ip}`, 120, 60_000);
+      let libre = false;
+      if (!activo) libre = !!(await one(`select 1 as ok from inventario_etiquetas_libres where upper(codigo) = upper($1)`, [codigo]).catch(() => null));
+      sendJson(res, 200, {
+        existe: !!activo,
+        libre,
+        codigo: activo?.codigo ?? codigo,
+        reportePublico,
+        organizacion: ajustes.org_nombre || null,
+        area: ajustes.org_area || null,
+        // Solo datos visibles en la etiqueta: nada de IP, usuarios ni credenciales.
+        equipo: activo
+          ? { descripcion: activo.descripcion, rubro: activo.rubro, sector: activo.sector, planta: activo.planta, ubicacion: activo.ubicacion_detalle }
+          : null,
+      });
+      return true;
+    }
+
+    if (accion === "reporte" && req.method === "POST") {
+      rateLimit(`qrreporte:${ip}`, 6, 60 * 60_000);
+      if (!reportePublico) {
+        sendJson(res, 403, { error: "Los reportes por QR están deshabilitados. Avisá a Sistemas." });
+        return true;
+      }
+      if (!activo) {
+        sendJson(res, 404, { error: "Este código no corresponde a un equipo registrado." });
+        return true;
+      }
+      const body = await readJson(req);
+      if (body.sitio) {
+        // Campo trampa para bots: se responde OK sin crear nada.
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+      const nombre = String(body.nombre || "").trim().slice(0, 80);
+      const detalle = String(body.detalle || "").trim().slice(0, 1500);
+      const contacto = String(body.contacto || "").trim().slice(0, 80);
+      const sector = String(body.sector || activo.sector || "").trim().slice(0, 80);
+      if (nombre.length < 2 || detalle.length < 5) {
+        sendJson(res, 400, { error: "Completá tu nombre y qué le pasa al equipo." });
+        return true;
+      }
+      let numero = null;
+      try {
+        numero = (await one(`select nextval('ticket_numero_seq')::int as n`))?.n ?? null;
+      } catch {
+        numero = (await one(`select coalesce(max(numero), 1000)::int + 1 as n from tareas`))?.n ?? null;
+      }
+      const rubro = String(activo.rubro || "").toLowerCase();
+      const categoria = /impres|multifun/.test(rubro)
+        ? "Impresora"
+        : /switch|router|access|red|firewall|ups/.test(rubro)
+          ? "Red"
+          : /servidor|server/.test(rubro)
+            ? "Servidor"
+            : /pc|notebook|monitor|tablet|celular|all in one/.test(rubro)
+              ? "PC"
+              : "Otro";
+      const titulo = `${activo.codigo} · ${detalle.split(/\r?\n/)[0].slice(0, 90)}`;
+      const descripcion = `${detalle}\n\n— Reportado escaneando el QR del equipo${contacto ? `\nContacto: ${contacto}` : ""}`;
+      const ticket = await one(
+        `insert into tareas (numero, titulo, descripcion, estado, prioridad, tipo, categoria, sector, solicitante_nombre, canal, activo_id)
+         values ($1, $2, $3, 'nuevo', 'media', 'incidente', $4, $5, $6, 'qr', $7) returning id, numero`,
+        [numero, titulo, descripcion, categoria, sector || null, nombre, activo.id],
+      );
+      await query(`insert into inventario_escaneos (inventario_id, codigo, usuario_nombre, accion, detalle, publico) values ($1, $2, $3, 'reporte', $4, true)`, [
+        activo.id,
+        activo.codigo,
+        nombre,
+        `Ticket #${ticket?.numero ?? ""}`,
+      ]).catch(() => {});
+      await query(
+        `insert into audit_log (actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle)
+         values ($1, '', 'tareas', 'crear', $2, $3, $4::jsonb)`,
+        [`${nombre} (QR)`, ticket?.id ?? null, titulo, JSON.stringify({ canal: "qr", ip })],
+      ).catch(() => {});
+      // Aviso a quienes atienden tickets.
+      await query(
+        `insert into notificaciones (user_id, tipo, titulo, cuerpo, link, actor_nombre)
+         select distinct ur.user_id, 'ticket', $1, $2, $3, $4
+           from user_roles ur
+           left join role_permissions rp on rp.role = ur.role and rp.modulo = 'tareas'
+          where ur.role = 'administrador' or rp.can_edit`,
+        [`Falla reportada por QR · ${activo.codigo}`, titulo, `/tareas?ticket=${ticket?.id ?? ""}`, nombre],
+      ).catch(() => {});
+      sendJson(res, 201, { ok: true, numero: ticket?.numero ?? null });
+      return true;
+    }
+
+    sendJson(res, 405, { error: "Método no permitido" });
+    return true;
+  } catch (error) {
+    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : "No se pudo procesar el pedido" });
+    return true;
+  }
+}
+
 const server = createServer(async (req, res) => {
   try {
     if (maintenanceEnabled() && !String(req.url || "").startsWith("/api/system/health")) {
@@ -709,6 +832,7 @@ const server = createServer(async (req, res) => {
     }
     if (await handleAuth(req, res)) return;
     if (await handleAdjunto(req, res)) return;
+    if (await handleQrPublico(req, res)) return;
     if (await handleSystem(req, res)) return;
     if (await handleUpdates(req, res)) return;
     if (await handleInstructivoPdf(req, res)) return;

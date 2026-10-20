@@ -25,7 +25,8 @@ import { BrandLockup, BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Notificaciones } from "@/components/Notificaciones";
 import { Bienvenida } from "@/components/Bienvenida";
-import { EscanerQR, idDesdeQr } from "@/components/activos/EscanerQR";
+import { EscanerQR } from "@/components/activos/EscanerQR";
+import { leerQr, marcarQrDesbloqueado } from "@/lib/qr";
 import { toast } from "sonner";
 import {
   CommandDialog,
@@ -125,15 +126,12 @@ export function AppShell() {
   const [escaner, setEscaner] = useState(false);
   const alEscanear = (texto: string) => {
     setEscaner(false);
-    const id = idDesdeQr(texto);
-    if (!id) return toast.error(`Ese QR no es una etiqueta de ${getMarca().nombre}`);
+    const leido = leerQr(texto);
+    if (!leido) return toast.error(`Ese QR no es una etiqueta de ${getMarca().nombre}`);
     // Escaneado desde adentro del sistema: la sesión ya está verificada.
-    try {
-      sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
-    } catch {
-      /* sin almacenamiento */
-    }
-    void navigate({ to: "/inventario", search: { item: id } });
+    marcarQrDesbloqueado();
+    if (leido.codigo) void navigate({ to: "/q/$codigo", params: { codigo: leido.codigo } });
+    else void navigate({ to: "/inventario", search: { item: leido.id } });
   };
   const status = useServerStatus();
 

@@ -123,7 +123,7 @@ export function ReporteMensual() {
         <tr><td>Altas de equipos</td><td class="r">${data.altas}</td></tr>
         <tr><td>Controles realizados</td><td class="r">${data.controles}</td></tr>
       </tbody></table>
-      <div class="pie">${pieDoc(`Reporte generado el ${new Date().toLocaleString("es-AR")}`)}</div>
+      <div class="pie">${pieDoc(`Reporte generado el ${new Date().toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short", hourCycle: "h23" })}`)}</div>
     </body></html>`;
     imprimirHtml(html, `Reporte-${dFecha.slice(0, 7)}`);
   };

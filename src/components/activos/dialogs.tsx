@@ -50,12 +50,16 @@ export type Activo = {
   fecha_compra?: string | null;
   costo?: number | string | null;
   garantia_hasta?: string | null;
+  /** Puesto, escritorio, rack o posición dentro del sector. */
+  ubicacion_detalle?: string | null;
+  etiqueta_impresa_at?: string | null;
+  etiqueta_reimprimir?: boolean | null;
   created_at?: string;
   updated_at?: string;
 };
 
 export const ACTIVO_COLUMNAS_SQL =
-  "id,codigo,nombre,categoria,planta,sector,rubro,tipo,descripcion,cantidad,marca,modelo,numero_serie,propiedad,estado,ultima_vez_controlada,asignado_a,asignado_desde,notas,hostname,ip,mac,sistema_operativo,specs,proveedor,nro_factura,fecha_compra,costo,garantia_hasta,created_at,updated_at";
+  "id,codigo,nombre,categoria,planta,sector,rubro,tipo,descripcion,cantidad,marca,modelo,numero_serie,propiedad,estado,ultima_vez_controlada,asignado_a,asignado_desde,notas,hostname,ip,mac,sistema_operativo,specs,proveedor,nro_factura,fecha_compra,costo,garantia_hasta,ubicacion_detalle,etiqueta_impresa_at,etiqueta_reimprimir,created_at,updated_at";
 
 function t(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
@@ -122,20 +126,35 @@ export function ActivoDialog({
   plantas,
   sectores,
   onDone,
+  codigoInicial,
+  abierto,
+  onAbiertoChange,
+  onCreado,
 }: {
   item?: Activo;
-  trigger: ReactNode;
+  trigger?: ReactNode;
   codigos: (string | null)[];
   plantas: string[];
   sectores: string[];
   onDone: () => void;
+  /** Código ya impreso en la etiqueta (alta escaneando un QR en blanco). */
+  codigoInicial?: string;
+  /** Control externo del diálogo (cuando no hay botón disparador). */
+  abierto?: boolean;
+  onAbiertoChange?: (o: boolean) => void;
+  onCreado?: (id: string, codigo: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openInterno, setOpenInterno] = useState(false);
+  const open = abierto ?? openInterno;
+  const setOpen = (o: boolean) => {
+    setOpenInterno(o);
+    onAbiertoChange?.(o);
+  };
   const [saving, setSaving] = useState(false);
   const [categoria, setCategoria] = useState(item?.rubro || item?.categoria || "PC");
   const [estado, setEstado] = useState(item?.estado || "operativo");
   const cat = categoriaInfo(categoria);
-  const codigoSugerido = useMemo(() => (item ? item.codigo : siguienteCodigo(codigos)), [item, codigos, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const codigoSugerido = useMemo(() => (item ? item.codigo : codigoInicial || siguienteCodigo(codigos)), [item, codigos, open, codigoInicial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -163,6 +182,7 @@ export function ActivoDialog({
       estado,
       planta: t(fd.get("planta")) || null,
       sector: t(fd.get("sector")) || null,
+      ubicacion_detalle: t(fd.get("ubicacion_detalle")) || null,
       propiedad: t(fd.get("propiedad")) || null,
       cantidad: Math.max(1, Number(t(fd.get("cantidad")) || 1)),
       hostname: cat.red ? t(fd.get("hostname")) || null : null,
@@ -181,13 +201,15 @@ export function ActivoDialog({
     const duplicado = codigos.some((c) => c === payload.codigo) && payload.codigo !== item?.codigo;
     if (duplicado) return toast.error(`Ya existe un activo con el código ${payload.codigo}`);
     setSaving(true);
-    const { error } = item
+    const { data: guardado, error } = item
       ? await api.from("inventario").update(payload).eq("id", item.id)
       : await api.from("inventario").insert(payload);
     setSaving(false);
     if (error) return toast.error(error.message);
     toast.success(item ? "Activo actualizado" : `Activo ${payload.codigo} dado de alta`);
     setOpen(false);
+    const nuevoId = (Array.isArray(guardado) ? guardado[0] : guardado)?.id as string | undefined;
+    if (!item && nuevoId) onCreado?.(nuevoId, payload.codigo);
     onDone();
   };
 
@@ -202,7 +224,7 @@ export function ActivoDialog({
         }
       }}
     >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{item ? `Editar ${item.codigo}` : "Alta de activo"}</DialogTitle>
@@ -262,6 +284,13 @@ export function ActivoDialog({
           <Seccion titulo="Ubicación">
             <Campo label="Planta" name="planta" defaultValue={item?.planta} list="activos-plantas" />
             <Campo label="Sector" name="sector" defaultValue={item?.sector} list="activos-sectores" />
+            <Campo
+              label="Ubicación física"
+              name="ubicacion_detalle"
+              wide
+              defaultValue={item?.ubicacion_detalle}
+              placeholder="Puesto 3 · escritorio de la ventana · Rack 1 U12"
+            />
             <Campo label="Propiedad" name="propiedad" defaultValue={item?.propiedad} placeholder="Propio / Comodato / Alquiler" />
             <Campo label="Cantidad" name="cantidad" type="number" defaultValue={item?.cantidad ?? 1} />
           </Seccion>

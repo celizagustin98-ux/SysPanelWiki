@@ -30,6 +30,7 @@ import { FeriadosConfig } from "@/components/configuracion/FeriadosConfig";
 import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
 import { useMarca } from "@/lib/brand";
 import { MarcaConfig } from "@/components/configuracion/MarcaConfig";
+import { QrConfig } from "@/components/configuracion/QrConfig";
 import { api } from "@/lib/api/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
@@ -340,6 +341,7 @@ function ConfiguracionPage() {
             </CardContent>
           </Card>
           <MarcaConfig />
+          <QrConfig esAdmin={isAdmin} />
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {roles.map((r) => (
