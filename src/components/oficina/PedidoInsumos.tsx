@@ -325,6 +325,7 @@ function Historico() {
   const qc = useQueryClient();
   const [mes, setMes] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [abierto, setAbierto] = useState<string | null>(null);
+  const [editando, setEditando] = useState<Pedido | null>(null);
 
   const { data } = useQuery({
     queryKey: ["insumos", "historico"],
@@ -452,6 +453,11 @@ function Historico() {
                   ) : (
                     <Badge variant={est.tono}>{est.label}</Badge>
                   )}
+                  {canWrite && (
+                    <Button size="icon" variant="ghost" className="size-8" title="Editar pedido" aria-label="Editar pedido" onClick={() => setEditando(p)}>
+                      <Pencil className="size-4" />
+                    </Button>
+                  )}
                   <Button size="icon" variant="ghost" className="size-8" title="Abrir PDF" aria-label="Abrir PDF" onClick={() => imprimirPedidoInsumos({ numero: p.numero, fecha: p.created_at, destinatario: p.destinatario, solicitante: p.solicitante_nombre, notas: p.notas, items: its })}>
                     <FileText className="size-4" />
                   </Button>
@@ -477,6 +483,193 @@ function Historico() {
           })}
         </div>
       )}
+
+      {editando && (
+        <EditarPedido
+          pedido={editando}
+          items={itemsDe(editando.id)}
+          onClose={() => setEditando(null)}
+          onGuardado={() => void qc.invalidateQueries({ queryKey: ["insumos", "historico"] })}
+        />
+      )}
     </div>
+  );
+}
+
+/* ───────────── Editar un pedido ya generado ───────────── */
+
+type Fila = {
+  key: string;
+  id: string | null;
+  descripcion: string;
+  cantidad: string;
+  unidad: string;
+  precio_estimado: string;
+  link: string;
+  sector: string;
+  prioridad: string;
+  notas: string;
+};
+
+function aFila(i: Item): Fila {
+  return {
+    key: i.id,
+    id: i.id,
+    descripcion: i.descripcion,
+    cantidad: String(Number(i.cantidad)),
+    unidad: i.unidad || "u.",
+    precio_estimado: i.precio_estimado != null ? String(Number(i.precio_estimado)) : "",
+    link: i.link ?? "",
+    sector: i.sector ?? "",
+    prioridad: i.prioridad || "normal",
+    notas: i.notas ?? "",
+  };
+}
+
+/** Número escrito al estilo argentino o no: "1.500,50", "1.500", "1500.5" o "12". */
+function aNumero(v: string) {
+  const t = String(v ?? "").trim().replace(/\s|\$/g, "");
+  if (!t) return 0;
+  if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", ".")) || 0;
+  if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, "")) || 0;
+  return Number(t) || 0;
+}
+
+/** Corrige datos, ítems y observaciones de un pedido y vuelve a generar el mismo SOL-xxxx. */
+function EditarPedido({ pedido, items, onClose, onGuardado }: { pedido: Pedido; items: Item[]; onClose: () => void; onGuardado: () => void }) {
+  const [filas, setFilas] = useState<Fila[]>(() => items.map(aFila));
+  const [destinatario, setDestinatario] = useState(pedido.destinatario);
+  const [notas, setNotas] = useState(pedido.notas ?? "");
+  const [guardando, setGuardando] = useState(false);
+
+  const cambiar = (key: string, campo: keyof Fila, valor: string) => setFilas((fs) => fs.map((f) => (f.key === key ? { ...f, [campo]: valor } : f)));
+  const agregar = () =>
+    setFilas((fs) => [
+      ...fs,
+      { key: `nuevo-${Date.now()}`, id: null, descripcion: "", cantidad: "1", unidad: "u.", precio_estimado: "", link: "", sector: "", prioridad: "normal", notas: "" },
+    ]);
+  const quitar = (key: string) => setFilas((fs) => fs.filter((f) => f.key !== key));
+  const total = filas.reduce((s, f) => s + aNumero(f.cantidad) * aNumero(f.precio_estimado), 0);
+
+  const guardar = async (generar: boolean) => {
+    if (!filas.length) return toast.error("El pedido tiene que tener al menos un ítem");
+    if (filas.some((f) => !f.descripcion.trim())) return toast.error("Hay un ítem sin descripción");
+    setGuardando(true);
+    const payload = filas.map((f) => ({
+      id: f.id,
+      descripcion: f.descripcion,
+      cantidad: aNumero(f.cantidad),
+      unidad: f.unidad,
+      precio_estimado: f.precio_estimado.trim() ? aNumero(f.precio_estimado) : null,
+      link: f.link,
+      sector: f.sector,
+      prioridad: f.prioridad,
+      notas: f.notas,
+    }));
+    const { error } = await api.rpc("editar_pedido_insumos", { _id: pedido.id, _destinatario: destinatario, _notas: notas, _items: payload });
+    setGuardando(false);
+    if (error) return toast.error(error.message);
+    toast.success(`${numeroPedidoInsumos(pedido.numero)} actualizado`);
+    onGuardado();
+    if (generar) {
+      imprimirPedidoInsumos({
+        numero: pedido.numero,
+        fecha: pedido.created_at,
+        destinatario,
+        solicitante: pedido.solicitante_nombre,
+        notas: notas || null,
+        items: payload.map((p) => ({ ...p, link: p.link || null, sector: p.sector || null, notas: p.notas || null })),
+      });
+    }
+    onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex max-h-[92dvh] flex-col gap-3 overflow-hidden sm:max-w-[min(1100px,96vw)]">
+        <DialogHeader>
+          <DialogTitle>Editar {numeroPedidoInsumos(pedido.numero)}</DialogTitle>
+          <DialogDescription>
+            Corregí lo que haga falta y volvé a generar el PDF: se mantiene el mismo número y la fecha original.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 sm:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="space-y-1.5">
+            <Label htmlFor="ed-dest">Para</Label>
+            <Input id="ed-dest" value={destinatario} onChange={(e) => setDestinatario(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ed-notas">Observaciones</Label>
+            <Input id="ed-notas" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Opcional" />
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="sticky top-0 z-10 bg-muted text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-2 py-2 font-medium">Descripción</th>
+                <th className="w-20 px-2 py-2 font-medium">Cant.</th>
+                <th className="w-20 px-2 py-2 font-medium">Unidad</th>
+                <th className="w-28 px-2 py-2 font-medium">Precio est.</th>
+                <th className="px-2 py-2 font-medium">Link de compra</th>
+                <th className="w-32 px-2 py-2 font-medium">Destino</th>
+                <th className="w-28 px-2 py-2 font-medium">Prioridad</th>
+                <th className="w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f.key} className="border-t border-border/60 align-top">
+                  <td className="p-1.5">
+                    <Input value={f.descripcion} onChange={(e) => cambiar(f.key, "descripcion", e.target.value)} className="h-8" aria-label="Descripción" />
+                    <Input value={f.notas} onChange={(e) => cambiar(f.key, "notas", e.target.value)} className="mt-1 h-7 text-xs" placeholder="Notas" aria-label="Notas" />
+                  </td>
+                  <td className="p-1.5"><Input value={f.cantidad} onChange={(e) => cambiar(f.key, "cantidad", e.target.value)} className="num h-8" inputMode="decimal" aria-label="Cantidad" /></td>
+                  <td className="p-1.5"><Input value={f.unidad} onChange={(e) => cambiar(f.key, "unidad", e.target.value)} className="h-8" aria-label="Unidad" /></td>
+                  <td className="p-1.5"><Input value={f.precio_estimado} onChange={(e) => cambiar(f.key, "precio_estimado", e.target.value)} className="num h-8" inputMode="decimal" aria-label="Precio" /></td>
+                  <td className="p-1.5"><Input value={f.link} onChange={(e) => cambiar(f.key, "link", e.target.value)} className="h-8 text-xs" placeholder="https://…" aria-label="Link" /></td>
+                  <td className="p-1.5"><Input value={f.sector} onChange={(e) => cambiar(f.key, "sector", e.target.value)} className="h-8" aria-label="Destino" /></td>
+                  <td className="p-1.5">
+                    <Select value={f.prioridad} onValueChange={(v) => cambiar(f.key, "prioridad", v)}>
+                      <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="normal">Normal</SelectItem>
+                        <SelectItem value="urgente">Urgente</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="p-1.5">
+                    <Button size="icon" variant="ghost" className="size-8" aria-label="Quitar ítem" onClick={() => quitar(f.key)}>
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button variant="outline" size="sm" onClick={agregar}>
+            <Plus /> Agregar ítem
+          </Button>
+          <p className="text-sm">
+            {filas.length} ítems · Total estimado <span className="num font-semibold">{pesos(total)}</span>
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="secondary" disabled={guardando} onClick={() => void guardar(false)}>
+            {guardando ? <Loader2 className="animate-spin" /> : <Pencil />} Guardar
+          </Button>
+          <Button disabled={guardando} onClick={() => void guardar(true)}>
+            {guardando ? <Loader2 className="animate-spin" /> : <FileText />} Guardar y generar PDF
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

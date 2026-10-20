@@ -472,6 +472,78 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto }, error: null };
     }
+    if (data.name === "editar_pedido_insumos") {
+      // Corrige un pedido ya generado (mismo número): datos del pedido e ítems, todo junto.
+      if (!(await hasModulePermission(session.user.id, "oficina", "editar"))) throw new Error("Tu rol no tiene permiso para editar pedidos");
+      const pedidoId = String(data.args?._id ?? "");
+      const lista = Array.isArray(data.args?._items) ? (data.args?._items as Record<string, unknown>[]) : [];
+      if (!lista.length) throw new Error("El pedido tiene que tener al menos un ítem");
+      if (lista.length > 300) throw new Error("Demasiados ítems");
+      const texto = (v: unknown, max: number) => {
+        const t = String(v ?? "").trim();
+        return t ? t.slice(0, max) : null;
+      };
+      const numero = (v: unknown) => {
+        const n = Number(String(v ?? "").replace(",", "."));
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      };
+      const items = lista.map((i) => {
+        const descripcion = texto(i.descripcion, 300);
+        if (!descripcion) throw new Error("Hay un ítem sin descripción");
+        const cantidad = numero(i.cantidad);
+        if (!cantidad) throw new Error(`"${descripcion}": la cantidad tiene que ser mayor a 0`);
+        return {
+          id: /^[0-9a-f-]{36}$/i.test(String(i.id ?? "")) ? String(i.id) : null,
+          descripcion,
+          cantidad,
+          unidad: texto(i.unidad, 20) ?? "u.",
+          link: texto(i.link, 600),
+          precio: numero(i.precio_estimado),
+          sector: texto(i.sector, 120),
+          prioridad: i.prioridad === "urgente" ? "urgente" : "normal",
+          notas: texto(i.notas, 500),
+        };
+      });
+      const total = items.reduce((s, i) => s + (i.precio ?? 0) * i.cantidad, 0);
+      const actor = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [session.user.id]);
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        const ped = await client.query<Record<string, unknown>>(
+          `update insumos_pedidos set destinatario = coalesce($2, destinatario), notas = $3, total_estimado = $4
+            where id = $1 returning *`,
+          [pedidoId, texto(data.args?._destinatario, 120), texto(data.args?._notas, 2000), total],
+        );
+        if (!ped.rowCount) throw new Error("Pedido inexistente");
+        const conservar = items.map((i) => i.id).filter(Boolean) as string[];
+        await client.query(`delete from insumos_items where pedido_id = $1 and not (id = any($2::uuid[]))`, [pedidoId, conservar]);
+        for (const i of items) {
+          const valores = [i.descripcion, i.cantidad, i.unidad, i.link, i.precio, i.sector, i.prioridad, i.notas];
+          const upd = i.id
+            ? await client.query(
+                `update insumos_items set descripcion = $3, cantidad = $4, unidad = $5, link = $6, precio_estimado = $7, sector = $8, prioridad = $9, notas = $10
+                  where id = $1 and pedido_id = $2`,
+                [i.id, pedidoId, ...valores],
+              )
+            : null;
+          if (!upd?.rowCount) {
+            await client.query(
+              `insert into insumos_items (pedido_id, descripcion, cantidad, unidad, link, precio_estimado, sector, prioridad, notas, created_by_nombre)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              [pedidoId, ...valores, actor?.full_name ?? null],
+            );
+          }
+        }
+        await client.query("commit");
+        await writeAudit(session.user.id, "insumos_pedidos", "editar", ped.rows, { items: items.length, total });
+        return { data: ped.rows[0], error: null };
+      } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
     if (data.name === "generar_pedido_insumos") {
       // Pasa la lista actual de insumos a un pedido numerado, en una sola transacción.
       if (!(await hasModulePermission(session.user.id, "oficina", "crear"))) throw new Error("Tu rol no tiene permiso para generar pedidos");

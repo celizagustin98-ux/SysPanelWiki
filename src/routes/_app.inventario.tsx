@@ -81,6 +81,7 @@ import { ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { ImprimirEtiquetas } from "@/components/activos/ImprimirEtiquetas";
 import { etiquetasMarcar, qrAjustes } from "@/backend/api/qr.functions";
 import { imprimirEtiquetas, type FormatoEtiqueta } from "@/lib/etiquetas";
+import { imprimirHtml } from "@/lib/imprimir";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { StatTile } from "@/components/StatTile";
@@ -424,12 +425,7 @@ function printRows(rows: Item[]) {
         </table>
       </body>
     </html>`;
-  const win = window.open("", "_blank");
-  if (!win) return toast.error("El navegador bloqueó la ventana de impresión");
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
+  imprimirHtml(html, "Inventario");
 }
 
 function splitCsvLine(line: string, delimiter: string) {

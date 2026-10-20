@@ -1,5 +1,5 @@
 /** Solicitud de pedido imprimible / PDF (sin pop-ups). */
-import { estiloMarca, marcaDocHtml, pieDoc } from "./imprimir";
+import { imprimirHtml, estiloMarca, marcaDocHtml, pieDoc } from "./imprimir";
 
 export type PdfPedidoLinea = {
   nombre: string;
@@ -129,54 +129,7 @@ function buildHtml(input: PdfPedidoInput) {
 }
 
 export function abrirPdfPedido(input: PdfPedidoInput) {
-  const html = buildHtml(input);
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("title", "PED-" + String(input.numero));
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.style.opacity = "0";
-  iframe.style.pointerEvents = "none";
-  document.body.appendChild(iframe);
-
-  const doc = iframe.contentDocument || iframe.contentWindow?.document;
-  if (!doc) {
-    document.body.removeChild(iframe);
-    descargarHtmlPedido(input);
-    return;
-  }
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  const cleanup = () => {
-    try {
-      document.body.removeChild(iframe);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const doPrint = () => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch {
-      descargarHtmlPedido(input);
-    }
-    setTimeout(cleanup, 1500);
-  };
-
-  if (iframe.contentWindow?.document.readyState === "complete") {
-    setTimeout(doPrint, 100);
-  } else {
-    iframe.onload = () => setTimeout(doPrint, 100);
-    setTimeout(doPrint, 400);
-  }
+  imprimirHtml(buildHtml(input), "PED-" + String(input.numero));
 }
 
 export function descargarHtmlPedido(input: PdfPedidoInput) {

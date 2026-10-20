@@ -1,6 +1,6 @@
 /** Liquidación de guardias — impresión / PDF (iframe, sin pop-up). */
 import { getMarca } from "./brand";
-import { estiloMarca, marcaDocHtml } from "./imprimir";
+import { imprimirHtml, estiloMarca, marcaDocHtml } from "./imprimir";
 
 export type LiqRow = {
   code: string;
@@ -161,58 +161,6 @@ function buildHtml(input: LiqPdfInput) {
 }
 
 export function abrirPdfLiquidacion(input: LiqPdfInput) {
-  const html = buildHtml(input);
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("title", (input.titulo || "Liquidación") + " " + input.periodoLabel);
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.style.opacity = "0";
-  iframe.style.pointerEvents = "none";
-  document.body.appendChild(iframe);
-
-  const doc = iframe.contentDocument || iframe.contentWindow?.document;
-  if (!doc) {
-    document.body.removeChild(iframe);
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "liquidacion-guardias.html";
-    a.click();
-    URL.revokeObjectURL(url);
-    return;
-  }
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  const cleanup = () => {
-    try {
-      document.body.removeChild(iframe);
-    } catch {
-      /* */
-    }
-  };
-
-  const doPrint = () => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch {
-      /* */
-    }
-    setTimeout(cleanup, 1500);
-  };
-
-  if (iframe.contentWindow?.document.readyState === "complete") {
-    setTimeout(doPrint, 120);
-  } else {
-    iframe.onload = () => setTimeout(doPrint, 120);
-    setTimeout(doPrint, 400);
-  }
+  imprimirHtml(buildHtml(input), (input.titulo || "Liquidación") + " " + input.periodoLabel);
 }
+

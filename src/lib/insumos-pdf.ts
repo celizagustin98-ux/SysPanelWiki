@@ -1,5 +1,5 @@
 import { getMarca } from "./brand";
-import { ESTILO_DOC, encabezadoDoc, escHtml, imprimirHtml, pesos, pieDoc } from "./imprimir";
+import { ESTILO_DOC, encabezadoDoc, escHtml, imprimirHtml, linkDoc, pesos, pieDoc } from "./imprimir";
 
 export type InsumoPdf = {
   descripcion: string;
@@ -35,7 +35,7 @@ export function imprimirPedidoInsumos(p: PedidoInsumosPdf) {
         <td class="r">${idx + 1}</td>
         <td><strong>${escHtml(i.descripcion)}</strong>${i.prioridad === "urgente" ? ' <span style="color:#b91c1c;font-size:9px;font-weight:700">URGENTE</span>' : ""}
           ${i.notas ? `<div class="small">${escHtml(i.notas)}</div>` : ""}
-          ${i.link ? `<div class="small">${escHtml(i.link)}</div>` : ""}</td>
+          ${i.link ? `<div class="small">Comprar en: ${linkDoc(i.link)}</div>` : ""}</td>
         <td>${escHtml(i.sector ?? "—")}</td>
         <td class="r">${Number(i.cantidad).toLocaleString("es-AR")} ${escHtml(i.unidad)}</td>
         <td class="r">${i.precio_estimado ? pesos(i.precio_estimado) : "—"}</td>
@@ -58,7 +58,7 @@ export function imprimirPedidoInsumos(p: PedidoInsumosPdf) {
     <div class="total">Total estimado: <strong>${pesos(total)}</strong></div>
     ${p.notas ? `<div class="notas"><strong>Observaciones:</strong> ${escHtml(p.notas)}</div>` : ""}
     <div class="firmas"><div>Solicitante</div><div>Responsable de Sistemas</div><div>Compras</div></div>
-    <div class="pie">${pieDoc(`${numeroPedidoInsumos(p.numero)} · Los precios son estimados y los links son de referencia.`)}</div>
+    <div class="pie">${pieDoc(`${numeroPedidoInsumos(p.numero)} · Los precios son estimados. Los links se pueden abrir con un clic desde el PDF.`)}</div>
   </body></html>`;
   imprimirHtml(html, numeroPedidoInsumos(p.numero));
 }

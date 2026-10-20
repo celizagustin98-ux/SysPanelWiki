@@ -1,34 +1,87 @@
 import { getMarca } from "./brand";
 
-/** Abre el diálogo de impresión del navegador con un documento HTML (permite "Guardar como PDF"). */
+/** Estilos que se agregan a todo documento impreso: colores de fondo fieles y links visibles. */
+const ESTILO_IMPRESION = `<style>
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  a.link { color: #1f6fb2; word-break: break-all; }
+</style>`;
+
+/** Espera a que el documento termine de cargar fuentes e imágenes antes de imprimir. */
+async function documentoListo(doc: Document) {
+  const imagenes = Array.from(doc.images ?? []);
+  await Promise.race([
+    Promise.all([
+      doc.fonts?.ready.catch(() => undefined),
+      ...imagenes.map((img) => (img.complete ? Promise.resolve() : img.decode().catch(() => undefined))),
+    ]),
+    new Promise((r) => setTimeout(r, 4000)),
+  ]);
+  // Dos cuadros de animación: el navegador terminó de maquetar.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+/**
+ * Abre el diálogo de impresión con un documento HTML (desde ahí: "Guardar como PDF").
+ * El marco tiene tamaño A4 real fuera de pantalla (con tamaño 0 algunos navegadores imprimen en blanco)
+ * y se quita recién cuando termina la impresión, no a los pocos segundos.
+ */
 export function imprimirHtml(html: string, titulo = "Documento") {
+  document.querySelectorAll("iframe[data-impresion]").forEach((f) => f.remove());
   const iframe = document.createElement("iframe");
   iframe.setAttribute("title", titulo);
-  Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0", opacity: "0", pointerEvents: "none" });
+  iframe.setAttribute("data-impresion", "1");
+  iframe.setAttribute("aria-hidden", "true");
+  Object.assign(iframe.style, { position: "fixed", left: "-10000px", top: "0", width: "210mm", height: "297mm", maxWidth: "none", border: "0", pointerEvents: "none" });
   document.body.appendChild(iframe);
-  const doc = iframe.contentDocument || iframe.contentWindow?.document;
-  if (!doc) {
+  const win = iframe.contentWindow;
+  const doc = iframe.contentDocument || win?.document;
+  if (!doc || !win) {
     iframe.remove();
-    descargarHtml(html, titulo);
+    abrirEnPestana(html, titulo);
     return;
   }
+  const conEstilo = html.includes("</head>") ? html.replace("</head>", `${ESTILO_IMPRESION}</head>`) : ESTILO_IMPRESION + html;
   doc.open();
-  doc.write(html);
+  doc.write(conEstilo);
   doc.close();
-  let impreso = false;
-  const imprimir = () => {
-    if (impreso) return;
-    impreso = true;
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch {
-      descargarHtml(html, titulo);
-    }
-    setTimeout(() => iframe.remove(), 2000);
+
+  let limpio = false;
+  const quitar = () => {
+    if (limpio) return;
+    limpio = true;
+    iframe.remove();
   };
-  iframe.onload = () => setTimeout(imprimir, 150);
-  setTimeout(imprimir, 600);
+  win.addEventListener("afterprint", () => setTimeout(quitar, 500));
+  setTimeout(quitar, 10 * 60_000);
+
+  void documentoListo(doc).then(() => {
+    try {
+      win.focus();
+      win.print();
+    } catch {
+      quitar();
+      abrirEnPestana(html, titulo);
+    }
+  });
+}
+
+/** Alternativa si el navegador no deja imprimir desde el marco: el documento en una pestaña nueva. */
+function abrirEnPestana(html: string, titulo: string) {
+  const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+  const w = window.open(url, "_blank", "noopener");
+  if (!w) descargarHtml(html, titulo);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Link seguro para documentos: solo http(s), con el texto visible acortado. */
+export function linkDoc(url: string | null | undefined, max = 60) {
+  let u = String(url ?? "").trim();
+  // "www.tienda.com/..." sin protocolo también se convierte en link.
+  if (!/^https?:\/\//i.test(u) && /^[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(u)) u = `https://${u}`;
+  if (!/^https?:\/\//i.test(u)) return escHtml(u);
+  const visible = u.replace(/^https?:\/\/(www\.)?/i, "");
+  return `<a class="link" href="${escHtml(u)}" target="_blank" rel="noopener noreferrer">${escHtml(visible.length > max ? visible.slice(0, max - 1) + "…" : visible)}</a>`;
 }
 
 export function descargarHtml(html: string, titulo: string) {
