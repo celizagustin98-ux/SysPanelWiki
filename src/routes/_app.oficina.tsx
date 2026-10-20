@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { BotonCsv, exportarCsv } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -132,7 +133,8 @@ function OficinaPage() {
 }
 
 function TelefonosPanel() {
-  const { canWrite } = useAuth();
+  const { puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("oficina");
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [sectorFilter, setSectorFilter] = useState<string | "todos">("todos");
@@ -295,6 +297,21 @@ function TelefonosPanel() {
             ))}
           </SelectContent>
         </Select>
+        <BotonCsv
+          disabled={!filtered.length}
+          onClick={() =>
+            exportarCsv(
+              "telefonos-internos",
+              [
+                { titulo: "Sector", valor: (t: Telefono) => t.sector },
+                { titulo: "Nombre", valor: (t: Telefono) => t.nombre },
+                { titulo: "Interno", valor: (t: Telefono) => t.interno },
+                { titulo: "Notas", valor: (t: Telefono) => t.notas },
+              ],
+              filtered,
+            )
+          }
+        />
         {canWrite && (
           <Button type="button" size="sm" onClick={openCreate}>
             <Plus className="size-4" /> Agregar

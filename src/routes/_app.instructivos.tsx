@@ -114,7 +114,8 @@ function parseTags(text: string) {
 }
 
 function InstructivosPage() {
-  const { canWrite, user } = useAuth();
+  const { user, puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("instructivos");
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { doc: docParam, folder: folderParam } = Route.useSearch();

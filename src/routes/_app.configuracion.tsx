@@ -1,22 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Activity,
-  CheckCircle2,
-  Loader2,
-  Pencil,
-  Search,
-  ShieldCheck,
-  Trash2,
-  UserPlus,
-} from "lucide-react";
+import { CheckCircle2, Loader2, Pencil, Search, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -40,7 +29,11 @@ import { FeriadosConfig } from "@/components/configuracion/FeriadosConfig";
 import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
 import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
 import { api } from "@/lib/api/client";
-import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
+import { useAuth, type AppRole } from "@/lib/auth";
+import { useRoles } from "@/lib/roles";
+import { cn } from "@/lib/utils";
+import { RolChip, RolesPermisos } from "@/components/configuracion/RolesPermisos";
+import { MantenimientoDatos } from "@/components/configuracion/MantenimientoDatos";
 import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/backend/api/usuarios.functions";
 
 export const Route = createFileRoute("/_app/configuracion")({
@@ -56,36 +49,11 @@ export const Route = createFileRoute("/_app/configuracion")({
   component: ConfiguracionPage,
 });
 
-const MODULOS: { key: string; label: string }[] = [
-  { key: "instructivos", label: "Instructivos" },
-  { key: "guardias", label: "Guardias" },
-  { key: "inventario", label: "Activos IT" },
-  { key: "toners", label: "Tóners" },
-  { key: "tareas", label: "Tickets" },
-  { key: "credenciales", label: "Credenciales" },
-  { key: "oficina", label: "Oficina" },
-  { key: "usuarios", label: "Usuarios" },
-];
-
-const ROLES: { value: AppRole; label: string; hint: string }[] = [
-  { value: "administrador", label: "Administrador", hint: "Control total del sistema." },
-  { value: "tecnico", label: "Técnico", hint: "Operación diaria del área." },
-  { value: "consulta", label: "Consulta", hint: "Solo lectura y consulta." },
-];
-
-const ACCIONES = [
-  { key: "can_view", label: "Ver" },
-  { key: "can_create", label: "Crear" },
-  { key: "can_edit", label: "Editar" },
-  { key: "can_delete", label: "Eliminar" },
-] as const;
-
-type AccionKey = (typeof ACCIONES)[number]["key"];
-
 type UsuarioRow = {
   id: string;
   full_name: string;
   email: string;
+  username: string | null;
   role: AppRole;
 };
 
@@ -102,18 +70,14 @@ type SystemInfo = {
   ultimaActualizacionFuente: "commit" | "variable" | "build" | null;
 };
 
-type AuditRow = {
-  id: string;
-  actor_id: string | null;
-  actor_nombre: string | null;
-  actor_email: string | null;
-  modulo: string;
-  accion: string;
-  entidad_id: string | null;
-  entidad_desc: string | null;
-  detalle: Record<string, unknown>;
-  created_at: string;
-};
+function iniciales(texto: string) {
+  return texto
+    .split(/\s+/)
+    .map((x) => x[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -136,32 +100,22 @@ function formatVersion(value?: string | null) {
 }
 
 function ConfiguracionPage() {
-  const { isAdmin, perms, refreshPerms, user } = useAuth();
-  const [rolActivo, setRolActivo] = useState<AppRole>("tecnico");
-  const [rows, setRows] = useState<PermRow[]>(perms);
-  const [saving, setSaving] = useState<string | null>(null);
+  const { isAdmin, user } = useAuth();
+  const { data: roles = [] } = useRoles();
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([]);
   const [cargandoUsuarios, setCargandoUsuarios] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const [filtroRol, setFiltroRol] = useState<string>("todos");
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [editando, setEditando] = useState<UsuarioRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [cambiandoRol, setCambiandoRol] = useState<string | null>(null);
 
-  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditModulo, setAuditModulo] = useState<string>("all");
-  const [auditQ, setAuditQ] = useState("");
-
   const crear = useServerFn(crearUsuario);
   const borrar = useServerFn(eliminarUsuario);
   const actualizar = useServerFn(actualizarUsuario);
-
-  useEffect(() => {
-    setRows(perms);
-  }, [perms]);
 
   const loadSystemInfo = useCallback(async () => {
     try {
@@ -173,38 +127,26 @@ function ConfiguracionPage() {
 
   const cargarUsuarios = useCallback(async () => {
     setCargandoUsuarios(true);
-    const [{ data: profiles }, { data: roles }] = await Promise.all([
-      api.from("profiles").select("id, full_name, email").order("full_name"),
+    const [{ data: profiles }, { data: userRoles }] = await Promise.all([
+      api.from("profiles").select("id, full_name, email, username").order("full_name"),
       api.from("user_roles").select("user_id, role"),
     ]);
     const mapa = new Map<string, AppRole>();
-    (roles ?? []).forEach((r) => mapa.set(r.user_id, r.role as AppRole));
+    (userRoles ?? []).forEach((r: { user_id: string; role: string }) =>
+      mapa.set(r.user_id, r.role as AppRole),
+    );
     setUsuarios(
-      (profiles ?? []).map((p) => ({
-        id: p.id,
-        full_name: p.full_name,
-        email: p.email,
-        role: mapa.get(p.id) ?? "consulta",
-      })),
+      (profiles ?? []).map(
+        (p: { id: string; full_name: string; email: string; username: string | null }) => ({
+          id: p.id,
+          full_name: p.full_name,
+          email: p.email,
+          username: p.username ?? null,
+          role: mapa.get(p.id) ?? "consulta",
+        }),
+      ),
     );
     setCargandoUsuarios(false);
-  }, []);
-
-  const loadAudit = useCallback(async () => {
-    setAuditLoading(true);
-    try {
-      const { data, error } = await api
-        .from("audit_log")
-        .select("id, actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle, created_at")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      setAuditRows((data as AuditRow[]) ?? []);
-    } catch {
-      setAuditRows([]);
-    } finally {
-      setAuditLoading(false);
-    }
   }, []);
 
   useEffect(() => {
@@ -214,42 +156,6 @@ function ConfiguracionPage() {
   useEffect(() => {
     if (isAdmin) void cargarUsuarios();
   }, [isAdmin, cargarUsuarios]);
-
-  const togglePerm = async (row: PermRow, key: AccionKey) => {
-    if (!isAdmin) return;
-    if (row.role === "administrador") {
-      toast.info("El rol administrador siempre conserva todos los permisos.");
-      return;
-    }
-    const next = !row[key];
-    setSaving(`${row.id}-${key}`);
-    const patch: Partial<Record<AccionKey, boolean>> = { [key]: next };
-    const { error } = await api.from("role_permissions").update(patch).eq("id", row.id);
-    setSaving(null);
-    if (error) return toast.error(error.message);
-    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, [key]: next } : r)));
-    await refreshPerms();
-    toast.success("Permiso actualizado");
-  };
-
-  const aplicarPreset = async (preset: "lectura" | "operativo" | "ninguno") => {
-    if (rolActivo === "administrador") {
-      toast.info("El rol administrador no se puede modificar.");
-      return;
-    }
-    const patch =
-      preset === "lectura"
-        ? { can_view: true, can_create: false, can_edit: false, can_delete: false }
-        : preset === "operativo"
-          ? { can_view: true, can_create: true, can_edit: true, can_delete: false }
-          : { can_view: false, can_create: false, can_edit: false, can_delete: false };
-    setSaving("preset");
-    const { error } = await api.from("role_permissions").update(patch).eq("role", rolActivo);
-    setSaving(null);
-    if (error) return toast.error(error.message);
-    await refreshPerms();
-    toast.success("Permisos aplicados al rol");
-  };
 
   const cambiarRol = async (usuarioId: string, nuevo: AppRole) => {
     if (usuarioId === user?.id && nuevo !== "administrador") {
@@ -346,39 +252,23 @@ function ConfiguracionPage() {
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return usuarios;
     return usuarios.filter(
-      (u) => u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+      (u) =>
+        (filtroRol === "todos" || u.role === filtroRol) &&
+        (!q ||
+          u.full_name.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q) ||
+          (u.username ?? "").toLowerCase().includes(q)),
     );
-  }, [usuarios, busqueda]);
+  }, [usuarios, busqueda, filtroRol]);
 
   const conteoPorRol = useMemo(() => {
-    const c: Record<AppRole, number> = { administrador: 0, tecnico: 0, consulta: 0 };
-    usuarios.forEach((u) => (c[u.role] += 1));
+    const c: Record<string, number> = {};
+    usuarios.forEach((u) => (c[u.role] = (c[u.role] ?? 0) + 1));
     return c;
   }, [usuarios]);
 
-  const auditFiltrada = useMemo(() => {
-    let list = auditRows;
-    if (auditModulo !== "all") list = list.filter((r) => r.modulo === auditModulo);
-    const q = auditQ.trim().toLowerCase();
-    if (q) {
-      list = list.filter(
-        (r) =>
-          (r.actor_nombre ?? "").toLowerCase().includes(q) ||
-          (r.actor_email ?? "").toLowerCase().includes(q) ||
-          r.accion.toLowerCase().includes(q) ||
-          r.modulo.toLowerCase().includes(q) ||
-          (r.entidad_desc ?? "").toLowerCase().includes(q),
-      );
-    }
-    return list;
-  }, [auditRows, auditModulo, auditQ]);
-
-  const auditModulos = useMemo(() => {
-    const s = new Set(auditRows.map((r) => r.modulo).filter(Boolean));
-    return Array.from(s).sort();
-  }, [auditRows]);
+  const rolDe = (clave: string) => roles.find((r) => r.clave === clave);
 
   const installedVersion = systemInfo?.appVersion ?? "1.4.0";
 
@@ -396,19 +286,6 @@ function ConfiguracionPage() {
     );
   }
 
-  const rolRows = MODULOS.map(
-    (m) =>
-      rows.find((r) => r.role === rolActivo && r.modulo === m.key) ?? {
-        id: `${rolActivo}-${m.key}`,
-        role: rolActivo,
-        modulo: m.key,
-        can_view: false,
-        can_create: false,
-        can_edit: false,
-        can_delete: false,
-      },
-  );
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -416,20 +293,14 @@ function ConfiguracionPage() {
         description="Usuarios, permisos, feriados, reportes y estado del sistema."
       />
 
-      <Tabs
-        defaultValue="general"
-        className="space-y-4"
-        onValueChange={(v) => {
-          if (v === "actividad" && auditRows.length === 0) void loadAudit();
-        }}
-      >
+      <Tabs defaultValue="general" className="space-y-4">
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+          <TabsTrigger value="usuarios">Usuarios · {usuarios.length}</TabsTrigger>
           <TabsTrigger value="roles">Roles y permisos</TabsTrigger>
           <TabsTrigger value="feriados">Feriados</TabsTrigger>
           <TabsTrigger value="reportes">Reportes</TabsTrigger>
-          <TabsTrigger value="actividad">Actividad</TabsTrigger>
+          <TabsTrigger value="datos">Datos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
@@ -438,18 +309,18 @@ function ConfiguracionPage() {
               <div className="flex items-center gap-4">
                 <BrandMark className="size-12" />
                 <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {APP_NAME} · {APP_TAGLINE}
-                </p>
-                <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">
-                  {systemInfo?.displayVersion ?? formatVersion(installedVersion)}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {systemInfo?.commit ? `Commit ${systemInfo.commit}` : "Sin commit"}
-                  {" · "}
-                  Entorno {systemInfo?.environment ?? "production"}
-                  {systemInfo?.httpsEnabled ? " · HTTPS" : " · sin HTTPS"}
-                </p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {APP_NAME} · {APP_TAGLINE}
+                  </p>
+                  <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">
+                    {systemInfo?.displayVersion ?? formatVersion(installedVersion)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {systemInfo?.commit ? `Commit ${systemInfo.commit}` : "Sin commit"}
+                    {" · "}
+                    Entorno {systemInfo?.environment ?? "production"}
+                    {systemInfo?.httpsEnabled ? " · HTTPS" : " · sin HTTPS"}
+                  </p>
                 </div>
               </div>
               <div className="text-sm sm:text-right">
@@ -466,198 +337,152 @@ function ConfiguracionPage() {
             </CardContent>
           </Card>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            {ROLES.map((r) => (
-              <Card key={r.value} className="panel">
-                <CardContent className="py-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium">{r.label}</p>
-                    <Badge variant="secondary">{conteoPorRol[r.value]}</Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{r.hint}</p>
-                </CardContent>
-              </Card>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {roles.map((r) => (
+              <div key={r.clave} className="rounded-xl border border-border bg-card px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <RolChip rol={r} />
+                  <span className="num text-lg font-semibold">{conteoPorRol[r.clave] ?? 0}</span>
+                </div>
+                <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{r.descripcion}</p>
+              </div>
             ))}
           </div>
         </TabsContent>
 
-        <TabsContent value="usuarios" className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative max-w-md flex-1">
+        <TabsContent value="usuarios" className="space-y-3">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+            <div className="relative max-w-sm flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-9"
-                placeholder="Buscar por nombre o email…"
+                placeholder="Buscar nombre, usuario o email…"
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
               />
             </div>
-            <Button onClick={() => setNuevoOpen(true)}>
+            <div className="flex flex-wrap gap-1.5">
+              {[{ clave: "todos", nombre: "Todos" }, ...roles].map((r) => (
+                <button
+                  key={r.clave}
+                  type="button"
+                  onClick={() => setFiltroRol(r.clave)}
+                  className={cn(
+                    "h-8 rounded-full border px-3 text-xs font-medium transition-colors",
+                    filtroRol === r.clave
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {r.nombre}{" "}
+                  <span className="num ml-1 opacity-70">
+                    {r.clave === "todos" ? usuarios.length : (conteoPorRol[r.clave] ?? 0)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <Button className="lg:ml-auto" onClick={() => setNuevoOpen(true)}>
               <UserPlus className="size-4" /> Nuevo usuario
             </Button>
           </div>
 
-          <Card className="panel overflow-hidden">
-            <CardContent className="p-0">
-              {cargandoUsuarios ? (
-                <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" /> Cargando usuarios…
-                </div>
-              ) : filtrados.length === 0 ? (
-                <p className="py-12 text-center text-sm text-muted-foreground">
-                  No hay usuarios para mostrar.
-                </p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {filtrados.map((u) => (
-                    <div
-                      key={u.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {u.full_name || "Sin nombre"}
-                          {u.id === user?.id && (
-                            <span className="ml-2 text-xs font-normal text-muted-foreground">
-                              (vos)
-                            </span>
-                          )}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Select
-                          value={u.role}
-                          disabled={cambiandoRol === u.id}
-                          onValueChange={(v) => cambiarRol(u.id, v as AppRole)}
-                        >
-                          <SelectTrigger className="h-8 w-[150px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ROLES.map((r) => (
-                              <SelectItem key={r.value} value={r.value}>
-                                {r.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button size="icon" variant="ghost" className="size-8" onClick={() => setEditando(u)}>
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-8 text-destructive"
-                          disabled={u.id === user?.id}
-                          onClick={() => onEliminar(u)}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="roles" className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {ROLES.map((r) => (
-              <Button
-                key={r.value}
-                size="sm"
-                variant={rolActivo === r.value ? "default" : "outline"}
-                onClick={() => setRolActivo(r.value)}
-              >
-                {r.label}
-              </Button>
-            ))}
-            <div className="ml-auto flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={saving === "preset" || rolActivo === "administrador"}
-                onClick={() => aplicarPreset("lectura")}
-              >
-                Preset lectura
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={saving === "preset" || rolActivo === "administrador"}
-                onClick={() => aplicarPreset("operativo")}
-              >
-                Preset operativo
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={saving === "preset" || rolActivo === "administrador"}
-                onClick={() => aplicarPreset("ninguno")}
-              >
-                Quitar todo
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-xl border border-info/30 bg-info/8 px-4 py-3 text-[13px]">
-            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-info" />
-            <p>
-              <span className="font-medium">Estos permisos los aplica el servidor</span>: un rol sin "Ver" no puede consultar
-              los datos del módulo aunque conozca la dirección, y sin "Crear/Editar/Eliminar" no puede modificarlos.
-              {rolActivo === "administrador" && " El administrador siempre tiene acceso total."}
-            </p>
-          </div>
-
-          <Card className="panel overflow-hidden">
-            <CardHeader className="border-b border-border/70 pb-3">
-              <CardTitle className="text-base">
-                Permisos · {ROLES.find((r) => r.value === rolActivo)?.label}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            {cargandoUsuarios ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Cargando usuarios…
+              </div>
+            ) : filtrados.length === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                No hay usuarios para mostrar.
+              </p>
+            ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="px-4 py-2.5 font-medium">Módulo</th>
-                      {ACCIONES.map((a) => (
-                        <th key={a.key} className="px-3 py-2.5 text-center font-medium">
-                          {a.label}
-                        </th>
-                      ))}
+                    <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Persona</th>
+                      <th className="hidden px-3 py-2.5 font-medium md:table-cell">Usuario</th>
+                      <th className="px-3 py-2.5 font-medium">Rol</th>
+                      <th className="w-24 px-3 py-2.5 text-right font-medium">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rolRows.map((row) => (
-                      <tr key={row.id} className="border-b border-border/60">
-                        <td className="px-4 py-2.5 font-medium">
-                          {MODULOS.find((m) => m.key === row.modulo)?.label ?? row.modulo}
-                        </td>
-                        {ACCIONES.map((a) => (
-                          <td key={a.key} className="px-3 py-2.5 text-center">
-                            <div className="flex justify-center">
-                              <Checkbox
-                                checked={!!row[a.key] || rolActivo === "administrador"}
-                                disabled={
-                                  rolActivo === "administrador" ||
-                                  saving === `${row.id}-${a.key}`
-                                }
-                                onCheckedChange={() => togglePerm(row as PermRow, a.key)}
-                              />
+                    {filtrados.map((u) => (
+                      <tr
+                        key={u.id}
+                        className="border-b border-border/60 last:border-0 hover:bg-muted/20"
+                      >
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-3">
+                            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                              {iniciales(u.full_name || u.email)}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">
+                                {u.full_name || "Sin nombre"}
+                                {u.id === user?.id && (
+                                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                    (vos)
+                                  </span>
+                                )}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                             </div>
-                          </td>
-                        ))}
+                          </div>
+                        </td>
+                        <td className="hidden px-3 py-2.5 font-mono text-xs text-muted-foreground md:table-cell">
+                          {u.username ?? "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Select
+                            value={u.role}
+                            disabled={cambiandoRol === u.id}
+                            onValueChange={(v) => cambiarRol(u.id, v)}
+                          >
+                            <SelectTrigger className="h-8 w-[170px] border-transparent bg-transparent px-1.5 hover:border-border">
+                              <RolChip rol={rolDe(u.role) ?? { nombre: u.role, color: "slate" }} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {roles.map((r) => (
+                                <SelectItem key={r.clave} value={r.clave}>
+                                  {r.nombre}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8"
+                            aria-label="Editar"
+                            onClick={() => setEditando(u)}
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8 text-destructive"
+                            aria-label="Eliminar"
+                            disabled={u.id === user?.id}
+                            onClick={() => onEliminar(u)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="roles">
+          <RolesPermisos conteo={conteoPorRol} />
         </TabsContent>
 
         <TabsContent value="feriados">
@@ -668,74 +493,8 @@ function ConfiguracionPage() {
           <ReporteMensual />
         </TabsContent>
 
-        <TabsContent value="actividad" className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative max-w-md flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Buscar actor, acción o entidad…"
-                value={auditQ}
-                onChange={(e) => setAuditQ(e.target.value)}
-              />
-            </div>
-            <Select value={auditModulo} onValueChange={setAuditModulo}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Módulo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los módulos</SelectItem>
-                {auditModulos.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => void loadAudit()} disabled={auditLoading}>
-              {auditLoading ? <Loader2 className="size-4 animate-spin" /> : <Activity className="size-4" />}
-              Actualizar
-            </Button>
-          </div>
-
-          <Card className="panel overflow-hidden">
-            <CardContent className="p-0">
-              {auditLoading && auditRows.length === 0 ? (
-                <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" /> Cargando actividad…
-                </div>
-              ) : auditFiltrada.length === 0 ? (
-                <div className="py-12 text-center">
-                  <Activity className="mx-auto mb-2 size-8 text-muted-foreground/40" />
-                  <p className="text-sm text-muted-foreground">No hay eventos de auditoría.</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {auditFiltrada.map((ev) => (
-                    <div key={ev.id} className="px-4 py-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant="secondary" className="h-5 text-[10px]">
-                              {ev.modulo}
-                            </Badge>
-                            <span className="text-sm font-medium">{ev.accion}</span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {ev.actor_nombre || ev.actor_email || "Sistema"}
-                            {ev.entidad_desc ? ` · ${ev.entidad_desc}` : ""}
-                          </p>
-                        </div>
-                        <time className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                          {formatDate(ev.created_at)}
-                        </time>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <TabsContent value="datos">
+          <MantenimientoDatos />
         </TabsContent>
       </Tabs>
 
@@ -769,9 +528,9 @@ function ConfiguracionPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ROLES.map((r) => (
-                    <SelectItem key={r.value} value={r.value}>
-                      {r.label}
+                  {roles.map((r) => (
+                    <SelectItem key={r.clave} value={r.clave}>
+                      {r.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -782,7 +541,11 @@ function ConfiguracionPage() {
                 Cancelar
               </Button>
               <Button type="submit" disabled={busy}>
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+                {busy ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <UserPlus className="size-4" />
+                )}
                 Crear
               </Button>
             </DialogFooter>
@@ -815,7 +578,11 @@ function ConfiguracionPage() {
                 Cancelar
               </Button>
               <Button type="submit" disabled={busy}>
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                {busy ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="size-4" />
+                )}
                 Guardar
               </Button>
             </DialogFooter>

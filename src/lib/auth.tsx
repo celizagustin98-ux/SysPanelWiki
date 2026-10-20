@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, getToken } from "@/lib/api/client";
 
-export type AppRole = "administrador" | "tecnico" | "consulta";
+/** Clave del rol: administrador, tecnico, consulta o uno creado en Configuración. */
+export type AppRole = string;
 
 export type Modulo =
   | "instructivos"
@@ -11,7 +12,9 @@ export type Modulo =
   | "tareas"
   | "credenciales"
   | "oficina"
-  | "usuarios";
+  | "usuarios"
+  | "auditoria"
+  | "reportes";
 
 export type Accion = "view" | "create" | "edit" | "delete";
 
@@ -40,6 +43,8 @@ type AuthCtx = {
   retry: () => Promise<void>;
   isAdmin: boolean;
   canWrite: boolean;
+  /** Puede crear o editar en el módulo (para mostrar botones de alta/edición). */
+  puedeEscribir: (modulo: Modulo) => boolean;
   can: (modulo: Modulo, accion: Accion) => boolean;
   refreshPerms: () => Promise<void>;
   signIn: (username: string, password: string) => Promise<{ error: string | null }>;
@@ -202,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: validate,
     isAdmin,
     canWrite: role === "administrador" || role === "tecnico",
+    puedeEscribir: (modulo: Modulo) => can(modulo, "create") || can(modulo, "edit"),
     can,
     refreshPerms: loadPerms,
     async signIn(username, password) {

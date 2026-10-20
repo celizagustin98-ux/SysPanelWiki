@@ -2,9 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireAppAuth } from "@/backend/core/auth-middleware";
 import { assertAdmin, hashPassword, invalidateAuthCache, query } from "@/backend/core/db";
 
-type AppRole = "administrador" | "tecnico" | "consulta";
+type AppRole = string;
 
-const ROLES: AppRole[] = ["administrador", "tecnico", "consulta"];
+async function rolExiste(role: string) {
+  const r = await query(`select 1 from roles where clave = $1`, [role]).catch(() => null);
+  return r ? (r.rowCount ?? 0) > 0 : ["administrador", "tecnico", "consulta"].includes(role);
+}
 
 async function auditarUsuario(
   actorId: string,
@@ -53,12 +56,13 @@ export const crearUsuario = createServerFn({ method: "POST" })
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
       if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
       if (fullName.length < 2 || fullName.length > 120) throw new Error("Nombre inválido");
-      if (!ROLES.includes(role)) throw new Error("Rol inválido");
+      if (!role) throw new Error("Rol inválido");
       return { email, username, password, fullName, role };
     },
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
+    if (!(await rolExiste(data.role))) throw new Error("Rol inválido");
     const created = await query<{ id: string }>(
       `insert into app_users (email, password_hash) values ($1, $2) returning id`,
       [data.email, await hashPassword(data.password)],

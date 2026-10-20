@@ -23,10 +23,38 @@ jobs:
       - name: Build de producción
         run: npm run build
 
-      - name: Sintaxis del servidor
-        run: node --check scripts/serve.mjs
+      - name: Sintaxis del servidor y scripts
+        run: |
+          node --check scripts/serve.mjs
+          node --check scripts/init-db.mjs
+          bash -n scripts/actualizar.sh deploy/instalar.sh deploy/proxmox/crear-lxc.sh deploy/docker/entrypoint.sh
 
       # Informativo hasta resolver los errores de tipado preexistentes.
       - name: Typecheck
         run: npx tsc --noEmit
         continue-on-error: true
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Levanta base + app con docker compose, aplica migraciones y verifica que responda.
+      - name: Docker compose (build + arranque)
+        run: |
+          cat > .env <<ENV
+          POSTGRES_PASSWORD=ci$(openssl rand -hex 12)
+          SECRETS_ENCRYPTION_KEY=$(openssl rand -hex 32)
+          ENV
+          docker compose up -d --build
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3090/api/system/health; then echo; exit 0; fi
+            sleep 3
+          done
+          docker compose logs app
+          exit 1
+
+      - name: Logs
+        if: always()
+        run: docker compose logs --tail=80 app

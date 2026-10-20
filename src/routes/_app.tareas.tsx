@@ -82,7 +82,8 @@ function formatDay(iso?: string | null) {
 }
 
 function TicketsPage() {
-  const { canWrite, user, profile } = useAuth();
+  const { user, profile, puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("tareas");
   const qc = useQueryClient();
   const [vista, setVista] = useState<Vista>("activos");
   const [q, setQ] = useState("");

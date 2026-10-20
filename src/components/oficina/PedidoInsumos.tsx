@@ -92,7 +92,8 @@ export function PedidoInsumos() {
 /* ───────────── Lista actual ───────────── */
 
 function ListaActual({ onGenerado }: { onGenerado: () => void }) {
-  const { canWrite, profile } = useAuth();
+  const { profile, puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("oficina");
   const qc = useQueryClient();
   const [editando, setEditando] = useState<Item | null>(null);
   const [generar, setGenerar] = useState(false);
@@ -319,7 +320,8 @@ function GenerarDialog({ items, total, onClose, onDone }: { items: Item[]; total
 /* ───────────── Histórico mes a mes ───────────── */
 
 function Historico() {
-  const { canWrite } = useAuth();
+  const { puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("oficina");
   const qc = useQueryClient();
   const [mes, setMes] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [abierto, setAbierto] = useState<string | null>(null);
