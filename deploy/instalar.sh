@@ -10,6 +10,8 @@
 # Variables opcionales: APP_DIR, REPO_URL, BRANCH, PORT, SERVICE_NAME, APP_USER
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+# Se trabaja desde / por si se lanzó dentro de una carpeta que se va a borrar.
+cd /
 
 APP_DIR="${APP_DIR:-/opt/nodara}"
 REPO_URL="${REPO_URL:-https://github.com/celizagustin98-ux/SysPanelWiki.git}"

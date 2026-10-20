@@ -12,6 +12,8 @@
 # confirmación.  Variables: PORT (3090), SOLO_DESINSTALAR=true, BRANCH (main)
 # ─────────────────────────────────────────────────────────────────────────
 set -uo pipefail
+# Se trabaja desde / por si se lanzó dentro de una carpeta que se va a borrar.
+cd /
 
 PORT="${PORT:-3090}"
 BRANCH="${BRANCH:-main}"
