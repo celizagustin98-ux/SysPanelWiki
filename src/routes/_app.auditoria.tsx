@@ -121,6 +121,8 @@ function AuditoriaPage() {
   const [accion, setAccion] = useState(TODOS);
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+  const [pagina, setPagina] = useState(1);
+  const POR_PAGINA = 25;
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -166,6 +168,11 @@ function AuditoriaPage() {
   };
 
   const hayFiltros = actor !== TODOS || modulo !== TODOS || accion !== TODOS || desde || hasta;
+
+  useEffect(() => setPagina(1), [rows]);
+  const paginas = Math.max(1, Math.ceil(rows.length / POR_PAGINA));
+  const paginaSegura = Math.min(pagina, paginas);
+  const enPagina = rows.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA);
 
   const resumen = useMemo(() => {
     const criticas = rows.filter((r) => r.accion === "eliminar").length;
@@ -379,32 +386,31 @@ function AuditoriaPage() {
               <table className="hidden w-full text-sm md:table">
                 <thead className="bg-muted/50 text-left">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Fecha y hora</th>
-                    <th className="px-4 py-2 font-medium">Usuario</th>
-                    <th className="px-4 py-2 font-medium">Módulo</th>
-                    <th className="px-4 py-2 font-medium">Acción</th>
-                    <th className="px-4 py-2 font-medium">Elemento</th>
+                    <th className="px-3 py-2 font-medium">Fecha y hora</th>
+                    <th className="px-3 py-2 font-medium">Usuario</th>
+                    <th className="px-3 py-2 font-medium">Módulo</th>
+                    <th className="px-3 py-2 font-medium">Acción</th>
+                    <th className="px-3 py-2 font-medium">Elemento</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {rows.map((r) => (
+                  {enPagina.map((r) => (
                     <tr key={r.id} className="align-top">
-                      <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                      <td className="whitespace-nowrap px-3 py-1.5 text-xs text-muted-foreground">
                         {new Date(r.created_at).toLocaleString("es-AR")}
                       </td>
-                      <td className="px-4 py-2">
-                        <p className="font-medium">{r.actor_nombre || "Sistema"}</p>
-                        <p className="text-xs text-muted-foreground">{r.actor_email}</p>
+                      <td className="px-3 py-1.5">
+                        <p className="font-medium" title={r.actor_email ?? undefined}>{r.actor_nombre || "Sistema"}</p>
                       </td>
-                      <td className="px-4 py-2 capitalize">
+                      <td className="px-3 py-1.5 capitalize">
                         {labelModulo(r.modulo)}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1.5">
                         <Badge variant={accionVariant(r.accion)}>
                           {labelAccion(r.accion)}
                         </Badge>
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1.5">
                         <p>{r.entidad_desc || "—"}</p>
                         {detalleLegible(r.detalle) ? (
                           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -417,7 +423,7 @@ function AuditoriaPage() {
                 </tbody>
               </table>
               <div className="divide-y divide-border md:hidden">
-                {rows.map((r) => (
+                {enPagina.map((r) => (
                   <div key={r.id} className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -438,6 +444,24 @@ function AuditoriaPage() {
                   </div>
                 ))}
               </div>
+              {paginas > 1 && (
+                <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                  <span>
+                    {(paginaSegura - 1) * POR_PAGINA + 1}–{Math.min(paginaSegura * POR_PAGINA, rows.length)} de {rows.length} eventos
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button size="sm" variant="outline" className="h-7" disabled={paginaSegura <= 1} onClick={() => setPagina(paginaSegura - 1)}>
+                      Anterior
+                    </Button>
+                    <span className="num px-2">
+                      {paginaSegura} / {paginas}
+                    </span>
+                    <Button size="sm" variant="outline" className="h-7" disabled={paginaSegura >= paginas} onClick={() => setPagina(paginaSegura + 1)}>
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

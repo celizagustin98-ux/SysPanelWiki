@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -32,7 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BotonCsv, exportarCsv } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
@@ -367,79 +366,55 @@ function TelefonosPanel() {
         </Card>
       )}
 
-      <div className="space-y-4">
+      <div className="columns-1 gap-3 md:columns-2 2xl:columns-3">
         {bySector.map(([sector, list]) => (
-          <Card key={sector} className="panel overflow-hidden">
-            <CardHeader className="border-b border-border/60 bg-muted/20 py-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <Building2 className="size-4 text-primary" />
-                {sector}
-                <Badge variant="secondary" className="ml-1 tabular-nums">
-                  {list.length}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead className="w-28">Interno</TableHead>
-                    <TableHead className="hidden sm:table-cell">Notas</TableHead>
-                    {canWrite && <TableHead className="w-24 text-right">Acciones</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {list.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-medium">{row.nombre}</TableCell>
-                      <TableCell>
-                        <button
-                          type="button"
-                          onClick={() => void copyInterno(row.interno)}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-0.5 font-mono text-sm font-semibold tabular-nums hover:bg-muted"
-                          title="Copiar interno"
-                        >
-                          {row.interno}
-                          <Copy className="size-3 opacity-60" />
-                        </button>
-                      </TableCell>
-                      <TableCell className="hidden text-muted-foreground sm:table-cell">
-                        {row.notas || "—"}
-                      </TableCell>
-                      {canWrite && (
-                        <TableCell className="text-right">
-                          <div className="inline-flex gap-0.5">
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="size-8"
-                              onClick={() => openEdit(row)}
-                            >
-                              <Pencil className="size-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="size-8 text-destructive"
-                              onClick={() => {
-                                if (confirm(`¿Eliminar ${row.nombre} (${row.interno})?`))
-                                  remove.mutate(row.id);
-                              }}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <section key={sector} className="panel mb-3 break-inside-avoid overflow-hidden">
+            <header className="flex items-center gap-2 border-b border-border/60 bg-muted/20 px-3.5 py-2">
+              <Building2 className="size-4 text-primary" />
+              <h3 className="flex-1 truncate text-sm font-semibold">{sector}</h3>
+              <Badge variant="secondary" className="tabular-nums">
+                {list.length}
+              </Badge>
+            </header>
+            <ul className="divide-y divide-border/50">
+              {list.map((row) => (
+                <li key={row.id} className="group flex items-center gap-2 px-3.5 py-1.5 hover:bg-muted/30">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium">{row.nombre}</p>
+                    {row.notas && <p className="truncate text-[11px] text-muted-foreground">{row.notas}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void copyInterno(row.interno)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-0.5 font-mono text-[13px] font-semibold tabular-nums hover:bg-muted"
+                    title="Copiar interno"
+                  >
+                    {row.interno}
+                    <Copy className="size-3 opacity-60" />
+                  </button>
+                  {canWrite && (
+                    <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <Button type="button" size="icon" variant="ghost" className="size-7" aria-label="Editar" onClick={() => openEdit(row)}>
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-destructive"
+                        aria-label="Eliminar"
+                        onClick={() => {
+                          if (confirm(`¿Eliminar ${row.nombre} (${row.interno})?`)) remove.mutate(row.id);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
       </div>
 

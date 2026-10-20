@@ -25,14 +25,17 @@ export type Ticket = {
 };
 
 export const ESTADOS = [
-  { key: "nuevo", label: "Nuevo" },
+  { key: "nuevo", label: "Pendiente" },
   { key: "asignado", label: "Asignado" },
-  { key: "en_curso", label: "En curso" },
-  { key: "esperando", label: "Esperando" },
+  { key: "en_curso", label: "Trabajando" },
+  { key: "esperando", label: "En espera" },
   { key: "resuelto", label: "Resuelto" },
-  { key: "cerrado", label: "Cerrado" },
+  { key: "cerrado", label: "Terminado" },
   { key: "cancelado", label: "Cancelado" },
 ] as const;
+
+/** Camino normal de un ticket (En espera es un desvío desde Trabajando). */
+export const FLUJO = ["nuevo", "asignado", "en_curso", "resuelto", "cerrado"] as const;
 
 export const TIPOS = [
   { key: "incidente", label: "Incidente" },

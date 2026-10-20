@@ -31,6 +31,7 @@ import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
 import { useMarca } from "@/lib/brand";
 import { MarcaConfig } from "@/components/configuracion/MarcaConfig";
 import { QrConfig } from "@/components/configuracion/QrConfig";
+import { GuiaSistema } from "@/components/configuracion/GuiaSistema";
 import { api } from "@/lib/api/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
@@ -305,6 +306,7 @@ function ConfiguracionPage() {
           <TabsTrigger value="feriados">Feriados</TabsTrigger>
           <TabsTrigger value="reportes">Reportes</TabsTrigger>
           <TabsTrigger value="datos">Datos</TabsTrigger>
+          <TabsTrigger value="guia">Guía del sistema</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
@@ -501,6 +503,10 @@ function ConfiguracionPage() {
 
         <TabsContent value="datos">
           <MantenimientoDatos />
+        </TabsContent>
+
+        <TabsContent value="guia">
+          <GuiaSistema />
         </TabsContent>
       </Tabs>
 

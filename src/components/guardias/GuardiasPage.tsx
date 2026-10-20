@@ -11,7 +11,6 @@ import { es } from "date-fns/locale";
 import {
   AlertTriangle,
   CalendarRange,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -582,7 +581,7 @@ export function GuardiasPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr] xl:items-start">
         <Card className="panel">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-2">
