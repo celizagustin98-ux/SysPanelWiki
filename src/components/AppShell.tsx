@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BookOpen,
   Boxes,
@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Notificaciones } from "@/components/Notificaciones";
 import { Bienvenida } from "@/components/Bienvenida";
 import { EscanerQR } from "@/components/activos/EscanerQR";
+import { useRoles } from "@/lib/roles";
 import { leerQr, marcarQrDesbloqueado } from "@/lib/qr";
 import { toast } from "sonner";
 import {
@@ -124,6 +125,8 @@ export function AppShell() {
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [escaner, setEscaner] = useState(false);
+  const contenidoRef = useRef<HTMLDivElement>(null);
+  const { data: roles = [] } = useRoles();
   const alEscanear = (texto: string) => {
     setEscaner(false);
     const leido = leerQr(texto);
@@ -169,20 +172,25 @@ export function AppShell() {
 
   const online = status.data?.ok && status.data.database !== false;
 
+  // Al cambiar de módulo el contenido vuelve arriba (el menú queda fijo).
+  useEffect(() => {
+    contenidoRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
+
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex min-h-dvh w-full max-w-[100vw] overflow-x-clip bg-background">
+      <div className="flex h-dvh w-full max-w-[100vw] overflow-hidden bg-background">
         <aside
           className={cn(
-            "sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:flex",
+            "hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:flex",
             collapsed ? "w-[68px]" : "w-[248px]",
           )}
         >
-          <div className={cn("flex h-16 items-center gap-2 px-4", collapsed && "justify-center px-0")}>
+          <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", collapsed && "justify-center px-0")}>
             {collapsed ? <BrandMark /> : <BrandLockup />}
           </div>
 
-          <div className={cn("px-3", collapsed && "px-2.5")}>
+          <div className={cn("shrink-0 px-3", collapsed && "px-2.5")}>
             <SidebarTooltip label="Buscar o ir a… (Ctrl K)" enabled={collapsed}>
               <button
                 type="button"
@@ -203,12 +211,17 @@ export function AppShell() {
             </SidebarTooltip>
           </div>
 
-          <nav className={cn("mt-5 flex flex-1 flex-col gap-6 overflow-y-auto px-3 pb-3", collapsed && "px-2.5")}>
+          <nav
+            className={cn(
+              "mt-2.5 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+              collapsed && "px-2.5",
+            )}
+          >
             {groups.map(({ group, items }) => (
               <div key={group} className="flex flex-col gap-0.5">
                 <p
                   className={cn(
-                    "mb-1.5 px-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/30",
+                    "mb-1 px-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/30",
                     collapsed && "sr-only",
                   )}
                 >
@@ -241,60 +254,41 @@ export function AppShell() {
             ))}
           </nav>
 
-          <div className={cn("border-t border-sidebar-border p-3", collapsed && "px-2.5")}>
+          <div className={cn("shrink-0 border-t border-sidebar-border p-2.5", collapsed && "px-2")}>
             <div
-              className={cn(
-                "mb-2.5 flex items-center gap-2 px-1 font-mono text-[10.5px] text-sidebar-foreground/40",
-                collapsed && "justify-center",
-              )}
-              title={online ? "Servidor y base de datos en línea" : "Sin conexión con el servidor"}
+              className={cn("flex items-center gap-2.5 rounded-lg bg-white/[0.04] p-2", collapsed && "flex-col bg-transparent p-0")}
+              title={online ? `En línea${status.data?.version ? ` · ${status.data.version}` : ""}` : "Sin conexión con el servidor"}
             >
-              <span className="led" data-tone={status.isLoading ? undefined : online ? "ok" : "crit"} data-pulse={!!online} />
-              {!collapsed && (
-                <span className="truncate">
-                  {status.isLoading ? "Verificando…" : online ? "En línea" : "Sin conexión"}
-                  {status.data?.version ? ` · ${status.data.version}` : ""}
-                </span>
-              )}
-            </div>
-            <div
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg bg-white/[0.04] p-2",
-                collapsed && "justify-center bg-transparent p-0",
-              )}
-            >
-              <div className="grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-sidebar-primary/35 to-sidebar-primary/10 font-mono text-[11px] font-semibold text-sidebar-primary ring-1 ring-sidebar-primary/25">
+              <div className="relative grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-sidebar-primary/35 to-sidebar-primary/10 font-mono text-[11px] font-semibold text-sidebar-primary ring-1 ring-sidebar-primary/25">
                 {initials}
+                <span
+                  className="led absolute -bottom-0.5 -right-0.5 ring-2 ring-sidebar"
+                  data-tone={status.isLoading ? undefined : online ? "ok" : "crit"}
+                  data-pulse={!!online}
+                />
               </div>
               {!collapsed && (
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-medium text-sidebar-foreground">{displayName}</p>
-                  <p className="truncate text-[11px] text-sidebar-foreground/45">{ROLE_LABEL[role ?? ""] ?? "—"}</p>
+                  <p className="truncate text-[11px] text-sidebar-foreground/45">
+                    {roles.find((r) => r.clave === role)?.nombre ?? ROLE_LABEL[role ?? ""] ?? "—"} · {status.isLoading ? "verificando…" : online ? "en línea" : "sin conexión"}
+                  </p>
                 </div>
               )}
-            </div>
-            <div className={cn("mt-2 flex gap-1", collapsed && "flex-col items-center")}>
-              <SidebarIconButton
-                label={theme === "dark" ? "Modo claro" : "Modo oscuro"}
-                onClick={toggle}
-                icon={theme === "dark" ? <Sun /> : <Moon />}
-              />
-              <SidebarIconButton
-                label={collapsed ? "Expandir menú" : "Contraer menú"}
-                onClick={() => setCollapsed((v) => !v)}
-                icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-              />
-              <SidebarIconButton
-                label="Cerrar sesión"
-                onClick={handleSignOut}
-                icon={<LogOut />}
-                className={cn("hover:bg-red-500/10 hover:text-red-300", !collapsed && "ml-auto")}
-              />
+              <div className={cn("flex shrink-0 gap-0.5", collapsed && "flex-col items-center")}>
+                <SidebarIconButton label={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggle} icon={theme === "dark" ? <Sun /> : <Moon />} />
+                <SidebarIconButton
+                  label={collapsed ? "Expandir menú" : "Contraer menú"}
+                  onClick={() => setCollapsed((v) => !v)}
+                  icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+                />
+                <SidebarIconButton label="Cerrar sesión" onClick={handleSignOut} icon={<LogOut />} className="hover:bg-red-500/10 hover:text-red-300" />
+              </div>
             </div>
           </div>
         </aside>
 
-        <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-x-clip">
+        <div ref={contenidoRef} id="contenido" className="flex h-dvh min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-clip">
           {/* Barra superior escritorio */}
           <header className="sticky top-0 z-30 hidden h-14 items-center gap-4 border-b border-border/70 bg-background/80 px-6 backdrop-blur-md md:flex lg:px-8">
             <nav className="flex min-w-0 items-center gap-1.5 text-[13px]" aria-label="Ubicación">

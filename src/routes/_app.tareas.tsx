@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
@@ -190,22 +190,22 @@ function TicketsPage() {
       },
       {
         key: "prog",
-        title: "En progreso",
-        hint: "Tickets con trabajo activo y seguimiento en curso.",
+        title: "Asignados y trabajando",
+        hint: "Tickets con responsable, esperando empezar o en trabajo.",
         dot: "bg-info",
         items: enProgreso,
       },
       {
         key: "esp",
-        title: "Pendiente de respuesta",
+        title: "En espera",
         hint: "Tickets en espera de información o una dependencia.",
         dot: "bg-warn",
         items: pendiente,
       },
       {
         key: "res",
-        title: "Resuelto (abierto)",
-        hint: "Resueltos pendientes de cierre formal.",
+        title: "Resueltos sin terminar",
+        hint: "Resueltos que falta dar por terminados.",
         dot: "bg-ok",
         items: resueltos,
       },
@@ -216,8 +216,19 @@ function TicketsPage() {
         dot: "bg-muted-foreground",
         items: otros,
       },
-    ].filter((g) => g.items.length > 0);
+    ];
   }, [list]);
+
+  // Un grupo a la vez y paginado: evita la lista eterna de tickets.
+  const [grupoSel, setGrupoSel] = useState<string>("todos");
+  const [pagina, setPagina] = useState(1);
+  useEffect(() => setPagina(1), [grupoSel, q]);
+  const POR_PAGINA = 15;
+  const grupoActual = groups.find((g) => g.key === grupoSel);
+  const visibles = grupoActual ? grupoActual.items : list;
+  const paginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+  const paginaSegura = Math.min(pagina, paginas);
+  const enPagina = visibles.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA);
 
   const counts = useMemo(() => {
     const mios = openTickets.filter((t) => t.asignado_a === user?.id).length;
@@ -296,7 +307,7 @@ function TicketsPage() {
   const pct = (n: number) => `${Math.round((n / barTotal) * 100)}%`;
 
   return (
-    <div className="page-content min-h-[calc(100vh-6rem)]">
+    <div className="page-content">
       <PageHeader
         title="Bandeja de tickets"
         description="Qué está sin asignar, qué está en curso y qué necesita respuesta."
@@ -396,86 +407,78 @@ function TicketsPage() {
 
       {vista === "activos" && (
         <>
-          <div className="panel mb-4 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold">Progreso de los tickets</p>
-                <p className="text-xs text-muted-foreground">
-                  Estado actual de cada solicitud, separado de la actividad reciente.
-                </p>
-              </div>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {counts.total} en total
-              </span>
-            </div>
+          <div className="panel mb-3 p-3">
             <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-muted">
               <span className="bg-muted-foreground/50 transition-[width] duration-700" style={{ width: pct(counts.nuevo) }} />
               <span className="bg-info transition-[width] duration-700" style={{ width: pct(counts.progreso) }} />
               <span className="bg-warn transition-[width] duration-700" style={{ width: pct(counts.espera) }} />
               <span className="bg-ok transition-[width] duration-700" style={{ width: pct(counts.resuelto) }} />
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { label: "Nuevo", n: counts.nuevo, dot: "bg-muted-foreground/60" },
-                { label: "En progreso", n: counts.progreso, dot: "bg-info" },
-                { label: "En espera", n: counts.espera, dot: "bg-warn" },
-                { label: "Resuelto", n: counts.resuelto, dot: "bg-ok" },
-              ].map((b) => (
-                <div key={b.label} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className={cn("size-1.5 rounded-full", b.dot)} />
-                    {b.label}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {[{ key: "todos", title: "Todos", dot: "bg-foreground/40", items: list }, ...groups.filter((g) => g.key !== "otros" || g.items.length)].map((g) => (
+                <button
+                  key={g.key}
+                  type="button"
+                  onClick={() => setGrupoSel(g.key)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition-colors",
+                    grupoSel === g.key ? "border-primary bg-primary/8 ring-1 ring-primary/30" : "border-border/60 bg-muted/25 hover:border-primary/40",
+                  )}
+                >
+                  <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                    <span className={cn("size-1.5 shrink-0 rounded-full", g.dot)} />
+                    {g.title}
                   </p>
-                  <p className="num mt-0.5 text-lg font-semibold">{b.n}</p>
-                </div>
+                  <p className="num mt-0.5 text-lg font-semibold">{g.items.length}</p>
+                </button>
               ))}
             </div>
-          </div>
-
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold">{list.length} tickets activos</p>
-              <p className="text-xs text-muted-foreground">
-                Organizados por asignación y estado para priorizar el siguiente paso.
-              </p>
-            </div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Vista operativa</p>
           </div>
 
           {isLoading && (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-28 skeleton rounded-xl" />
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="skeleton h-14 rounded-xl" />
               ))}
             </div>
           )}
 
-          {!isLoading && list.length === 0 && (
-            <div className="panel px-6 py-16 text-center text-sm text-muted-foreground">Nada en la bandeja activa</div>
+          {!isLoading && visibles.length === 0 && (
+            <div className="panel px-6 py-10 text-center text-sm text-muted-foreground">
+              {list.length ? "No hay tickets en este grupo." : "Nada en la bandeja activa."}
+            </div>
           )}
 
-          <div className="space-y-6">
-            {groups.map((g) => (
-              <section key={g.key}>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="flex items-center gap-2 text-sm font-semibold">
-                    <span className={cn("size-2 rounded-full", g.dot)} />
-                    {g.title}
-                    <span className="font-normal text-muted-foreground">{g.items.length}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">{g.hint}</p>
-                </div>
-                <TicketTable
-                  items={g.items}
-                  canWrite={!!canWrite}
-                  nombre={nombre}
-                  onOpen={setSelectedId}
-                  onPatch={patchTicket}
-                  onAuto={autoasignar}
-                />
-              </section>
-            ))}
-          </div>
+          {!isLoading && visibles.length > 0 && (
+            <>
+              <TicketTable
+                items={enPagina}
+                canWrite={!!canWrite}
+                nombre={nombre}
+                onOpen={setSelectedId}
+                onPatch={patchTicket}
+                onAuto={autoasignar}
+              />
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>
+                  {grupoActual ? grupoActual.hint : "Todos los tickets activos."} · {visibles.length} en total
+                </span>
+                {paginas > 1 && (
+                  <div className="flex items-center gap-1">
+                    <Button size="sm" variant="outline" className="h-7" disabled={paginaSegura <= 1} onClick={() => setPagina(paginaSegura - 1)}>
+                      Anterior
+                    </Button>
+                    <span className="num px-2">
+                      {paginaSegura} / {paginas}
+                    </span>
+                    <Button size="sm" variant="outline" className="h-7" disabled={paginaSegura >= paginas} onClick={() => setPagina(paginaSegura + 1)}>
+                      Siguiente
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -494,9 +497,9 @@ function TicketsPage() {
         />
       )}
 
-      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
-        <SheetContent side="right" className="w-full border-border p-0 sm:max-w-xl lg:max-w-2xl">
-          <SheetTitle className="sr-only">Detalle del ticket</SheetTitle>
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
+        <DialogContent className="flex h-[min(92dvh,900px)] max-w-[min(1180px,96vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1180px,96vw)] [&>button:last-child]:hidden">
+          <DialogTitle className="sr-only">Detalle del ticket</DialogTitle>
           {selected && (
             <TicketDetail
               ticket={selected}
@@ -508,8 +511,8 @@ function TicketsPage() {
               onReopen={() => setReopenId(selected.id)}
             />
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <ReopenDialog
         open={!!reopenTarget}

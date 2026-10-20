@@ -2,11 +2,15 @@ import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  ArrowLeft,
+  CheckCircle2,
   CheckSquare,
   Clock3,
+  Flag,
   MessageSquare,
+  Pause,
+  Play,
   Plus,
+  RotateCcw,
   Send,
   Trash2,
   UserPlus,
@@ -36,7 +40,7 @@ import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
 import {
   ESTADOS,
-  ESTADO_STYLE,
+  FLUJO,
   PRIORIDAD_STYLE,
   PRIORIDADES,
   TIPOS,
@@ -127,68 +131,113 @@ export function TicketDetail({
     onRefresh();
   };
 
+  /** Cambia el estado y deja constancia en la actividad del ticket. */
+  const cambiarEstado = async (estado: string, extra: Record<string, unknown> = {}, okMsg?: string) => {
+    const { error } = await api.from("tareas").update({ estado, ...extra }).eq("id", ticket.id);
+    if (error) return toast.error(error.message);
+    if (userId) {
+      await api.from("tarea_comentarios").insert({
+        tarea_id: ticket.id,
+        autor_id: userId,
+        contenido: `${MARCA_SISTEMA}${estadoLabel(ticket.estado)} → ${estadoLabel(estado)}`,
+      });
+    }
+    toast.success(okMsg ?? `Ticket en "${estadoLabel(estado)}"`);
+    localRefetch();
+  };
+
   const tomar = async () => {
     if (!userId) return;
-    await patch({ asignado_a: userId, estado: "en_curso" }, "Ticket tomado");
+    await cambiarEstado("asignado", { asignado_a: userId }, "Ticket asignado a vos");
   };
 
   const resolver = async () => {
     const text = resolucionDraft.trim();
     if (!text) return toast.error("Indicá la resolución");
-    await patch({ resolucion: text, estado: "resuelto", resuelto_en: new Date().toISOString() }, "Ticket resuelto");
+    await cambiarEstado("resuelto", { resolucion: text, resuelto_en: new Date().toISOString() }, "Ticket resuelto");
     setResolveOpen(false);
   };
 
   const cerrar = async () => {
-    await patch({
-      estado: "cerrado",
-      cerrado_en: new Date().toISOString(),
-      resolucion: resolucionDraft.trim() || ticket.resolucion,
-    }, "Ticket cerrado");
+    await cambiarEstado(
+      "cerrado",
+      { cerrado_en: new Date().toISOString(), resolucion: resolucionDraft.trim() || ticket.resolucion },
+      "Ticket terminado",
+    );
   };
 
+  // El paso siguiente según el estado: un botón principal y, si aplica, uno secundario.
+  const abierto = !["resuelto", "cerrado", "cancelado"].includes(ticket.estado);
+  const pasos: { label: string; icon: ReactNode; onClick: () => void; variante?: "outline" | "secondary" }[] = [];
+  if (canWrite) {
+    if (ticket.estado === "nuevo" && !ticket.asignado_a) pasos.push({ label: "Tomar ticket", icon: <UserPlus />, onClick: () => void tomar() });
+    if (ticket.estado === "nuevo" && ticket.asignado_a) pasos.push({ label: "Pasar a asignado", icon: <UserPlus />, onClick: () => void cambiarEstado("asignado") });
+    if (ticket.estado === "asignado") pasos.push({ label: "Empezar a trabajar", icon: <Play />, onClick: () => void cambiarEstado("en_curso", ticket.asignado_a ? {} : { asignado_a: userId }) });
+    if (ticket.estado === "en_curso") {
+      pasos.push({ label: "Marcar resuelto", icon: <CheckCircle2 />, onClick: () => setResolveOpen(true) });
+      pasos.push({ label: "Poner en espera", icon: <Pause />, onClick: () => void cambiarEstado("esperando"), variante: "outline" });
+    }
+    if (ticket.estado === "esperando") {
+      pasos.push({ label: "Retomar", icon: <Play />, onClick: () => void cambiarEstado("en_curso") });
+      pasos.push({ label: "Marcar resuelto", icon: <CheckCircle2 />, onClick: () => setResolveOpen(true), variante: "outline" });
+    }
+    if (ticket.estado === "resuelto") {
+      pasos.push({ label: "Terminar ticket", icon: <Flag />, onClick: () => void cerrar() });
+      pasos.push({ label: "Volver a trabajar", icon: <RotateCcw />, onClick: () => void cambiarEstado("en_curso"), variante: "outline" });
+    }
+    if ((ticket.estado === "cerrado" || ticket.estado === "cancelado") && onReopen) pasos.push({ label: "Reabrir", icon: <RotateCcw />, onClick: onReopen, variante: "secondary" });
+    if (abierto && ticket.estado !== "nuevo" && ticket.estado !== "asignado" && !ticket.asignado_a)
+      pasos.push({ label: "Tomar", icon: <UserPlus />, onClick: () => void patch({ asignado_a: userId }, "Ticket asignado a vos"), variante: "outline" });
+  }
+
   return (
-    <div className="flex h-full max-h-[calc(100vh-13rem)] flex-col">
-      <div className="sticky top-0 z-10 border-b border-border/70 bg-card/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:px-5">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="border-b border-border/70 bg-card px-5 pb-4 pt-4 sm:px-6">
         <div className="flex items-start gap-3">
-          <Button type="button" size="icon" variant="ghost" className="mt-0.5 size-8 shrink-0 lg:hidden" onClick={onClose} title="Volver a la cola">
-            <ArrowLeft className="size-4" />
-          </Button>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="font-mono text-xs text-muted-foreground">{ticketLabel(ticket)}</span>
-              <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium", ESTADO_STYLE[ticket.estado] ?? "bg-muted")}>
-                {estadoLabel(ticket.estado)}
-              </span>
+              <span className="font-mono text-xs font-semibold text-primary">{ticketLabel(ticket)}</span>
               <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium capitalize", PRIORIDAD_STYLE[ticket.prioridad] ?? PRIORIDAD_STYLE.media)}>
-                {ticket.prioridad}
+                Prioridad {ticket.prioridad}
               </span>
               {ticket.tipo && (
-                <Badge variant="outline" className="h-5 px-1.5 text-[10px] capitalize">{ticket.tipo}</Badge>
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px] capitalize">
+                  {ticket.tipo}
+                </Badge>
+              )}
+              {ticket.canal === "qr" && (
+                <Badge variant="info" className="h-5 px-1.5 text-[10px]">
+                  Reportado por QR
+                </Badge>
               )}
             </div>
-            <h2 className="mt-1 text-base font-semibold tracking-tight sm:text-lg">{ticket.titulo}</h2>
+            <h2 className="mt-1.5 text-lg font-semibold leading-snug tracking-tight sm:text-xl">{ticket.titulo}</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {ticket.solicitante_nombre || nombre(ticket.solicitante_id)}
+              {ticket.sector ? ` · ${ticket.sector}` : ""} · creado {tiempoRelativo(ticket.created_at ?? null)}
+            </p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {canWrite && !ticket.asignado_a && (
-              <Button size="sm" variant="secondary" className="h-8" onClick={tomar}>
-                <UserPlus className="size-3.5" /> Tomar
-              </Button>
-            )}
-            {canWrite && ticket.estado !== "resuelto" && ticket.estado !== "cerrado" && (
-              <Button size="sm" className="h-8" onClick={() => setResolveOpen(true)}>Resolver</Button>
-            )}
-            {canWrite && ticket.estado === "resuelto" && (
-              <Button size="sm" variant="outline" className="h-8" onClick={cerrar}>Cerrar</Button>
-            )}
-            {canWrite && onReopen && (ticket.estado === "cerrado" || ticket.estado === "cancelado") && (
-              <Button size="sm" variant="secondary" className="h-8" onClick={onReopen}>Reabrir</Button>
-            )}
-            <Button type="button" size="icon" variant="ghost" className="hidden size-8 lg:inline-flex" onClick={onClose} title="Cerrar detalle">
-              <X className="size-4" />
-            </Button>
-          </div>
+          <Button type="button" size="icon" variant="ghost" className="size-9 shrink-0" onClick={onClose} title="Cerrar" aria-label="Cerrar">
+            <X className="size-4" />
+          </Button>
         </div>
+
+        <FlujoTicket estado={ticket.estado} />
+
+        {pasos.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {pasos.map((p, k) => (
+              <Button key={p.label} size={k === 0 ? "default" : "sm"} variant={p.variante ?? "default"} className={cn(k === 0 && "h-10 px-5")} onClick={p.onClick}>
+                {p.icon} {p.label}
+              </Button>
+            ))}
+            {ticket.asignado_a && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                A cargo de <span className="font-medium text-foreground">{nombre(ticket.asignado_a)}</span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -267,7 +316,15 @@ export function TicketDetail({
             <section>
               <SectionTitle icon={<MessageSquare className="size-3.5" />}>Actividad</SectionTitle>
               <div className="mt-3 space-y-3">
-                {comentarios.map((c) => (
+                {comentarios.map((c) =>
+                  c.contenido.startsWith(MARCA_SISTEMA) ? (
+                    <div key={c.id} className="relative flex items-center gap-2 pl-4 text-xs text-muted-foreground">
+                      <span className="absolute left-0 top-1/2 size-2 -translate-y-1/2 rounded-full bg-muted-foreground/40" />
+                      <span className="font-medium text-foreground/80">{nombre(c.autor_id)}</span>
+                      <span>{c.contenido.slice(MARCA_SISTEMA.length)}</span>
+                      <span className="ml-auto shrink-0">{tiempoRelativo(c.created_at)}</span>
+                    </div>
+                  ) : (
                   <div key={c.id} className="relative pl-4">
                     <span className="absolute left-0 top-2 size-2 rounded-full bg-primary/50" />
                     <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2.5">
@@ -278,7 +335,8 @@ export function TicketDetail({
                       <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{c.contenido}</p>
                     </div>
                   </div>
-                ))}
+                  ),
+                )}
                 {comentarios.length === 0 && <p className="text-sm text-muted-foreground">Sin comentarios todavía.</p>}
               </div>
               {canWrite && (
@@ -305,7 +363,7 @@ export function TicketDetail({
             <div className="space-y-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Propiedades</p>
               <PropField label="Estado">
-                <Select value={ticket.estado} disabled={!canWrite} onValueChange={(v) => patch({ estado: v })}>
+                <Select value={ticket.estado} disabled={!canWrite} onValueChange={(v) => void cambiarEstado(v)}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>{ESTADOS.map((e) => <SelectItem key={e.key} value={e.key}>{e.label}</SelectItem>)}</SelectContent>
                 </Select>
@@ -437,6 +495,46 @@ export function TicketDetail({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Prefijo de los comentarios automáticos de cambio de estado. */
+const MARCA_SISTEMA = "↻ ";
+
+const PASOS_FLUJO: { key: string; label: string }[] = FLUJO.map((k) => ({ key: k, label: estadoLabel(k) }));
+
+/** Barra de progreso del ticket: Pendiente → Asignado → Trabajando → Resuelto → Terminado. */
+function FlujoTicket({ estado }: { estado: string }) {
+  const cancelado = estado === "cancelado";
+  const idx = estado === "esperando" ? FLUJO.indexOf("en_curso") : FLUJO.indexOf(estado as (typeof FLUJO)[number]);
+  return (
+    <ol className="mt-4 grid grid-cols-5 gap-1.5" aria-label="Progreso del ticket">
+      {PASOS_FLUJO.map((p, i) => {
+        const hecho = !cancelado && i < idx;
+        const actual = !cancelado && i === idx;
+        const label = actual && estado === "esperando" ? "En espera" : p.label;
+        return (
+          <li key={p.key} className="min-w-0" aria-current={actual ? "step" : undefined}>
+            <div
+              className={cn(
+                "h-1.5 rounded-full transition-colors duration-500",
+                hecho ? "bg-ok" : actual ? (estado === "esperando" ? "bg-warn" : "bg-primary") : "bg-muted",
+              )}
+            />
+            <p
+              className={cn(
+                "mt-1.5 flex items-center gap-1 truncate text-[11px]",
+                actual ? "font-semibold text-foreground" : hecho ? "text-ok" : "text-muted-foreground",
+              )}
+            >
+              {hecho && <CheckCircle2 className="size-3 shrink-0" />}
+              {label}
+            </p>
+          </li>
+        );
+      })}
+      {cancelado && <p className="col-span-5 text-xs text-muted-foreground">Ticket cancelado.</p>}
+    </ol>
   );
 }
 
