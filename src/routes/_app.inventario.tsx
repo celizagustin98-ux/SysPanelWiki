@@ -10,7 +10,6 @@ import {
   FileJson,
   FileSpreadsheet,
   Filter,
-  History,
   Info,
   Loader2,
   Pencil,
@@ -18,7 +17,6 @@ import {
   Printer,
   QrCode,
   Search,
-  Tag,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -49,7 +47,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -67,15 +64,17 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
-import { cn, fechaLocal } from "@/lib/utils";
 import { StatTile } from "@/components/StatTile";
+import { estadoInfo, garantiaInfo, diasHasta } from "@/components/activos/catalogo";
+import { ACTIVO_COLUMNAS_SQL, ActivoDialog, ControlDialog, type Activo } from "@/components/activos/dialogs";
+import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/FichaActivo";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
   validateSearch: (s: Record<string, unknown>) => ({ item: (s.item as string) || undefined }),
   head: () => ({
     meta: [
-      { title: "Inventario · SysIntranet" },
+      { title: "Activos IT · SysIntranet" },
       {
         name: "description",
         content: "Inventario operativo por planta, sector, rubro, tipo y propiedad.",
@@ -87,45 +86,47 @@ export const Route = createFileRoute("/_app/inventario")({
 });
 
 const INVENTARIO_COLUMNS = [
+  "Código",
+  "Rubro",
+  "Descripcion",
+  "Marca",
+  "Tipo",
+  "N° de serie",
+  "Estado",
   "Planta",
   "Sector",
-  "Rubro",
-  "Tipo",
-  "Descripcion",
-  "Cantidad",
-  "Marca",
-  "N° de serie",
+  "Asignado a",
+  "Hostname",
+  "IP",
+  "MAC",
   "Propiedad",
-  "Estado",
+  "Proveedor",
+  "Fecha de compra",
+  "Garantía hasta",
+  "Cantidad",
   "Ultima vez controlada",
 ] as const;
 
+/** Nombre visible de cada columna (las claves internas se mantienen por compatibilidad con planillas viejas). */
+const COLUMN_LABEL: Partial<Record<(typeof INVENTARIO_COLUMNS)[number], string>> = {
+  Rubro: "Categoría",
+  Tipo: "Modelo",
+  Descripcion: "Descripción",
+  "Ultima vez controlada": "Último control",
+};
+const colLabel = (c: (typeof INVENTARIO_COLUMNS)[number]) => COLUMN_LABEL[c] ?? c;
+
 type InventarioColumn = (typeof INVENTARIO_COLUMNS)[number];
 
-type Item = {
-  id: string;
-  codigo: string;
-  nombre: string;
-  categoria: string;
-  planta: string | null;
-  sector: string | null;
-  rubro: string | null;
-  tipo: string | null;
-  descripcion: string | null;
-  cantidad: number | null;
-  marca: string | null;
-  modelo: string | null;
-  numero_serie: string | null;
-  propiedad: string | null;
-  estado: string;
-  ultima_vez_controlada: string | null;
-  asignado_a: string | null;
-  notas: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
+type Item = Activo;
 
 type ItemPayload = {
+  hostname?: string | null;
+  ip?: string | null;
+  mac?: string | null;
+  proveedor?: string | null;
+  fecha_compra?: string | null;
+  garantia_hasta?: string | null;
   codigo: string;
   nombre: string;
   categoria: string;
@@ -145,29 +146,11 @@ type ItemPayload = {
   notas: string;
 };
 
-type Control = {
-  id: string;
-  inventario_id: string;
-  controlado_por_nombre: string | null;
-  fecha_control: string;
-  estado: string;
-  observacion: string | null;
-  created_at: string;
-};
 
-const ESTADOS = ["operativo", "observado", "reparacion", "baja"] as const;
 const PAGE_SIZES = [25, 50, 100, 200] as const;
 
 function estadoLabel(value: string | null | undefined) {
-  const labels: Record<string, string> = {
-    operativo: "Operativo",
-    en_uso: "Operativo",
-    observado: "Observado",
-    reparacion: "Reparación",
-    baja: "Baja",
-    nuevo: "Nuevo",
-  };
-  return labels[value || ""] ?? text(value || "Operativo");
+  return estadoInfo(value).label;
 }
 
 function normalizeEstado(value: string) {
@@ -178,6 +161,8 @@ function normalizeEstado(value: string) {
   if (normalized.includes("baja")) return "baja";
   if (normalized.includes("repar")) return "reparacion";
   if (normalized.includes("observ")) return "observado";
+  if (normalized.includes("deposit") || normalized.includes("stock") || normalized.includes("dispon")) return "deposito";
+  if (normalized.includes("fuera") || normalized.includes("roto") || normalized.includes("no funciona")) return "fuera_servicio";
   return "operativo";
 }
 
@@ -206,9 +191,6 @@ function normalizeDateValue(value: unknown) {
   return `${year}-${month}-${day}`;
 }
 
-function toDateInputValue(value: unknown) {
-  return normalizeDateValue(value) ?? "";
-}
 
 function formatDateForDisplay(value: unknown) {
   const normalized = normalizeDateValue(value);
@@ -227,16 +209,17 @@ function normalizeItem(row: Item): Item {
   };
 }
 
-function normalizeControl(row: Control): Control {
-  return {
-    ...row,
-    fecha_control: normalizeDateValue(row.fecha_control) ?? text(row.fecha_control),
-    created_at: text(row.created_at),
-  };
-}
 
 function itemField(item: Item, column: InventarioColumn) {
   const map: Record<InventarioColumn, string | number | null | undefined> = {
+    "Código": item.codigo,
+    "Asignado a": item.asignado_a,
+    Hostname: item.hostname,
+    IP: item.ip,
+    MAC: item.mac,
+    Proveedor: item.proveedor,
+    "Fecha de compra": formatDateForDisplay(item.fecha_compra),
+    "Garantía hasta": formatDateForDisplay(item.garantia_hasta),
     Planta: item.planta,
     Sector: item.sector,
     Rubro: item.rubro ?? item.categoria,
@@ -425,7 +408,7 @@ function printRows(rows: Item[]) {
       <body>
         <h1>Inventario</h1>
         <table>
-          <thead><tr>${INVENTARIO_COLUMNS.map((column) => `<th>${column}</th>`).join("")}</tr></thead>
+          <thead><tr>${INVENTARIO_COLUMNS.map((column) => `<th>${colLabel(column)}</th>`).join("")}</tr></thead>
           <tbody>${tableRows}</tbody>
         </table>
       </body>
@@ -549,6 +532,30 @@ const HEADER_ALIASES: Record<string, InventarioColumn> = {
   "ultima controlada": "Ultima vez controlada",
   "fecha control": "Ultima vez controlada",
   "fecha de control": "Ultima vez controlada",
+  codigo: "Código",
+  "codigo de activo": "Código",
+  "asset tag": "Código",
+  etiqueta: "Código",
+  categoria: "Rubro",
+  category: "Rubro",
+  modelo: "Tipo",
+  model: "Tipo",
+  "asignado a": "Asignado a",
+  asignado: "Asignado a",
+  usuario: "Asignado a",
+  hostname: "Hostname",
+  "nombre de equipo": "Hostname",
+  ip: "IP",
+  "direccion ip": "IP",
+  mac: "MAC",
+  "direccion mac": "MAC",
+  proveedor: "Proveedor",
+  supplier: "Proveedor",
+  "fecha de compra": "Fecha de compra",
+  "purchase date": "Fecha de compra",
+  garantia: "Garantía hasta",
+  "garantia hasta": "Garantía hasta",
+  "vencimiento garantia": "Garantía hasta",
 };
 
 function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPayload {
@@ -560,10 +567,16 @@ function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPa
 
   const rubro = text(input.Rubro);
   const tipo = text(input.Tipo);
-  const codigoBase = numeroSerie || `${text(input.Planta)}-${text(input.Sector)}-${descripcion}`;
+  const codigoBase = text(input["Código"]) || numeroSerie || `${text(input.Planta)}-${text(input.Sector)}-${descripcion}`;
 
   return {
     codigo: codigoBase.replace(/\s+/g, "-").slice(0, 80) || `INV-${Date.now()}-${index}`,
+    hostname: text(input.Hostname) || null,
+    ip: text(input.IP) || null,
+    mac: text(input.MAC).toUpperCase() || null,
+    proveedor: text(input.Proveedor) || null,
+    fecha_compra: normalizeDateValue(input["Fecha de compra"]),
+    garantia_hasta: normalizeDateValue(input["Garantía hasta"]),
     nombre: descripcion,
     categoria: rubro || "general",
     planta: text(input.Planta),
@@ -578,26 +591,11 @@ function makePayload(input: Record<InventarioColumn, string>, index = 0): ItemPa
     propiedad: text(input.Propiedad),
     estado: normalizeEstado(input.Estado),
     ultima_vez_controlada: normalizeDateValue(input["Ultima vez controlada"]),
-    asignado_a: "",
+    asignado_a: text(input["Asignado a"]),
     notas: "",
   };
 }
 
-function payloadToRecord(payload: ItemPayload): Record<InventarioColumn, string> {
-  return {
-    Planta: payload.planta,
-    Sector: payload.sector,
-    Rubro: payload.rubro,
-    Tipo: payload.tipo,
-    Descripcion: payload.descripcion,
-    Cantidad: String(payload.cantidad),
-    Marca: payload.marca,
-    "N° de serie": payload.numero_serie,
-    Propiedad: payload.propiedad,
-    Estado: estadoLabel(payload.estado),
-    "Ultima vez controlada": payload.ultima_vez_controlada ?? "",
-  };
-}
 
 function parseImportFile(content: string) {
   const rows = parseCsv(content);
@@ -725,99 +723,6 @@ function controlBadgeVariant(item: Item): "default" | "secondary" | "destructive
   if (days > 180) return "destructive";
   if (days > 90) return "outline";
   return "secondary";
-}
-
-function ItemDialog({
-  item,
-  trigger,
-  onDone,
-}: {
-  item?: Item;
-  trigger: React.ReactNode;
-  onDone: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [estado, setEstado] = useState(item?.estado || "operativo");
-
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const record = Object.fromEntries(
-      INVENTARIO_COLUMNS.map((column) => [column, text(fd.get(column))]),
-    ) as Record<InventarioColumn, string>;
-    record.Estado = estado;
-
-    let payload: ItemPayload;
-    try {
-      payload = makePayload(record);
-    } catch (error) {
-      return toast.error(error instanceof Error ? error.message : "Datos inválidos");
-    }
-
-    const { error } = item
-      ? await api.from("inventario").update(payload).eq("id", item.id)
-      : await api.from("inventario").insert(payload);
-    if (error) return toast.error(error.message);
-    toast.success(item ? "Inventario actualizado" : "Registro cargado");
-    setOpen(false);
-    onDone();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{item ? "Editar registro" : "Nuevo registro de inventario"}</DialogTitle>
-          <DialogDescription>
-            Cargá las mismas columnas que se usan en la planilla del módulo.
-          </DialogDescription>
-        </DialogHeader>
-        <form className="grid gap-3" onSubmit={submit}>
-          <div className="grid gap-3 md:grid-cols-2">
-            {INVENTARIO_COLUMNS.map((column) => (
-              <div key={column} className="space-y-1.5">
-                <Label>{column}</Label>
-                {column === "Estado" ? (
-                  <Select value={estado} onValueChange={setEstado}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ESTADOS.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {estadoLabel(value)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    name={column}
-                    type={column === "Cantidad" ? "number" : column === "Ultima vez controlada" ? "date" : "text"}
-                    min={column === "Cantidad" ? 0 : undefined}
-                    defaultValue={
-                      item
-                        ? column === "Ultima vez controlada"
-                          ? toDateInputValue(item.ultima_vez_controlada)
-                          : String(itemField(item, column))
-                        : column === "Cantidad"
-                          ? 1
-                          : ""
-                    }
-                    required={column === "Descripcion" || column === "Cantidad"}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button type="submit">Guardar</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function ImportDialog({ onDone }: { onDone: () => void }) {
@@ -1039,154 +944,6 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
   );
 }
 
-function ControlDialog({
-  item,
-  trigger,
-  onDone,
-}: {
-  item: Item;
-  trigger: React.ReactNode;
-  onDone: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [estado, setEstado] = useState(item.estado || "operativo");
-  const [isSaving, setIsSaving] = useState(false);
-
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const fecha = text(fd.get("fecha_control")) || fechaLocal();
-    const observacion = text(fd.get("observacion"));
-    setIsSaving(true);
-    try {
-      const { error } = await api.rpc("controlar_inventario", {
-        _inventario_id: item.id,
-        _fecha_control: fecha,
-        _estado: estado,
-        _observacion: observacion,
-      });
-      if (error) return toast.error(error.message);
-      toast.success("Control registrado en historial");
-      setOpen(false);
-      onDone();
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Controlar inventario</DialogTitle>
-          <DialogDescription>
-            Registrá el control de este activo. Queda historial con fecha, estado y responsable.
-          </DialogDescription>
-        </DialogHeader>
-        <form className="grid gap-3" onSubmit={submit}>
-          <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-            <p className="text-sm font-semibold">{item.descripcion || item.nombre}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {[item.planta, item.sector, item.numero_serie].filter(Boolean).join(" · ") || "Sin datos adicionales"}
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Fecha de control</Label>
-              <Input name="fecha_control" type="date" defaultValue={fechaLocal()} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Estado</Label>
-              <Select value={estado} onValueChange={setEstado}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ESTADOS.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {estadoLabel(value)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Observación</Label>
-            <Input name="observacion" placeholder="Ej: verificado en sitio, requiere revisión, enviado a reparación..." />
-          </div>
-          <DialogFooter>
-            <Button type="submit" disabled={isSaving}>
-              {isSaving ? <Loader2 className="size-4 animate-spin" /> : <ClipboardCheck className="size-4" />}
-              Guardar control
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function HistorialDialog({ item, trigger }: { item: Item; trigger: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const { data = [], isLoading } = useQuery({
-    queryKey: ["inventario-controles", item.id],
-    enabled: open,
-    queryFn: async () => {
-      const { data, error } = await api
-        .from("inventario_controles")
-        .select("*")
-        .eq("inventario_id", item.id)
-        .order("fecha_control", { ascending: false });
-      if (error) {
-        toast.error(error.message || "No se pudo cargar el historial");
-        return [] as Control[];
-      }
-      return (data as Control[]).map(normalizeControl);
-    },
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Historial de controles</DialogTitle>
-          <DialogDescription>{item.descripcion || item.nombre}</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          {isLoading && (
-            <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-muted/30 p-3 text-sm">
-              <Loader2 className="size-4 animate-spin text-primary" />
-              Cargando historial...
-            </div>
-          )}
-          {!isLoading && data.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border/70 py-10 text-center text-sm text-muted-foreground">
-              Este registro todavía no tiene controles guardados.
-            </div>
-          )}
-          {data.map((control) => (
-            <article key={control.id} className="rounded-lg border border-border/70 bg-background p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold">{formatDateForDisplay(control.fecha_control)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {control.controlado_por_nombre || "Usuario no identificado"}
-                  </p>
-                </div>
-                <Badge variant="secondary">{estadoLabel(control.estado)}</Badge>
-              </div>
-              {control.observacion && <p className="mt-2 text-sm text-muted-foreground">{control.observacion}</p>}
-            </article>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function FilterSelect({
   value,
   onChange,
@@ -1212,125 +969,6 @@ function FilterSelect({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-/** Ficha del equipo: pensada para abrirse desde el celular escaneando el QR. */
-function FichaEquipo({
-  item,
-  canEdit,
-  onClose,
-  onDone,
-}: {
-  item: Item;
-  canEdit: boolean;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [qr, setQr] = useState("");
-  useEffect(() => {
-    let alive = true;
-    QRCode.toString(itemUrl(item.id), { type: "svg", margin: 1, errorCorrectionLevel: "M" }).then((svg) => alive && setQr(svg));
-    return () => {
-      alive = false;
-    };
-  }, [item.id]);
-
-  const dias = daysSince(item.ultima_vez_controlada);
-  const tono = dias == null ? "warn" : dias > 180 ? "crit" : dias > 90 ? "warn" : "ok";
-  const datos: [string, string | number | null | undefined][] = [
-    ["Código", item.codigo],
-    ["Planta", item.planta],
-    ["Sector", item.sector],
-    ["Rubro", item.rubro ?? item.categoria],
-    ["Tipo", item.tipo ?? item.modelo],
-    ["Marca", item.marca],
-    ["N° de serie", item.numero_serie],
-    ["Propiedad", item.propiedad],
-    ["Cantidad", item.cantidad],
-    ["Asignado a", item.asignado_a],
-  ];
-
-  return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <div className="border-b border-border p-5">
-        <p className="eyebrow">Ficha del equipo</p>
-        <h2 className="mt-1 text-lg font-semibold leading-snug">{item.descripcion || item.nombre}</h2>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Badge variant={item.estado === "baja" ? "crit" : item.estado === "operativo" ? "ok" : "secondary"}>
-            {estadoLabel(item.estado)}
-          </Badge>
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="led" data-tone={tono} />
-            {dias == null ? "Nunca controlado" : `Controlado hace ${dias} día${dias === 1 ? "" : "s"}`}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid gap-2 p-5 sm:grid-cols-3">
-        {canEdit && (
-          <ControlDialog
-            item={item}
-            onDone={onDone}
-            trigger={
-              <Button className="h-11 sm:col-span-3">
-                <ClipboardCheck /> Registrar control
-              </Button>
-            }
-          />
-        )}
-        <HistorialDialog
-          item={item}
-          trigger={
-            <Button variant="outline" className="h-10">
-              <History /> Historial
-            </Button>
-          }
-        />
-        {canEdit && (
-          <ItemDialog
-            item={item}
-            onDone={onDone}
-            trigger={
-              <Button variant="outline" className="h-10">
-                <Pencil /> Modificar
-              </Button>
-            }
-          />
-        )}
-        <Button variant="outline" className="h-10" onClick={() => void printEtiquetas([item])}>
-          <Tag /> Etiqueta
-        </Button>
-      </div>
-
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pb-5 text-sm">
-        {datos.map(([label, value]) => (
-          <div key={label} className="min-w-0">
-            <dt className="eyebrow">{label}</dt>
-            <dd className={cn("mt-0.5 truncate font-medium", (label === "Código" || label === "N° de serie") && "num")}>
-              {value === null || value === undefined || value === "" ? "—" : value}
-            </dd>
-          </div>
-        ))}
-        {item.notas && (
-          <div className="col-span-2">
-            <dt className="eyebrow">Notas</dt>
-            <dd className="mt-0.5 whitespace-pre-line text-[13px] text-muted-foreground">{item.notas}</dd>
-          </div>
-        )}
-      </dl>
-
-      <div className="mt-auto flex items-center gap-4 border-t border-border bg-muted/30 p-5">
-        <div className="size-24 shrink-0 rounded-lg bg-white p-1.5" dangerouslySetInnerHTML={{ __html: qr }} />
-        <div className="min-w-0 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">QR de este equipo</p>
-          <p className="mt-1">Imprimí la etiqueta y pegala en el equipo. Al escanearla con el celular se abre esta ficha.</p>
-          <Button variant="link" className="mt-1 h-auto p-0 text-xs" onClick={onClose}>
-            Cerrar ficha
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -1360,9 +998,7 @@ function InventarioPage() {
     queryFn: async () => {
       const { data, error } = await api
         .from("inventario")
-        .select(
-          "id,codigo,nombre,categoria,planta,sector,rubro,tipo,descripcion,cantidad,marca,modelo,numero_serie,propiedad,estado,ultima_vez_controlada,asignado_a,notas,created_at,updated_at",
-        )
+        .select(ACTIVO_COLUMNAS_SQL)
         .order("updated_at", { ascending: false })
         .limit(5000);
       if (error) throw error;
@@ -1467,12 +1103,17 @@ function InventarioPage() {
     });
   };
 
-  const totalCantidad = rows.reduce((sum, row) => sum + Number(row.cantidad ?? 0), 0);
-  const sinControl = rows.filter((row) => !row.ultima_vez_controlada).length;
-  const control90 = rows.filter((row) => {
-    const days = daysSince(row.ultima_vez_controlada);
-    return days === null || days > 90;
+  const codigos = useMemo(() => data.map((d) => d.codigo), [data]);
+  const contarEstado = (v: string) => rows.filter((r) => estadoInfo(r.estado).value === v).length;
+  const enUso = contarEstado("operativo");
+  const enDeposito = contarEstado("deposito");
+  const enReparacion = contarEstado("reparacion");
+  const fueraServicio = contarEstado("fuera_servicio");
+  const garantiaPorVencer = rows.filter((r) => {
+    const d = diasHasta(r.garantia_hasta);
+    return d != null && d >= 0 && d <= 90;
   }).length;
+  const sinControl = rows.filter((row) => !row.ultima_vez_controlada).length;
   const control180 = rows.filter((row) => {
     const days = daysSince(row.ultima_vez_controlada);
     return days === null || days > 180;
@@ -1498,17 +1139,20 @@ function InventarioPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Inventario"
-        description="Base central de bienes por planta, sector, rubro, tipo, propiedad y control."
+        title="Activos IT"
+        description="PCs, servidores, red, impresoras y periféricos: planilla técnica, asignaciones, reparaciones y controles."
         action={
           canWrite ? (
             <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col">
               <ImportDialog onDone={refresh} />
               {canCreate && (
-                <ItemDialog
+                <ActivoDialog
+                  codigos={codigos}
+                  plantas={options.plantas}
+                  sectores={options.sectores}
                   trigger={
                     <Button>
-                      <Plus className="size-4" /> Nuevo registro
+                      <Plus className="size-4" /> Nuevo activo
                     </Button>
                   }
                   onDone={refresh}
@@ -1520,19 +1164,14 @@ function InventarioPage() {
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5 stagger">
-        <StatTile label="Registros visibles" value={rows.length} hint="según filtros" />
-        <StatTile label="Cantidad total" value={totalCantidad} hint="unidades" />
-        <StatTile label="Sectores" value={options.sectores.length} hint="con equipos" />
-        <StatTile
-          label="Sin control"
-          value={sinControl}
-          hint="nunca controlados"
-          tone={sinControl > 0 ? "warn" : "ok"}
-        />
+        <StatTile label="Activos" value={rows.length} hint={`${enUso} en uso · ${enDeposito} en depósito`} />
+        <StatTile label="En reparación" value={enReparacion} hint="servicio técnico abierto" tone={enReparacion ? "warn" : "ok"} />
+        <StatTile label="Fuera de servicio" value={fueraServicio} hint="sin funcionar" tone={fueraServicio ? "crit" : "ok"} />
+        <StatTile label="Garantía por vencer" value={garantiaPorVencer} hint="en los próximos 90 días" tone={garantiaPorVencer ? "warn" : "neutral"} />
         <StatTile
           label="Control vencido"
           value={control180}
-          hint={`${control90} con más de 90 días`}
+          hint={`${sinControl} nunca controlados`}
           tone={control180 > 0 ? "crit" : "ok"}
         />
       </div>
@@ -1574,8 +1213,8 @@ function InventarioPage() {
           <div className="grid gap-2 md:grid-cols-7">
             <FilterSelect label="Todas las plantas" value={planta} onChange={setPlanta} options={options.plantas} />
             <FilterSelect label="Todos los sectores" value={sector} onChange={setSector} options={options.sectores} />
-            <FilterSelect label="Todos los rubros" value={rubro} onChange={setRubro} options={options.rubros} />
-            <FilterSelect label="Todos los tipos" value={tipo} onChange={setTipo} options={options.tipos} />
+            <FilterSelect label="Todas las categorías" value={rubro} onChange={setRubro} options={options.rubros} />
+            <FilterSelect label="Todos los modelos" value={tipo} onChange={setTipo} options={options.tipos} />
             <FilterSelect
               label="Todas las propiedades"
               value={propiedad}
@@ -1661,214 +1300,169 @@ function InventarioPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 lg:hidden">
-            {paginatedRows.map((item) => (
-              <article key={item.id} className="rounded-lg border border-border/70 bg-background p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-3">
-                    {canDelete && (
-                      <Checkbox
-                        checked={selectedIds.has(item.id)}
-                        aria-label="Seleccionar registro"
-                        onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
-                      />
-                    )}
-                    <div className="min-w-0">
-                    <button type="button" onClick={() => abrirFicha(item.id)} className="block max-w-full truncate text-left text-sm font-semibold text-primary underline-offset-2 hover:underline">{item.descripcion || item.nombre}</button>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {[item.planta, item.sector, item.rubro ?? item.categoria, item.tipo ?? item.modelo]
-                          .filter(Boolean)
-                          .join(" · ") || "Sin ubicación"}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant="secondary" className="shrink-0">
-                    {item.cantidad ?? 0}
+          <div className="grid gap-2.5 lg:hidden">
+            {paginatedRows.map((item) => {
+              const est = estadoInfo(item.estado);
+              const Icono = iconoCategoria(item.rubro || item.categoria);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => abrirFicha(item.id)}
+                  className="panel flex w-full items-center gap-3 p-3 text-left transition-colors active:bg-accent/50"
+                >
+                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                    <Icono className="size-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="num block text-[11px] text-primary">{item.codigo}</span>
+                    <span className="block truncate text-sm font-semibold">{item.descripcion || item.nombre}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[item.sector, item.planta].filter(Boolean).join(" · ") || "Sin ubicación"}
+                      {item.asignado_a ? ` · ${item.asignado_a}` : ""}
+                    </span>
+                  </span>
+                  <Badge variant={badgeVariant(est.tono)} className="shrink-0">
+                    {est.label}
                   </Badge>
-                </div>
-                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  {(["Marca", "N° de serie", "Propiedad", "Estado", "Ultima vez controlada"] as InventarioColumn[]).map(
-                    (column) => (
-                      <div key={column} className="min-w-0">
-                        <dt className="text-xs text-muted-foreground">{column}</dt>
-                        <dd className="truncate font-medium">
-                          {column === "Ultima vez controlada" ? (
-                            <Badge variant={controlBadgeVariant(item)}>{itemField(item, column) || "Sin control"}</Badge>
-                          ) : (
-                            itemField(item, column) || "-"
-                          )}
-                        </dd>
-                      </div>
-                    ),
-                  )}
-                </dl>
-                {canWrite && (
-                  <div className="mt-4 grid gap-2 sm:grid-cols-4">
-                    {canEdit && (
-                      <ItemDialog
-                        item={item}
-                        trigger={
-                          <Button size="sm" variant="outline">
-                            <Pencil className="size-4" /> Modificar
-                          </Button>
-                        }
-                        onDone={refresh}
-                      />
-                    )}
-                    {canEdit && (
-                      <ControlDialog
-                        item={item}
-                        trigger={
-                          <Button size="sm" variant="outline">
-                            <ClipboardCheck className="size-4" /> Controlar
-                          </Button>
-                        }
-                        onDone={refresh}
-                      />
-                    )}
-                    <HistorialDialog
-                      item={item}
-                      trigger={
-                        <Button size="sm" variant="outline">
-                          <History className="size-4" /> Historial
-                        </Button>
-                      }
-                    />
-                    {canDelete && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setPendingDeleteIds([item.id])}
-                      >
-                        <Trash2 className="size-4" /> Eliminar
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </article>
-            ))}
+                </button>
+              );
+            })}
             {rows.length === 0 && (
               <div className="rounded-lg border border-dashed border-border/70 py-12 text-center text-sm text-muted-foreground">
-                No hay registros que coincidan con la busqueda o los filtros.
+                No hay activos que coincidan con la búsqueda o los filtros.
               </div>
             )}
           </div>
 
           <div className="hidden overflow-x-auto rounded-lg border border-border/70 lg:block">
-            <Table className="min-w-[1100px]">
+            <Table className="min-w-[1080px]">
               <TableHeader>
                 <TableRow>
                   {canDelete && (
                     <TableHead className="w-10">
                       <Checkbox
                         checked={allVisibleSelected}
-                        aria-label="Seleccionar registros visibles"
+                        aria-label="Seleccionar visibles"
                         onCheckedChange={(checked) => toggleAllVisible(checked === true)}
                       />
                     </TableHead>
                   )}
-                  {INVENTARIO_COLUMNS.map((column) => (
-                    <TableHead key={column}>
-                      {column}
-                    </TableHead>
-                  ))}
-                  <TableHead className="sticky right-0 w-40 bg-card text-right">Acciones</TableHead>
+                  <TableHead>Código</TableHead>
+                  <TableHead>Activo</TableHead>
+                  <TableHead>Ubicación</TableHead>
+                  <TableHead>Asignado a</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Red</TableHead>
+                  <TableHead>Garantía</TableHead>
+                  <TableHead>Último control</TableHead>
+                  <TableHead className="sticky right-0 bg-card text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedRows.map((item) => (
-                  <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined}>
-                    {canDelete && (
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedIds.has(item.id)}
-                          aria-label="Seleccionar registro"
-                          onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
-                        />
-                      </TableCell>
-                    )}
-                    {INVENTARIO_COLUMNS.map((column) => (
-                      <TableCell
-                        key={column}
-                        className={cn(
-                          "max-w-[220px] truncate text-xs",
-                          column === "Cantidad" && "text-right num",
-                          column === "N° de serie" && "num",
-                          column === "Descripcion" && "text-sm font-medium",
-                        )}
-                      >
-                        {column === "Cantidad" ? (
-                          <Badge variant="secondary">{itemField(item, column) || 0}</Badge>
-                        ) : column === "Estado" ? (
-                          <Badge variant={item.estado === "baja" ? "destructive" : "secondary"}>
-                            {itemField(item, column) || "Operativo"}
-                          </Badge>
-                        ) : column === "Ultima vez controlada" ? (
-                          <Badge variant={controlBadgeVariant(item)}>{itemField(item, column) || "Sin control"}</Badge>
-                        ) : (
-                          itemField(item, column) || "-"
-                        )}
-                      </TableCell>
-                    ))}
-                    <TableCell className="sticky right-0 bg-card text-right">
-                      <div className="flex justify-end gap-0.5">
-                      <Button size="icon" variant="ghost" className="size-8" title="Ficha y QR" aria-label="Ficha y QR" onClick={() => abrirFicha(item.id)}>
-                        <QrCode className="size-4" />
-                      </Button>
-                      {canEdit && (
-                        <ItemDialog
-                          item={item}
-                          trigger={
-                            <Button size="icon" variant="ghost" className="size-8" title="Modificar registro" aria-label="Modificar registro">
-                              <Pencil className="size-4" />
-                            </Button>
-                          }
-                          onDone={refresh}
-                        />
-                      )}
-                      {canEdit && (
-                        <ControlDialog
-                          item={item}
-                          trigger={
-                            <Button size="icon" variant="ghost" className="size-8" title="Registrar control" aria-label="Registrar control">
-                              <ClipboardCheck className="size-4" />
-                            </Button>
-                          }
-                          onDone={refresh}
-                        />
-                      )}
-                      <HistorialDialog
-                        item={item}
-                        trigger={
-                          <Button size="icon" variant="ghost" className="size-8" title="Ver historial" aria-label="Ver historial">
-                            <History className="size-4" />
-                          </Button>
-                        }
-                      />
+                {paginatedRows.map((item) => {
+                  const est = estadoInfo(item.estado);
+                  const gar = garantiaInfo(item.garantia_hasta);
+                  const Icono = iconoCategoria(item.rubro || item.categoria);
+                  return (
+                    <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined} className="cursor-pointer" onClick={() => abrirFicha(item.id)}>
                       {canDelete && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-8"
-                          title="Eliminar registro"
-                          aria-label="Eliminar registro"
-                          onClick={() => setPendingDeleteIds([item.id])}
-                        >
-                          <Trash2 className="size-4 text-destructive" />
-                        </Button>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedIds.has(item.id)}
+                            aria-label="Seleccionar"
+                            onCheckedChange={(checked) => toggleSelected(item.id, checked === true)}
+                          />
+                        </TableCell>
                       )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      <TableCell className="num whitespace-nowrap text-xs font-semibold text-primary">{item.codigo}</TableCell>
+                      <TableCell className="max-w-[260px]">
+                        <div className="flex items-center gap-2.5">
+                          <Icono className="size-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium">{item.descripcion || item.nombre}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {[item.rubro ?? item.categoria, item.marca, item.modelo ?? item.tipo].filter(Boolean).join(" · ")}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="max-w-[180px] text-xs">
+                        <p className="truncate">{item.sector || "—"}</p>
+                        <p className="truncate text-muted-foreground">{item.planta}</p>
+                      </TableCell>
+                      <TableCell className="max-w-[160px] truncate text-xs">{item.asignado_a || <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell>
+                        <Badge variant={badgeVariant(est.tono)}>{est.label}</Badge>
+                      </TableCell>
+                      <TableCell className="num max-w-[160px] text-xs">
+                        <p className="truncate">{item.ip || "—"}</p>
+                        <p className="truncate text-muted-foreground">{item.hostname}</p>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {item.garantia_hasta ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="led" data-tone={gar.tono === "neutral" ? undefined : gar.tono} />
+                            {formatDateForDisplay(item.garantia_hasta)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={controlBadgeVariant(item)}>{itemField(item, "Ultima vez controlada") || "Sin control"}</Badge>
+                      </TableCell>
+                      <TableCell className="sticky right-0 bg-card text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-0.5">
+                          <Button size="icon" variant="ghost" className="size-8" title="Planilla técnica" aria-label="Planilla técnica" onClick={() => abrirFicha(item.id)}>
+                            <QrCode className="size-4" />
+                          </Button>
+                          {canEdit && (
+                            <ControlDialog
+                              item={item}
+                              onDone={refresh}
+                              trigger={
+                                <Button size="icon" variant="ghost" className="size-8" title="Registrar control" aria-label="Registrar control">
+                                  <ClipboardCheck className="size-4" />
+                                </Button>
+                              }
+                            />
+                          )}
+                          {canEdit && (
+                            <ActivoDialog
+                              item={item}
+                              codigos={codigos}
+                              plantas={options.plantas}
+                              sectores={options.sectores}
+                              onDone={refresh}
+                              trigger={
+                                <Button size="icon" variant="ghost" className="size-8" title="Editar" aria-label="Editar">
+                                  <Pencil className="size-4" />
+                                </Button>
+                              }
+                            />
+                          )}
+                          {canDelete && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8"
+                              title="Eliminar"
+                              aria-label="Eliminar"
+                              onClick={() => setPendingDeleteIds([item.id])}
+                            >
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell
-                      colSpan={INVENTARIO_COLUMNS.length + 1 + (canDelete ? 1 : 0)}
-                      className="py-12 text-center text-sm text-muted-foreground"
-                    >
-                      No hay registros que coincidan con la busqueda o los filtros.
+                    <TableCell colSpan={10} className="py-12 text-center text-sm text-muted-foreground">
+                      No hay activos que coincidan con la búsqueda o los filtros.
                     </TableCell>
                   </TableRow>
                 )}
@@ -1878,17 +1472,17 @@ function InventarioPage() {
         </CardContent>
       </Card>
       <Sheet open={!!fichaItem} onOpenChange={(o) => !o && abrirFicha(null)}>
-        <SheetContent side="right" className="w-full p-0 sm:max-w-md">
-          <SheetTitle className="sr-only">Ficha del equipo</SheetTitle>
+        <SheetContent side="right" className="w-full p-0 sm:max-w-xl">
+          <SheetTitle className="sr-only">Planilla técnica del activo</SheetTitle>
           {fichaItem && (
-            <FichaEquipo
+            <FichaActivo
               item={fichaItem}
               canEdit={canEdit}
-              onClose={() => abrirFicha(null)}
-              onDone={() => {
-                qc.invalidateQueries({ queryKey: ["inventario"] });
-                qc.invalidateQueries({ queryKey: ["inventario-controles"] });
-              }}
+              codigos={codigos}
+              plantas={options.plantas}
+              sectores={options.sectores}
+              onPrintEtiqueta={(it) => void printEtiquetas([it])}
+              onChanged={refresh}
             />
           )}
         </SheetContent>

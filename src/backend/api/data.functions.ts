@@ -49,7 +49,9 @@ const TABLES = new Set([
   "guardia_operarios",
   "guardias",
   "inventario",
+  "inventario_asignaciones",
   "inventario_controles",
+  "inventario_reparaciones",
   "oficina_telefonos",
   "profiles",
   "role_permissions",
@@ -73,7 +75,9 @@ const WRITABLE_BY_TECH = new Set([
   "guardia_operarios",
   "guardias",
   "inventario",
+  "inventario_asignaciones",
   "inventario_controles",
+  "inventario_reparaciones",
   "oficina_telefonos",
   "tarea_comentarios",
   "tarea_instructivos",
@@ -96,6 +100,8 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
   inventario: { modulo: "inventario", fields: ["planta", "sector", "descripcion", "numero_serie"] },
   inventario_controles: { modulo: "inventario", fields: ["fecha_control", "estado", "observacion"] },
+  inventario_reparaciones: { modulo: "inventario", fields: ["titulo", "proveedor", "fecha_inicio"] },
+  inventario_asignaciones: { modulo: "inventario", fields: ["asignado_a", "sector"] },
   oficina_telefonos: { modulo: "oficina", fields: ["sector", "nombre", "interno"] },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
@@ -447,15 +453,45 @@ export const apiRpc = createServerFn({ method: "POST" })
       return { data: control.rows[0], error: null };
     }
     if (data.name === "checkout_inventario") {
+      // Asignar (checkout) o devolver (checkin) un activo, dejando historial.
       if (!(await hasModulePermission(session.user.id, "inventario", "editar"))) throw new Error("No tenés permiso para asignar inventario");
       const inventarioId = String(data.args?._inventario_id ?? "");
       const asignadoA = String(data.args?._asignado_a ?? "").trim();
-      const notas = String(data.args?._notas ?? "").trim();
+      const sectorAsignado = String(data.args?._sector ?? "").trim() || null;
+      const notas = String(data.args?._notas ?? "").trim() || null;
+      const estadoDevolucion = String(data.args?._estado ?? "deposito").trim() || "deposito";
       if (!inventarioId) throw new Error("Falta el registro de inventario");
       const item = await one<Record<string, unknown>>(`select * from inventario where id = $1`, [inventarioId]);
       if (!item) throw new Error("Registro de inventario inexistente");
-      await query(`update inventario set asignado_a = $2, estado = case when $2 = '' then estado else 'asignado' end, checkout_at = case when $2 = '' then null else now() end, checkout_notas = $3 where id = $1`, [inventarioId, asignadoA, notas]);
-      await writeAudit(session.user.id, "inventario", "editar", [item], { campos: ["asignado_a", "checkout"], asignado_a: asignadoA });
+      const actor = await one<{ full_name: string; email: string }>(`select full_name, email from profiles where id = $1`, [session.user.id]);
+      const actorNombre = actor?.full_name ?? actor?.email ?? "";
+      // Cierra la asignación abierta, si la hay.
+      await query(
+        `update inventario_asignaciones set hasta = now(), notas_devolucion = coalesce($2, notas_devolucion) where inventario_id = $1 and hasta is null`,
+        [inventarioId, asignadoA ? null : notas],
+      );
+      if (asignadoA) {
+        await query(
+          `insert into inventario_asignaciones (inventario_id, asignado_a, sector, notas, actor_id, actor_nombre) values ($1, $2, $3, $4, $5, $6)`,
+          [inventarioId, asignadoA, sectorAsignado, notas, session.user.id, actorNombre],
+        );
+        await query(
+          `update inventario set asignado_a = $2, asignado_desde = now(), checkout_at = now(), checkout_notas = $3,
+                  estado = case when estado in ('reparacion', 'fuera_servicio', 'baja') then estado else 'operativo' end,
+                  sector = coalesce($4, sector) where id = $1`,
+          [inventarioId, asignadoA, notas, sectorAsignado],
+        );
+      } else {
+        await query(
+          `update inventario set asignado_a = null, asignado_desde = null, checkout_at = null, checkout_notas = null, estado = $2 where id = $1`,
+          [inventarioId, estadoDevolucion],
+        );
+      }
+      await writeAudit(session.user.id, "inventario", "editar", [item], {
+        campos: ["asignado_a"],
+        accion_especial: asignadoA ? "asignar" : "devolver",
+        asignado_a: asignadoA || null,
+      });
       return { data: { ok: true }, error: null };
     }
     throw new Error("Función no permitida");

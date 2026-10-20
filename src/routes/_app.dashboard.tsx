@@ -290,7 +290,7 @@ function Dashboard() {
     { label: "Tickets", to: "/tareas", icon: ClipboardList, modulo: "tareas" as const },
     { label: "Tóners", to: "/toners", icon: Printer, modulo: "toners" as const },
     { label: "Instructivos", to: "/instructivos", icon: BookOpen, modulo: "instructivos" as const },
-    { label: "Inventario", to: "/inventario", icon: Boxes, modulo: "inventario" as const },
+    { label: "Activos IT", to: "/inventario", icon: Boxes, modulo: "inventario" as const },
     { label: "Guardias", to: "/guardias", icon: CalendarClock, modulo: "guardias" as const },
     { label: "Credenciales", to: "/credenciales", icon: KeyRound, modulo: "credenciales" as const },
   ].filter((a) => can(a.modulo, "view"));
