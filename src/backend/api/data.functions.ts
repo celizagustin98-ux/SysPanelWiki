@@ -20,6 +20,7 @@ import {
   verifyPassword,
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
+import { alertasArea, notificarCambios } from "@/backend/core/notificaciones";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
 type Order = { column: string; ascending?: boolean };
@@ -120,6 +121,8 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   wiki_folders: { modulo: "instructivos", fields: ["name"] },
   wiki_doc_revisions: { modulo: "instructivos", fields: ["title"] },
 };
+
+const claveIntentos = new Map<string, { n: number; hasta: number }>();
 
 function tableName(table: string) {
   cleanIdentifier(table);
@@ -345,7 +348,14 @@ export const apiMutate = createServerFn({ method: "POST" })
         return `${cleanIdentifier(key)} = $${values.length}`;
       });
       if (assignments.length === 0) throw new Error("Sin datos para actualizar");
+      let antes: Record<string, unknown>[] = [];
+      if (table === "tareas") {
+        const prevValues: unknown[] = [];
+        const prevWhere = appendFilters(data.filters, prevValues);
+        antes = (await query<Record<string, unknown>>(`select id, asignado_a, estado from tareas${prevWhere}`, prevValues)).rows;
+      }
       const result = await query<Record<string, unknown>>(`update ${table} set ${assignments.join(", ")}${where} returning *`, values);
+      if (table === "tareas") await notificarCambios(table, "update", session.user.id, result.rows, antes);
       await writeAudit(session.user.id, table, "editar", result.rows, { campos: Object.keys(payload).filter((k) => k !== "secreto") });
       return { data: null, count: result.rowCount ?? 0, error: null };
     }
@@ -368,6 +378,7 @@ export const apiMutate = createServerFn({ method: "POST" })
     });
     const result = await query(`insert into ${table} (${cols.join(", ")}) values ${placeholders.join(", ")} returning *`, values);
     await writeAudit(session.user.id, table, "crear", result.rows);
+    if (table === "tareas" || table === "tarea_comentarios") await notificarCambios(table, "insert", session.user.id, result.rows);
     const out = sanitizeRows(table, result.rows);
     return { data: out.length === 1 ? out[0] : out, error: null };
   });
@@ -398,6 +409,36 @@ export const apiRpc = createServerFn({ method: "POST" })
       try { await query(`update credenciales set last_revealed_at = now() where id = $1`, [id]); } catch { /* optional col */ }
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto }, error: null };
+    }
+    if (data.name === "notificaciones") {
+      const items = await query(
+        `select id, tipo, titulo, cuerpo, link, leida, actor_nombre, created_at from notificaciones where user_id = $1 order by created_at desc limit 40`,
+        [session.user.id],
+      ).catch(() => ({ rows: [] as Record<string, unknown>[] }));
+      const noLeidas = items.rows.filter((n) => !n.leida).length;
+      return { data: { items: items.rows, no_leidas: noLeidas, alertas: await alertasArea(session.user.id) }, error: null };
+    }
+    if (data.name === "marcar_notificaciones") {
+      const ids = Array.isArray(data.args?._ids) ? (data.args?._ids as string[]).map(String) : null;
+      if (ids?.length) await query(`update notificaciones set leida = true where user_id = $1 and id = any($2::uuid[])`, [session.user.id, ids]);
+      else await query(`update notificaciones set leida = true where user_id = $1 and not leida`, [session.user.id]);
+      return { data: null, error: null };
+    }
+    if (data.name === "verificar_clave") {
+      // Confirmación con la contraseña propia (ej. al abrir un activo desde un QR).
+      const key = session.user.id;
+      const now = Date.now();
+      const intento = claveIntentos.get(key);
+      if (intento && intento.hasta > now && intento.n >= 5) throw new Error("Demasiados intentos. Esperá un minuto.");
+      const row = await one<{ password_hash: string }>(`select password_hash from app_users where id = $1`, [key]);
+      const ok = !!row && (await verifyPassword(String(data.args?._clave ?? ""), row.password_hash));
+      if (!ok) {
+        const prev = intento && intento.hasta > now ? intento : { n: 0, hasta: now + 60_000 };
+        claveIntentos.set(key, { n: prev.n + 1, hasta: prev.hasta });
+        throw new Error("Clave incorrecta");
+      }
+      claveIntentos.delete(key);
+      return { data: { ok: true }, error: null };
     }
     if (data.name === "registrar_vista_instructivo") {
       const id = String(data.args?._id ?? "");

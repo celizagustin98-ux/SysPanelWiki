@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { BrandLockup, BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui/button";
+import { Notificaciones } from "@/components/Notificaciones";
 import {
   CommandDialog,
   CommandEmpty,
@@ -298,6 +299,7 @@ export function AppShell() {
                 <span className="flex-1 text-left">Buscar módulo o acción…</span>
                 <span className="kbd">Ctrl K</span>
               </button>
+              <Notificaciones />
               <LiveClock />
             </div>
           </header>
@@ -310,6 +312,7 @@ export function AppShell() {
                 <Button size="icon" variant="ghost" className="size-9" onClick={() => setPaletteOpen(true)} aria-label="Buscar">
                   <Search className="size-4" />
                 </Button>
+                <Notificaciones />
                 <Button size="icon" variant="ghost" className="size-9" onClick={toggle} aria-label="Cambiar tema">
                   {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
                 </Button>
@@ -337,7 +340,7 @@ export function AppShell() {
             </nav>
           </header>
 
-          <main className="page-content min-w-0 flex-1 overflow-x-clip px-3 py-4 sm:px-4 md:px-6 md:py-6 lg:px-8 lg:py-7">
+          <main className="page-content min-w-0 flex-1 overflow-x-clip px-3 py-3.5 sm:px-4 md:px-6 md:py-5 lg:px-7">
             <div key={pathname} className="rise-in">
               <Outlet />
             </div>
@@ -496,16 +499,16 @@ export function PageHeader({
   const item = NAV.find((n) => pathname.startsWith(n.to));
   const Icon = item?.icon;
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
       <div className="flex min-w-0 flex-1 items-start gap-3.5">
         {Icon && (
-          <div className="hidden size-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-primary shadow-xs sm:grid">
+          <div className="hidden size-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-primary shadow-xs sm:grid">
             <Icon className="size-5" />
           </div>
         )}
         <div className="min-w-0 space-y-1">
           <p className="eyebrow">{eyebrow ?? item?.hint ?? "SysIntranet"}</p>
-          <h1 className="text-xl font-semibold tracking-tight sm:text-[1.5rem]">{title}</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-[1.4rem]">{title}</h1>
           {description ? (
             <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">{description}</p>
           ) : null}

@@ -315,7 +315,7 @@ function TicketsPage() {
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3 stagger">
+      <div className="mb-3 grid gap-2.5 sm:grid-cols-3 stagger">
         <KpiCard
           icon={<CheckCircle2 className="size-4" />}
           tone="info"
@@ -339,7 +339,7 @@ function TicketsPage() {
         />
       </div>
 
-      <div className="mb-5 inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
+      <div className="mb-3 inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
         <button
           type="button"
           onClick={() => setVista("activos")}
@@ -385,7 +385,7 @@ function TicketsPage() {
 
       {vista === "activos" && (
         <>
-          <div className="panel mb-6 p-5">
+          <div className="panel mb-4 p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold">Progreso de los tickets</p>
@@ -397,7 +397,7 @@ function TicketsPage() {
                 {counts.total} en total
               </span>
             </div>
-            <div className="mb-4 flex h-2 overflow-hidden rounded-full bg-muted">
+            <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-muted">
               <span className="bg-muted-foreground/50 transition-[width] duration-700" style={{ width: pct(counts.nuevo) }} />
               <span className="bg-info transition-[width] duration-700" style={{ width: pct(counts.progreso) }} />
               <span className="bg-warn transition-[width] duration-700" style={{ width: pct(counts.espera) }} />
@@ -410,7 +410,7 @@ function TicketsPage() {
                 { label: "En espera", n: counts.espera, dot: "bg-warn" },
                 { label: "Resuelto", n: counts.resuelto, dot: "bg-ok" },
               ].map((b) => (
-                <div key={b.label} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
+                <div key={b.label} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                   <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className={cn("size-1.5 rounded-full", b.dot)} />
                     {b.label}
