@@ -52,7 +52,7 @@ export const NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, modulo: null, adminOnly: false, group: "principal", hint: "Resumen operativo" },
   { to: "/oficina", label: "Oficina", icon: BriefcaseBusiness, modulo: "oficina", adminOnly: false, group: "principal", hint: "Internos y teléfonos" },
   { to: "/tareas", label: "Tickets", icon: Ticket, modulo: "tareas", adminOnly: false, group: "operacion", hint: "Mesa de ayuda" },
-  { to: "/inventario", label: "Inventario", icon: Boxes, modulo: "inventario", adminOnly: false, group: "operacion", hint: "Equipos y controles" },
+  { to: "/inventario", label: "Activos IT", icon: Boxes, modulo: "inventario", adminOnly: false, group: "operacion", hint: "Equipos, QR y reparaciones" },
   { to: "/toners", label: "Tóners", icon: Printer, modulo: "toners", adminOnly: false, group: "operacion", hint: "Stock y pedidos" },
   { to: "/guardias", label: "Guardias", icon: CalendarClock, modulo: "guardias", adminOnly: false, group: "operacion", hint: "Turnos y cobertura" },
   { to: "/instructivos", label: "Instructivos", icon: BookOpen, modulo: "instructivos", adminOnly: false, group: "operacion", hint: "Procedimientos" },
