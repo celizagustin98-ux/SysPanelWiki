@@ -531,7 +531,7 @@ function ConfiguracionPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Contraseña</Label>
-              <InputClave name="password" required minLength={8} autoComplete="new-password" />
+              <InputClave name="password" required minLength={10} autoComplete="new-password" />
             </div>
             <div className="space-y-1.5">
               <Label>Rol</Label>
@@ -580,9 +580,9 @@ function ConfiguracionPage() {
               <Label>Nueva contraseña (opcional)</Label>
               <InputClave
                 name="password"
-                minLength={8}
+                minLength={10}
                 autoComplete="new-password"
-                placeholder="Dejar vacío para no cambiar"
+                placeholder="Vacío = no cambiar · 10+ con letras y números"
               />
             </div>
             <DialogFooter>

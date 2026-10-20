@@ -39,9 +39,20 @@ function rateLimit(key, limit, windowMs) {
     throw err;
   }
 }
+// X-Forwarded-For lo puede inventar cualquiera: solo se usa si la conexión viene de un proxy
+// de confianza (por defecto, el mismo servidor: Caddy/Nginx en 127.0.0.1). TRUST_PROXY=true lo fuerza.
+const PROXIES_CONFIABLES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1", ...String(process.env.TRUSTED_PROXIES || "").split(",").map((x) => x.trim()).filter(Boolean)]);
+function desdeProxy(req) {
+  return process.env.TRUST_PROXY === "true" || PROXIES_CONFIABLES.has(req.socket?.remoteAddress || "");
+}
 function clientIp(req) {
+  const directa = req.socket?.remoteAddress || "unknown";
+  if (!desdeProxy(req)) return directa;
   const xf = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  return xf || req.socket?.remoteAddress || "unknown";
+  return xf || directa;
+}
+function esHttps(req) {
+  return desdeProxy(req) && String(req?.headers?.["x-forwarded-proto"] || "") === "https";
 }
 // Periodic cleanup of expired sessions + rate buckets
 setInterval(() => {
@@ -161,7 +172,12 @@ function setSecurityHeaders(req, res) {
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("x-frame-options", "DENY");
   res.setHeader("referrer-policy", "same-origin");
-  res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  // La cámara se permite solo para este sitio (escáner QR); el resto queda bloqueado.
+  res.setHeader("permissions-policy", "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()");
+  res.setHeader("x-robots-tag", "noindex, nofollow");
+  res.setHeader("cross-origin-opener-policy", "same-origin");
+  res.setHeader("cross-origin-resource-policy", "same-origin");
+  res.setHeader("x-permitted-cross-domain-policies", "none");
   res.setHeader(
     "content-security-policy",
     [
@@ -175,12 +191,13 @@ function setSecurityHeaders(req, res) {
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
+      "frame-ancestors 'none'",
+      "worker-src 'self' blob:",
+      "manifest-src 'self'",
     ].join("; "),
   );
-  const forwardedProto = String(req?.headers?.["x-forwarded-proto"] || "");
-  if (forwardedProto === "https") {
-    res.setHeader("cross-origin-opener-policy", "same-origin");
-    res.setHeader("strict-transport-security", "max-age=15552000; includeSubDomains");
+  if (req && esHttps(req)) {
+    res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
   }
 }
 
@@ -315,14 +332,64 @@ function loadStatusHtml(kind) {
 }
 
 async function mapDbError(error) {
+  // Los mensajes propios (con statusCode) se muestran; los de la base o del sistema, no.
+  if (error?.statusCode && error.statusCode < 500) return error.message;
   const msg = String(error?.message || error || "");
-  if (/password authentication failed/i.test(msg)) {
-    return "La aplicación no puede conectar a PostgreSQL (usuario syswiki). Revisá DATABASE_URL.";
+  if (/password authentication failed|econnrefused|connection refused|getaddrinfo/i.test(msg)) {
+    return "El servidor no puede conectarse a la base de datos. Avisá al administrador.";
   }
-  if (/econnrefused|connection refused/i.test(msg)) {
-    return "No hay conexión con PostgreSQL. Verificá que el servicio esté activo.";
+  return "Error del servidor. Intentá de nuevo en unos minutos.";
+}
+
+/** Permiso del rol del usuario en un módulo (misma matriz que Configuración → Roles y permisos). */
+async function puedeEnModulo(session, modulo, columna = "can_view") {
+  if (session.role === "administrador") return true;
+  if (!["can_view", "can_create", "can_edit", "can_delete"].includes(columna)) return false;
+  const row = await one(`select ${columna} as ok from role_permissions where role = $1 and modulo = $2`, [session.role, modulo]);
+  return !!row?.ok;
+}
+
+function prohibido(mensaje = "Tu rol no tiene permiso para ver este archivo") {
+  const error = new Error(mensaje);
+  error.statusCode = 403;
+  return error;
+}
+
+// ── Bloqueo por cuenta: 5 contraseñas incorrectas seguidas bloquean ese usuario 15 minutos ──
+const fallosLogin = new Map();
+const BLOQUEO_MS = 15 * 60_000;
+function cuentaBloqueada(usuario) {
+  const f = fallosLogin.get(usuario);
+  return !!f && f.hasta > Date.now() && f.n >= 5;
+}
+function registrarFallo(usuario) {
+  const ahora = Date.now();
+  const f = fallosLogin.get(usuario);
+  const prev = f && f.hasta > ahora ? f : { n: 0, hasta: ahora + BLOQUEO_MS };
+  fallosLogin.set(usuario, { n: prev.n + 1, hasta: ahora + BLOQUEO_MS });
+}
+// Hash de una contraseña que no existe: hace que "usuario inexistente" tarde lo mismo que "clave mala".
+const HASH_SEÑUELO = `scrypt:${randomBytes(16).toString("hex")}:${randomBytes(64).toString("hex")}`;
+
+function validarClave(clave, usuario) {
+  const c = String(clave || "");
+  if (c.length < 10) return "La contraseña debe tener al menos 10 caracteres";
+  if (c.length > 128) return "La contraseña es demasiado larga";
+  if (!/[a-zA-Z]/.test(c) || !/\d/.test(c)) return "La contraseña debe combinar letras y números";
+  const u = String(usuario || "").toLowerCase();
+  if (u.length >= 3 && c.toLowerCase().includes(u)) return "La contraseña no puede contener el nombre de usuario";
+  return null;
+}
+
+async function auditarAcceso(actorId, nombre, accion, detalle) {
+  try {
+    await pool.query(
+      `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle) values ($1, $2, '', 'usuarios', $3, $1, $2, $4::jsonb)`,
+      [actorId, nombre, accion, JSON.stringify(detalle)],
+    );
+  } catch {
+    /* la auditoría nunca bloquea el ingreso */
   }
-  return error instanceof Error ? error.message : "Error de servidor";
 }
 
 async function handleAuth(req, res) {
@@ -346,11 +413,17 @@ async function handleAuth(req, res) {
       return true;
     }
     if (action === "signin") {
-      rateLimit(`signin:${clientIp(req)}`, 10, 60_000);
-      const username = String(body.username || "").trim().toLowerCase();
-      const password = String(body.password || "");
+      const ip = clientIp(req);
+      rateLimit(`signin:${ip}`, 10, 60_000);
+      rateLimit(`signin-hora:${ip}`, 60, 60 * 60_000);
+      const username = String(body.username || "").trim().toLowerCase().slice(0, 120);
+      const password = String(body.password || "").slice(0, 200);
       if (!username || !password) {
         sendJson(res, 400, { error: "Usuario y contraseña requeridos" });
+        return true;
+      }
+      if (cuentaBloqueada(username)) {
+        sendJson(res, 429, { error: "Demasiados intentos fallidos para este usuario. Esperá 15 minutos o pedí a un administrador que restablezca la contraseña." });
         return true;
       }
       const row = await one(
@@ -359,10 +432,16 @@ async function handleAuth(req, res) {
           where lower(p.username) = $1 or lower(u.email) = $1 limit 1`,
         [username],
       );
-      if (!row || !(await verifyPassword(password, row.password_hash))) {
+      // Se verifica siempre (aunque el usuario no exista) para no revelar qué usuarios existen.
+      const valida = await verifyPassword(password, row?.password_hash || HASH_SEÑUELO);
+      if (!row || !valida) {
+        registrarFallo(username);
+        await auditarAcceso(row?.id ?? null, row?.full_name || username, "login_fallido", { usuario: username, ip });
         sendJson(res, 401, { error: "Usuario o contraseña incorrectos" });
         return true;
       }
+      fallosLogin.delete(username);
+      await auditarAcceso(row.id, row.full_name, "login", { ip });
       const token = await createSession(row.id);
       sendJson(res, 200, { session: await getSession(token) });
       return true;
@@ -373,7 +452,7 @@ async function handleAuth(req, res) {
       const username = String(body.username || "").trim().toLowerCase();
       const email = String(body.email || "").trim().toLowerCase();
       const password = String(body.password || "");
-      if (fullName.length < 2) {
+      if (fullName.length < 2 || fullName.length > 120) {
         sendJson(res, 400, { error: "Ingresá tu nombre y apellido" });
         return true;
       }
@@ -385,29 +464,42 @@ async function handleAuth(req, res) {
         sendJson(res, 400, { error: "Correo inválido" });
         return true;
       }
-      if (password.length < 8) {
-        sendJson(res, 400, { error: "La contraseña debe tener al menos 8 caracteres" });
-        return true;
-      }
-      const userCount = await one(`select count(*)::text as count from app_users`);
-      const count = Number(userCount?.count || 0);
-      if (count > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") {
-        sendJson(res, 403, { error: "El registro público está deshabilitado. Un administrador debe crear el usuario." });
-        return true;
-      }
-      const exists = await one(
-        `select id from app_users where email = $1 union select id from profiles where username = $2`,
-        [email, username],
-      );
-      if (exists) {
-        sendJson(res, 409, { error: "Ese usuario o correo ya está registrado" });
+      const errorClave = validarClave(password, username);
+      if (errorClave) {
+        sendJson(res, 400, { error: errorClave });
         return true;
       }
       const passwordHash = await hashPassword(password);
-      const created = await query(`insert into app_users (email, password_hash) values ($1, $2) returning id`, [email, passwordHash]);
-      const userId = created.rows[0].id;
-      await query(`insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`, [userId, fullName, email, username]);
-      await query(`insert into user_roles (user_id, role) values ($1, $2)`, [userId, count === 0 ? "administrador" : "consulta"]);
+      // Todo en una transacción con bloqueo: dos altas simultáneas no pueden ser ambas "primer administrador".
+      const client = await pool.connect();
+      let userId;
+      try {
+        await client.query("begin");
+        await client.query("select pg_advisory_xact_lock(724100)");
+        const count = Number((await client.query(`select count(*)::int as n from app_users`)).rows[0]?.n || 0);
+        if (count > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") {
+          await client.query("rollback");
+          sendJson(res, 403, { error: "El registro público está deshabilitado. Un administrador debe crear el usuario." });
+          return true;
+        }
+        const exists = (await client.query(`select 1 from app_users where email = $1 union select 1 from profiles where username = $2`, [email, username])).rowCount;
+        if (exists) {
+          await client.query("rollback");
+          sendJson(res, 409, { error: "Ese usuario o correo ya está registrado" });
+          return true;
+        }
+        userId = (await client.query(`insert into app_users (email, password_hash) values ($1, $2) returning id`, [email, passwordHash])).rows[0].id;
+        await client.query(`insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`, [userId, fullName, email, username]);
+        await client.query(`insert into user_roles (user_id, role) values ($1, $2)`, [userId, count === 0 ? "administrador" : "consulta"]);
+        await client.query("commit");
+        authFlagsCache = { value: null, expires: 0 };
+      } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      await auditarAcceso(userId, fullName, "crear", { alta: "registro", ip: clientIp(req) });
       const token = await createSession(userId);
       sendJson(res, 200, { session: await getSession(token) });
       return true;
@@ -485,14 +577,14 @@ async function handleSystem(req, res) {
       commitDate,
       buildTime,
       environment: process.env.NODE_ENV || "production",
-      httpsEnabled: req.headers["x-forwarded-proto"] === "https",
+      httpsEnabled: esHttps(req),
       ultimaRevision: settings?.ultima_revision ?? null,
       ultimaActualizacion: commitDate ?? process.env.APP_UPDATED_AT ?? buildTime,
       ultimaActualizacionFuente: commitDate ? "commit" : process.env.APP_UPDATED_AT ? "variable" : "build",
     });
     return true;
   } catch (error) {
-    sendJson(res, error.statusCode || 500, { error: error instanceof Error ? error.message : "Error de servidor" });
+    sendJson(res, error.statusCode || 500, { error: await mapDbError(error) });
     return true;
   }
 }
@@ -629,7 +721,8 @@ async function handleUpdates(req, res) {
     return true;
   } catch (error) {
     console.error(error);
-    sendJson(res, error.statusCode || 500, { error: error instanceof Error ? error.message : "Error de servidor" });
+    if (!error.statusCode) console.error(error);
+    sendJson(res, error.statusCode || 500, { error: await mapDbError(error) });
     return true;
   }
 }
@@ -637,8 +730,13 @@ async function handleUpdates(req, res) {
 async function handleInstructivoPdf(req, res) {
   if (req.method !== "GET" || !req.url?.startsWith("/api/instructivos/pdf/")) return false;
   try {
-    await requireRequestSession(req);
+    const session = await requireRequestSession(req);
+    if (!(await puedeEnModulo(session, "instructivos"))) throw prohibido();
     const id = decodeURIComponent(req.url.replace("/api/instructivos/pdf/", "").split("?")[0]);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      sendJson(res, 400, { error: "Adjunto inválido" });
+      return true;
+    }
     if (!id) {
       sendJson(res, 400, { error: "Falta el id del adjunto" });
       return true;
@@ -658,11 +756,13 @@ async function handleInstructivoPdf(req, res) {
     res.setHeader("content-type", "application/pdf");
     res.setHeader("content-disposition", `inline; filename="${safeDownloadName(row.file_name || "instructivo.pdf")}"`);
     res.setHeader("cache-control", "private, no-store");
+    // El archivo se muestra aislado: aunque traiga código, no puede tocar la sesión del sistema.
+    res.setHeader("content-security-policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; object-src 'self'");
     createReadStream(file.filePath).pipe(res);
     return true;
   } catch (error) {
-    console.error(error);
-    sendJson(res, error.statusCode || 500, { error: error instanceof Error ? error.message : "Error de servidor" });
+    if (!error.statusCode) console.error(error);
+    sendJson(res, error.statusCode || 500, { error: await mapDbError(error) });
     return true;
   }
 }
@@ -671,10 +771,15 @@ async function handleInstructivoPdf(req, res) {
 async function handleAdjunto(req, res) {
   if (req.method !== "GET" || !req.url?.startsWith("/api/adjuntos/")) return false;
   try {
-    await requireRequestSession(req);
+    const session = await requireRequestSession(req);
     const url = new URL(req.url, "http://localhost");
     const id = decodeURIComponent(url.pathname.replace("/api/adjuntos/", ""));
-    const row = await one(`select id, file_name, file_path, mime from adjuntos where id = $1`, [id]);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      sendJson(res, 400, { error: "Adjunto inválido" });
+      return true;
+    }
+    const row = await one(`select id, entidad, file_name, file_path, mime from adjuntos where id = $1`, [id]);
+    if (row && !(await puedeEnModulo(session, row.entidad === "ticket" ? "tareas" : "inventario"))) throw prohibido();
     if (!row) {
       sendJson(res, 404, { error: "Adjunto inexistente" });
       return true;
@@ -684,10 +789,14 @@ async function handleAdjunto(req, res) {
       sendJson(res, 404, { error: "Archivo no encontrado en almacenamiento" });
       return true;
     }
-    const mime = String(row.mime || "application/octet-stream");
-    const inline = /^(image\/|application\/pdf|text\/plain)/.test(mime) && url.searchParams.get("descargar") !== "1";
+    // Solo se muestran en el navegador tipos que no ejecutan código; todo lo demás se descarga como binario.
+    const declarado = String(row.mime || "").toLowerCase();
+    const seguro = /^(image\/(png|jpe?g|gif|webp|bmp)|application\/pdf|text\/plain)$/.test(declarado);
+    const mime = seguro ? declarado : "application/octet-stream";
+    const inline = seguro && url.searchParams.get("descargar") !== "1";
     res.statusCode = 200;
     setSecurityHeaders(req, res);
+    res.setHeader("content-security-policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; object-src 'self'");
     res.setHeader("content-type", mime);
     res.setHeader("content-length", String(file.stat.size));
     res.setHeader("content-disposition", `${inline ? "inline" : "attachment"}; filename="${safeDownloadName(row.file_name)}"`);
@@ -696,7 +805,8 @@ async function handleAdjunto(req, res) {
     createReadStream(file.filePath).pipe(res);
     return true;
   } catch (error) {
-    sendJson(res, error.statusCode || 500, { error: error instanceof Error ? error.message : "Error de servidor" });
+    if (!error.statusCode) console.error(error);
+    sendJson(res, error.statusCode || 500, { error: await mapDbError(error) });
     return true;
   }
 }
@@ -861,6 +971,15 @@ const server = createServer(async (req, res) => {
     sendHtml(res, 500, loadStatusHtml("error"));
   }
 });
+
+{
+  const avisos = [];
+  const clave = String(process.env.SECRETS_ENCRYPTION_KEY || "").trim();
+  if (clave.length < 32) avisos.push("SECRETS_ENCRYPTION_KEY falta o es corta (mínimo 32 caracteres): openssl rand -base64 48");
+  if (process.env.ALLOW_PUBLIC_SIGNUP === "true") avisos.push("ALLOW_PUBLIC_SIGNUP=true: cualquiera con acceso a la red puede crearse una cuenta");
+  if (process.env.TRUST_PROXY === "true") avisos.push("TRUST_PROXY=true: se confía en X-Forwarded-For de cualquier origen; usalo solo detrás de un proxy");
+  for (const a of avisos) console.warn(`[seguridad] ${a}`);
+}
 
 server.listen(port, host, () => {
   console.log(`Nodara listening on http://${host}:${port}`);

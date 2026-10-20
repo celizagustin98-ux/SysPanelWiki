@@ -1,4 +1,5 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mensajeErrorBase } from "./seguridad";
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -35,7 +36,15 @@ export function requireDatabaseUrl() {
 
 export async function query<T = any>(text: string, values: unknown[] = []) {
   requireDatabaseUrl();
-  return pool.query<T>(text, values);
+  try {
+    return await pool.query<T>(text, values);
+  } catch (error) {
+    // El detalle (tablas, columnas, restricciones) queda en el log del servidor, no llega al navegador.
+    const amigable = mensajeErrorBase(error);
+    if (!amigable) throw error;
+    console.error("[db]", (error as Error).message);
+    throw new Error(amigable);
+  }
 }
 
 export async function one<T = any>(text: string, values: unknown[] = []) {

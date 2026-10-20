@@ -20,11 +20,13 @@ import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppGuardiasRouteImport } from './routes/_app.guardias'
 import { Route as AppInstructivosRouteImport } from './routes/_app.instructivos'
 import { Route as AppInventarioRouteImport } from './routes/_app.inventario'
+import { Route as AppInventarioAuditoriaRouteImport } from './routes/_app.inventario-auditoria'
 import { Route as AppOficinaRouteImport } from './routes/_app.oficina'
 import { Route as AppRolesRouteImport } from './routes/_app.roles'
 import { Route as AppTareasRouteImport } from './routes/_app.tareas'
 import { Route as AppTonersRouteImport } from './routes/_app.toners'
 import { Route as AppUsuariosRouteImport } from './routes/_app.usuarios'
+import { Route as QCodigoRouteImport } from './routes/q.$codigo'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -80,6 +82,11 @@ const AppInventarioRoute = AppInventarioRouteImport.update({
   path: '/inventario',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInventarioAuditoriaRoute = AppInventarioAuditoriaRouteImport.update({
+  id: '/inventario-auditoria',
+  path: '/inventario-auditoria',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppOficinaRoute = AppOficinaRouteImport.update({
   id: '/oficina',
   path: '/oficina',
@@ -105,6 +112,11 @@ const AppUsuariosRoute = AppUsuariosRouteImport.update({
   path: '/usuarios',
   getParentRoute: () => AppRoute,
 } as any)
+const QCodigoRoute = QCodigoRouteImport.update({
+  id: '/q/$codigo',
+  path: '/q/$codigo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -117,11 +129,13 @@ export interface FileRoutesByFullPath {
   '/guardias': typeof AppGuardiasRoute
   '/instructivos': typeof AppInstructivosRoute
   '/inventario': typeof AppInventarioRoute
+  '/inventario-auditoria': typeof AppInventarioAuditoriaRoute
   '/oficina': typeof AppOficinaRoute
   '/roles': typeof AppRolesRoute
   '/tareas': typeof AppTareasRoute
   '/toners': typeof AppTonersRoute
   '/usuarios': typeof AppUsuariosRoute
+  '/q/$codigo': typeof QCodigoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -134,11 +148,13 @@ export interface FileRoutesByTo {
   '/guardias': typeof AppGuardiasRoute
   '/instructivos': typeof AppInstructivosRoute
   '/inventario': typeof AppInventarioRoute
+  '/inventario-auditoria': typeof AppInventarioAuditoriaRoute
   '/oficina': typeof AppOficinaRoute
   '/roles': typeof AppRolesRoute
   '/tareas': typeof AppTareasRoute
   '/toners': typeof AppTonersRoute
   '/usuarios': typeof AppUsuariosRoute
+  '/q/$codigo': typeof QCodigoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -153,11 +169,13 @@ export interface FileRoutesById {
   '/_app/guardias': typeof AppGuardiasRoute
   '/_app/instructivos': typeof AppInstructivosRoute
   '/_app/inventario': typeof AppInventarioRoute
+  '/_app/inventario-auditoria': typeof AppInventarioAuditoriaRoute
   '/_app/oficina': typeof AppOficinaRoute
   '/_app/roles': typeof AppRolesRoute
   '/_app/tareas': typeof AppTareasRoute
   '/_app/toners': typeof AppTonersRoute
   '/_app/usuarios': typeof AppUsuariosRoute
+  '/q/$codigo': typeof QCodigoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -172,11 +190,13 @@ export interface FileRouteTypes {
     | '/guardias'
     | '/instructivos'
     | '/inventario'
+    | '/inventario-auditoria'
     | '/oficina'
     | '/roles'
     | '/tareas'
     | '/toners'
     | '/usuarios'
+    | '/q/$codigo'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -189,11 +209,13 @@ export interface FileRouteTypes {
     | '/guardias'
     | '/instructivos'
     | '/inventario'
+    | '/inventario-auditoria'
     | '/oficina'
     | '/roles'
     | '/tareas'
     | '/toners'
     | '/usuarios'
+    | '/q/$codigo'
   id:
     | '__root__'
     | '/'
@@ -207,11 +229,13 @@ export interface FileRouteTypes {
     | '/_app/guardias'
     | '/_app/instructivos'
     | '/_app/inventario'
+    | '/_app/inventario-auditoria'
     | '/_app/oficina'
     | '/_app/roles'
     | '/_app/tareas'
     | '/_app/toners'
     | '/_app/usuarios'
+    | '/q/$codigo'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -219,6 +243,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  QCodigoRoute: typeof QCodigoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -300,6 +325,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventarioRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inventario-auditoria': {
+      id: '/_app/inventario-auditoria'
+      path: '/inventario-auditoria'
+      fullPath: '/inventario-auditoria'
+      preLoaderRoute: typeof AppInventarioAuditoriaRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/oficina': {
       id: '/_app/oficina'
       path: '/oficina'
@@ -335,6 +367,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUsuariosRouteImport
       parentRoute: typeof AppRoute
     }
+    '/q/$codigo': {
+      id: '/q/$codigo'
+      path: '/q/$codigo'
+      fullPath: '/q/$codigo'
+      preLoaderRoute: typeof QCodigoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -346,6 +385,7 @@ interface AppRouteChildren {
   AppGuardiasRoute: typeof AppGuardiasRoute
   AppInstructivosRoute: typeof AppInstructivosRoute
   AppInventarioRoute: typeof AppInventarioRoute
+  AppInventarioAuditoriaRoute: typeof AppInventarioAuditoriaRoute
   AppOficinaRoute: typeof AppOficinaRoute
   AppRolesRoute: typeof AppRolesRoute
   AppTareasRoute: typeof AppTareasRoute
@@ -361,6 +401,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppGuardiasRoute: AppGuardiasRoute,
   AppInstructivosRoute: AppInstructivosRoute,
   AppInventarioRoute: AppInventarioRoute,
+  AppInventarioAuditoriaRoute: AppInventarioAuditoriaRoute,
   AppOficinaRoute: AppOficinaRoute,
   AppRolesRoute: AppRolesRoute,
   AppTareasRoute: AppTareasRoute,
@@ -375,6 +416,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  QCodigoRoute: QCodigoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
