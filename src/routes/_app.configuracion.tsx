@@ -35,6 +35,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BrandMark } from "@/components/brand/BrandMark";
+import { FeriadosConfig } from "@/components/configuracion/FeriadosConfig";
+import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
+import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
 import { api } from "@/lib/api/client";
 import { useAuth, type AppRole, type PermRow } from "@/lib/auth";
 import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/backend/api/usuarios.functions";
@@ -42,7 +46,7 @@ import { actualizarUsuario, crearUsuario, eliminarUsuario } from "@/backend/api/
 export const Route = createFileRoute("/_app/configuracion")({
   head: () => ({
     meta: [
-      { title: "Configuración · SysIntranet" },
+      { title: "Configuración · Nodara" },
       {
         name: "description",
         content: "Usuarios, roles, permisos, estado del sistema y auditoría.",
@@ -55,9 +59,9 @@ export const Route = createFileRoute("/_app/configuracion")({
 const MODULOS: { key: string; label: string }[] = [
   { key: "instructivos", label: "Instructivos" },
   { key: "guardias", label: "Guardias" },
-  { key: "inventario", label: "Inventario" },
+  { key: "inventario", label: "Activos IT" },
   { key: "toners", label: "Tóners" },
-  { key: "tareas", label: "Tareas" },
+  { key: "tareas", label: "Tickets" },
   { key: "credenciales", label: "Credenciales" },
   { key: "oficina", label: "Oficina" },
   { key: "usuarios", label: "Usuarios" },
@@ -409,7 +413,7 @@ function ConfiguracionPage() {
     <div className="space-y-6">
       <PageHeader
         title="Configuración"
-        description="Quién entra, qué puede hacer y actividad del sistema."
+        description="Usuarios, permisos, feriados, reportes y estado del sistema."
       />
 
       <Tabs
@@ -423,15 +427,19 @@ function ConfiguracionPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
           <TabsTrigger value="roles">Roles y permisos</TabsTrigger>
+          <TabsTrigger value="feriados">Feriados</TabsTrigger>
+          <TabsTrigger value="reportes">Reportes</TabsTrigger>
           <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
           <Card className="panel">
             <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+              <div className="flex items-center gap-4">
+                <BrandMark className="size-12" />
+                <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Sistema
+                  {APP_NAME} · {APP_TAGLINE}
                 </p>
                 <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">
                   {systemInfo?.displayVersion ?? formatVersion(installedVersion)}
@@ -440,8 +448,9 @@ function ConfiguracionPage() {
                   {systemInfo?.commit ? `Commit ${systemInfo.commit}` : "Sin commit"}
                   {" · "}
                   Entorno {systemInfo?.environment ?? "production"}
-                  {systemInfo?.httpsEnabled ? " · HTTPS" : ""}
+                  {systemInfo?.httpsEnabled ? " · HTTPS" : " · sin HTTPS"}
                 </p>
+                </div>
               </div>
               <div className="text-sm sm:text-right">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -594,11 +603,14 @@ function ConfiguracionPage() {
             </div>
           </div>
 
-          {rolActivo === "administrador" && (
-            <p className="text-xs text-muted-foreground">
-              El administrador siempre tiene acceso total; la matriz es solo referencia.
+          <div className="flex items-start gap-3 rounded-xl border border-info/30 bg-info/8 px-4 py-3 text-[13px]">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-info" />
+            <p>
+              <span className="font-medium">Estos permisos los aplica el servidor</span>: un rol sin "Ver" no puede consultar
+              los datos del módulo aunque conozca la dirección, y sin "Crear/Editar/Eliminar" no puede modificarlos.
+              {rolActivo === "administrador" && " El administrador siempre tiene acceso total."}
             </p>
-          )}
+          </div>
 
           <Card className="panel overflow-hidden">
             <CardHeader className="border-b border-border/70 pb-3">
@@ -646,6 +658,14 @@ function ConfiguracionPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="feriados">
+          <FeriadosConfig canEdit={isAdmin} />
+        </TabsContent>
+
+        <TabsContent value="reportes">
+          <ReporteMensual />
         </TabsContent>
 
         <TabsContent value="actividad" className="space-y-4">

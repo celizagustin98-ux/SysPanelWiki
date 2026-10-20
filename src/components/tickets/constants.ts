@@ -19,6 +19,7 @@ export type Ticket = {
   vence_el: string | null;
   resuelto_en: string | null;
   cerrado_en: string | null;
+  activo_id?: string | null;
   created_at?: string;
   updated_at?: string;
 };

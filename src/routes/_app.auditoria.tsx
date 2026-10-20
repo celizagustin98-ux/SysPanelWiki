@@ -31,13 +31,13 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/_app/auditoria")({
   head: () => ({
     meta: [
-      { title: "Auditoría · SysIntranet" },
+      { title: "Auditoría · Nodara" },
       {
         name: "description",
         content:
           "Registro de acciones críticas: quién editó instructivos, borró inventario o cambió roles, y cuándo. Filtrable por usuario y fecha.",
       },
-      { property: "og:title", content: "Auditoría | SysIntranet | Área Wiki" },
+      { property: "og:title", content: "Auditoría | Nodara" },
       {
         property: "og:description",
         content: "Trazabilidad de las acciones críticas del panel.",

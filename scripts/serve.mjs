@@ -300,14 +300,14 @@ function loadStatusHtml(kind) {
       }
     }
   }
-  const message = process.env.MAINTENANCE_MESSAGE || "Estamos actualizando SysIntranet. El servicio vuelve en breve.";
+  const message = process.env.MAINTENANCE_MESSAGE || "Estamos actualizando Nodara. El servicio vuelve en breve.";
   const safe = String(message).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   if (kind === "maintenance") {
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Mantenimiento · SysIntranet</title>
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Mantenimiento · Nodara</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:15px/1.5 system-ui,sans-serif;background:#0b1220;color:#e8eef7;padding:1.5rem}.c{max-width:28rem;text-align:center;padding:2rem;border:1px solid rgba(148,163,184,.2);border-radius:1rem;background:#121a2b}h1{font-size:1.25rem;margin:0 0 .5rem}p{color:#94a3b8;margin:0 0 1rem}button{background:#14b8a6;color:#042f2e;border:0;border-radius:.6rem;padding:.55rem 1rem;font-weight:600;cursor:pointer}</style></head>
 <body><div class="c"><h1>Mantenimiento en curso</h1><p>${safe}</p><button onclick="location.reload()">Reintentar</button></div></body></html>`;
   }
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Error · SysIntranet</title></head>
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Error · Nodara</title></head>
 <body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;background:#0b1220;color:#e8eef7;margin:0">
 <div style="text-align:center;max-width:24rem;padding:1.5rem"><h1 style="font-size:1.25rem">El panel no cargó</h1>
 <p style="color:#94a3b8">Ocurrió un error en el servidor.</p>
@@ -558,7 +558,7 @@ function startBackgroundUpdate({ branch, version, env }) {
 set -euo pipefail
 cd ${shellQuote(process.cwd())}
 {
-  echo "== SysIntranet update $(date -Is) =="
+  echo "== Nodara update $(date -Is) =="
   if ! git fetch origin ${shellQuote(branch)}; then
     unset GITHUB_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
     git fetch origin ${shellQuote(branch)}
@@ -666,6 +666,40 @@ async function handleInstructivoPdf(req, res) {
   }
 }
 
+// Adjuntos de activos y tickets (facturas, fotos, garantías…). Solo usuarios con sesión.
+async function handleAdjunto(req, res) {
+  if (req.method !== "GET" || !req.url?.startsWith("/api/adjuntos/")) return false;
+  try {
+    await requireRequestSession(req);
+    const url = new URL(req.url, "http://localhost");
+    const id = decodeURIComponent(url.pathname.replace("/api/adjuntos/", ""));
+    const row = await one(`select id, file_name, file_path, mime from adjuntos where id = $1`, [id]);
+    if (!row) {
+      sendJson(res, 404, { error: "Adjunto inexistente" });
+      return true;
+    }
+    const file = storageFilePath("adjuntos", row.file_path);
+    if (!file) {
+      sendJson(res, 404, { error: "Archivo no encontrado en almacenamiento" });
+      return true;
+    }
+    const mime = String(row.mime || "application/octet-stream");
+    const inline = /^(image\/|application\/pdf|text\/plain)/.test(mime) && url.searchParams.get("descargar") !== "1";
+    res.statusCode = 200;
+    setSecurityHeaders(req, res);
+    res.setHeader("content-type", mime);
+    res.setHeader("content-length", String(file.stat.size));
+    res.setHeader("content-disposition", `${inline ? "inline" : "attachment"}; filename="${safeDownloadName(row.file_name)}"`);
+    res.setHeader("cache-control", "private, no-store");
+    res.setHeader("x-content-type-options", "nosniff");
+    createReadStream(file.filePath).pipe(res);
+    return true;
+  } catch (error) {
+    sendJson(res, error.statusCode || 500, { error: error instanceof Error ? error.message : "Error de servidor" });
+    return true;
+  }
+}
+
 const server = createServer(async (req, res) => {
   try {
     if (maintenanceEnabled() && !String(req.url || "").startsWith("/api/system/health")) {
@@ -673,6 +707,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (await handleAuth(req, res)) return;
+    if (await handleAdjunto(req, res)) return;
     if (await handleSystem(req, res)) return;
     if (await handleUpdates(req, res)) return;
     if (await handleInstructivoPdf(req, res)) return;
@@ -703,7 +738,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`SysIntranet listening on http://${host}:${port}`);
+  console.log(`Nodara listening on http://${host}:${port}`);
   if (maintenanceEnabled()) {
     console.warn("MAINTENANCE_MODE activo — sirviendo página de mantenimiento");
   }

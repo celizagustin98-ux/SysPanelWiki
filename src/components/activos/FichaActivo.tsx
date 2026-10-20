@@ -29,6 +29,8 @@ import {
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "@tanstack/react-router";
+import { Adjuntos } from "@/components/Adjuntos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -152,6 +154,15 @@ export function FichaActivo({
     },
   });
 
+  const tickets = useQuery({
+    queryKey: ["activo-tickets", item.id],
+    queryFn: async () => {
+      const { data, error } = await api.from("tareas").select("id, numero, titulo, estado, prioridad, created_at").eq("activo_id", item.id).order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as { id: string; numero: number; titulo: string; estado: string; prioridad: string; created_at: string }[];
+    },
+  });
+
   const refrescar = () => {
     onChanged();
     void qc.invalidateQueries({ queryKey: ["inventario-controles", item.id] });
@@ -237,13 +248,17 @@ export function FichaActivo({
       )}
 
       <Tabs defaultValue="resumen" className="flex-1 p-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-6 [&>button]:px-1 [&>button]:text-[12px]">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="historial">Historial</TabsTrigger>
+          <TabsTrigger value="tickets">
+            Tickets{(tickets.data?.length ?? 0) > 0 && <span className="num ml-1 text-[10px] opacity-70">{tickets.data?.length}</span>}
+          </TabsTrigger>
           <TabsTrigger value="reparaciones">
             Reparac.{(reparaciones.data?.length ?? 0) > 0 && <span className="num ml-1 text-[10px] opacity-70">{reparaciones.data?.length}</span>}
           </TabsTrigger>
           <TabsTrigger value="asignaciones">Asignac.</TabsTrigger>
+          <TabsTrigger value="archivos">Archivos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="resumen" className="space-y-4 pt-2">
@@ -316,6 +331,38 @@ export function FichaActivo({
           {(reparaciones.data ?? []).map((r) => (
             <ReparacionCard key={r.id} r={r} item={item} canEdit={canEdit} onDone={refrescar} />
           ))}
+        </TabsContent>
+
+        <TabsContent value="tickets" className="space-y-2 pt-2">
+          {(tickets.data ?? []).length === 0 ? (
+            <Vacio texto="Sin tickets vinculados a este equipo. Al crear un ticket elegí el equipo o escaneá su QR." />
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {tickets.data?.length} ticket(s) · {(tickets.data ?? []).filter((t) => !["resuelto", "cerrado", "cancelado"].includes(t.estado)).length} abiertos
+              </p>
+              {(tickets.data ?? []).map((t) => (
+                <Link
+                  key={t.id}
+                  to="/tareas"
+                  search={{ ticket: t.id }}
+                  className="flex items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-accent/40"
+                >
+                  <span className="led" data-tone={["resuelto", "cerrado"].includes(t.estado) ? "ok" : t.estado === "cancelado" ? undefined : "warn"} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium">{t.titulo}</span>
+                    <span className="num block text-[11px] text-muted-foreground">
+                      TK-{t.numero} · {new Date(t.created_at).toLocaleDateString("es-AR")} · {t.estado.replace("_", " ")}
+                    </span>
+                  </span>
+                </Link>
+              ))}
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="archivos" className="pt-2">
+          <Adjuntos entidad="activo" entidadId={item.id} canEdit={canEdit} />
         </TabsContent>
 
         <TabsContent value="asignaciones" className="space-y-2 pt-2">

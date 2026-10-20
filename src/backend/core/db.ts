@@ -10,7 +10,7 @@ const { Pool, types } = pg;
 types.setTypeParser(1082, (value: string) => value);
 const scrypt = promisify(scryptCb);
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
   max: Number(process.env.PG_POOL_MAX || 10),

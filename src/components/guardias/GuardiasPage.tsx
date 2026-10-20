@@ -60,6 +60,7 @@ import {
   ymd,
 } from "@/components/guardias/domain";
 import { OperariosDialog } from "@/components/guardias/dialogs";
+import { useFeriados } from "@/lib/feriados";
 
 function asText(v: unknown, fallback = "") {
   if (v == null) return fallback;
@@ -80,13 +81,14 @@ export function GuardiasPage() {
   const { canWrite } = useAuth();
   const qc = useQueryClient();
   const [period, setPeriod] = useState(() => getPeriodContaining(new Date()));
+  const { data: feriadosDb } = useFeriados();
   const [cellDialog, setCellDialog] = useState<null | { op: Operario; day: Date }>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfTitulo, setPdfTitulo] = useState("Liquidación de guardias");
   const [pdfNotas, setPdfNotas] = useState(
     "Feriado = sábado, domingo o feriado nacional. Cada noche cuenta 20:00–08:00. Las vacaciones (V) no suman.",
   );
-  const [pdfPie, setPdfPie] = useState("SysPanelWiki · Documento de liquidación interna");
+  const [pdfPie, setPdfPie] = useState("Nodara · Documento de liquidación interna");
   const [busy, setBusy] = useState(false);
 
   const days = useMemo(
@@ -226,7 +228,7 @@ export function GuardiasPage() {
       }
       return { ...op, normales, feriados, total: normales + feriados };
     });
-  }, [days, assignmentByDay, operarios]);
+  }, [days, assignmentByDay, operarios, feriadosDb]);
 
   const vacacionesResumen = useMemo(() => {
     return operarios

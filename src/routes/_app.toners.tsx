@@ -60,7 +60,7 @@ export const Route = createFileRoute("/_app/toners")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Tóners · SysIntranet" },
+      { title: "Tóners · Nodara" },
       { name: "description", content: "Inventario en tiempo real: ingreso, uso y pedidos al proveedor." },
     ],
   }),

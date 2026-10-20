@@ -12,6 +12,7 @@ import {
   invalidateAuthCache,
   invalidatePermissionCache,
   one,
+  pool,
   query,
   readFileAsDataUrl,
   removeFile,
@@ -44,7 +45,11 @@ type MutateInput = {
 };
 
 const TABLES = new Set([
+  "adjuntos",
   "app_settings",
+  "feriados",
+  "insumos_items",
+  "insumos_pedidos",
   "audit_log",
   "credenciales",
   "guardia_operarios",
@@ -72,30 +77,13 @@ const TABLES = new Set([
   "wiki_folders",
 ]);
 
-const WRITABLE_BY_TECH = new Set([
-  "guardia_operarios",
-  "guardias",
-  "inventario",
-  "inventario_asignaciones",
-  "inventario_controles",
-  "inventario_reparaciones",
-  "oficina_telefonos",
-  "tarea_comentarios",
-  "tarea_instructivos",
-  "tarea_subtareas",
-  "tareas",
-  "toner_modelos",
-  "toner_movimientos",
-  "toner_pedido_items",
-  "toner_pedidos",
-  "toner_unidades",
-  "wiki_attachments",
-  "wiki_docs",
-  "wiki_folders",
-]);
 
 const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   app_settings: { modulo: "configuracion", fields: ["version_actual"] },
+  adjuntos: { modulo: "adjuntos", fields: ["file_name", "entidad"] },
+  feriados: { modulo: "configuracion", fields: ["fecha", "nombre"] },
+  insumos_items: { modulo: "oficina", fields: ["descripcion", "cantidad"] },
+  insumos_pedidos: { modulo: "oficina", fields: ["numero", "estado", "total_estimado"] },
   credenciales: { modulo: "credenciales", fields: ["servicio", "usuario", "ip", "url"] },
   guardia_operarios: { modulo: "guardias", fields: ["nombre", "code"] },
   guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
@@ -225,23 +213,68 @@ async function assignTicketNumero(row: Record<string, unknown>) {
   return next;
 }
 
-async function assertWriteAccess(userId: string, table: string) {
-  if (["app_settings", "role_permissions", "user_roles", "profiles"].includes(table)) {
-    await assertAdmin(userId);
-    return;
+/** Módulo de la matriz de permisos al que pertenece cada tabla. */
+const MODULO_DE_TABLA: Record<string, string> = {
+  wiki_folders: "instructivos",
+  wiki_docs: "instructivos",
+  wiki_attachments: "instructivos",
+  wiki_doc_revisions: "instructivos",
+  guardias: "guardias",
+  guardia_operarios: "guardias",
+  inventario: "inventario",
+  inventario_controles: "inventario",
+  inventario_reparaciones: "inventario",
+  inventario_asignaciones: "inventario",
+  toner_modelos: "toners",
+  toner_unidades: "toners",
+  toner_movimientos: "toners",
+  toner_pedidos: "toners",
+  toner_pedido_items: "toners",
+  tareas: "tareas",
+  tarea_subtareas: "tareas",
+  tarea_comentarios: "tareas",
+  tarea_instructivos: "tareas",
+  credenciales: "credenciales",
+  oficina_telefonos: "oficina",
+  insumos_items: "oficina",
+  insumos_pedidos: "oficina",
+};
+
+const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
+const NOMBRE_ACCION = { ver: "ver", crear: "crear", editar: "editar", eliminar: "eliminar" } as const;
+
+/** Módulo de un adjunto según su entidad (activo → Activos IT, ticket → Tickets). */
+async function moduloAdjunto(filters: Filter[] | undefined, values?: Record<string, unknown> | Record<string, unknown>[]) {
+  const desdeValores = Array.isArray(values) ? values[0]?.entidad : values?.entidad;
+  let entidad = desdeValores ?? filterValue(filters, "entidad");
+  if (!entidad) {
+    const id = filterValue(filters, "id");
+    if (id) entidad = (await one<{ entidad: string }>(`select entidad from adjuntos where id = $1`, [id]))?.entidad;
   }
-  if (table === "credenciales") {
-    await assertCanWrite(userId);
+  return entidad === "ticket" ? "tareas" : "inventario";
+}
+
+/** Aplica la matriz de permisos del rol (Configuración → Roles y permisos). */
+async function assertModulo(userId: string, table: string, accion: keyof typeof ACCION_PERMISO, filters?: Filter[], values?: MutateInput["values"]) {
+  const modulo = table === "adjuntos" ? await moduloAdjunto(filters, values) : MODULO_DE_TABLA[table];
+  if (!modulo) return false;
+  const permiso = ACCION_PERMISO[accion];
+  if (!(await hasModulePermission(userId, modulo, permiso))) {
+    throw new Error(`Tu rol no tiene permiso para ${NOMBRE_ACCION[permiso]} en ${modulo === "tareas" ? "Tickets" : modulo === "inventario" ? "Activos IT" : modulo}`);
+  }
+  return true;
+}
+
+async function assertWriteAccess(userId: string, table: string, accion: "insert" | "update" | "delete" = "update", filters?: Filter[], values?: MutateInput["values"]) {
+  if (["app_settings", "role_permissions", "user_roles", "profiles", "feriados"].includes(table)) {
+    await assertAdmin(userId);
     return;
   }
   if (table === "wiki_doc_revisions") {
     await assertAdmin(userId);
     return;
   }
-  if (WRITABLE_BY_TECH.has(table)) {
-    await assertCanWrite(userId);
-    return;
-  }
+  if (await assertModulo(userId, table, accion, filters, values)) return;
   await assertAdmin(userId);
 }
 
@@ -254,11 +287,7 @@ async function assertReadAccess(userId: string, table: string, filters: Filter[]
     await assertAdmin(userId);
     return;
   }
-  if (table === "credenciales") {
-    await assertCanWrite(userId);
-    return;
-  }
-  if (table === "wiki_doc_revisions") return;
+  if (await assertModulo(userId, table, "select", filters)) return;
   if (table === "profiles") {
     const requestedId = filterValue(filters, "id");
     if (requestedId && requestedId !== userId) await assertAdmin(userId);
@@ -315,7 +344,7 @@ export const apiMutate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
     const table = tableName(data.table);
-    await assertWriteAccess(session.user.id, table);
+    await assertWriteAccess(session.user.id, table, data.action, data.filters, data.values);
     if ((data.action === "update" || data.action === "delete") && !data.filters?.length) {
       throw new Error("Operación bloqueada: falta indicar qué registros modificar");
     }
@@ -400,7 +429,7 @@ export const apiRpc = createServerFn({ method: "POST" })
       return { data: result.rows, error: null };
     }
     if (data.name === "revelar_credencial") {
-      await assertCanWrite(session.user.id);
+      if (!(await hasModulePermission(session.user.id, "credenciales", "ver"))) throw new Error("Tu rol no tiene permiso para ver credenciales");
       const id = String(data.args?._id ?? "");
       if (!id) throw new Error("Falta el id de credencial");
       const row = await one<Record<string, unknown>>(`select * from credenciales where id = $1`, [id]);
@@ -409,6 +438,35 @@ export const apiRpc = createServerFn({ method: "POST" })
       try { await query(`update credenciales set last_revealed_at = now() where id = $1`, [id]); } catch { /* optional col */ }
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto }, error: null };
+    }
+    if (data.name === "generar_pedido_insumos") {
+      // Pasa la lista actual de insumos a un pedido numerado, en una sola transacción.
+      if (!(await hasModulePermission(session.user.id, "oficina", "crear"))) throw new Error("Tu rol no tiene permiso para generar pedidos");
+      const ids = Array.isArray(data.args?._ids) ? (data.args?._ids as string[]).map(String) : null;
+      const actor = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [session.user.id]);
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        const items = await client.query<{ id: string; cantidad: string; precio_estimado: string | null }>(
+          `select id, cantidad, precio_estimado from insumos_items where pedido_id is null ${ids?.length ? "and id = any($1::uuid[])" : ""} for update`,
+          ids?.length ? [ids] : [],
+        );
+        if (!items.rows.length) throw new Error("La lista está vacía");
+        const total = items.rows.reduce((s, r) => s + (Number(r.precio_estimado) || 0) * (Number(r.cantidad) || 0), 0);
+        const pedido = await client.query<Record<string, unknown>>(
+          `insert into insumos_pedidos (destinatario, solicitante_nombre, notas, total_estimado, created_by) values ($1, $2, $3, $4, $5) returning *`,
+          [String(data.args?._destinatario ?? "Compras").trim() || "Compras", actor?.full_name ?? "", String(data.args?._notas ?? "").trim() || null, total, session.user.id],
+        );
+        await client.query(`update insumos_items set pedido_id = $1 where id = any($2::uuid[])`, [pedido.rows[0].id, items.rows.map((r) => r.id)]);
+        await client.query("commit");
+        await writeAudit(session.user.id, "insumos_pedidos", "crear", pedido.rows, { items: items.rows.length });
+        return { data: pedido.rows[0], error: null };
+      } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
     }
     if (data.name === "notificaciones") {
       const items = await query(
@@ -463,7 +521,7 @@ export const apiRpc = createServerFn({ method: "POST" })
       return { data: null, error: null };
     }
     if (data.name === "generar_codigos_toner") {
-      await assertCanWrite(session.user.id);
+      if (!(await hasModulePermission(session.user.id, "toners", "crear"))) throw new Error("Tu rol no tiene permiso para generar códigos");
       const cantidad = Math.max(1, Math.min(200, Number(data.args?._cantidad ?? 1)));
       const model = await one<{ id: string; nombre: string; prefijo: string; correlativo: number }>(`update toner_modelos set correlativo = correlativo + $2 where id = $1 returning id, nombre, prefijo, correlativo - $2 as correlativo`, [data.args?._modelo_id, cantidad]);
       if (!model) throw new Error("Modelo inexistente");

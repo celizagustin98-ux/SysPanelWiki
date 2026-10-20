@@ -1,4 +1,4 @@
-# SysIntranet | Área Wiki
+# Nodara — Centro de operaciones IT
 ·
 Wiki operativa con modulos de gestion para sistemas internos. Es una aplicacion propia con backend server-side, autenticacion propia y base PostgreSQL.
 
