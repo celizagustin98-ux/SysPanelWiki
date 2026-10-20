@@ -62,7 +62,7 @@ export const NAV: NavItem[] = [
   { to: "/guardias", label: "Guardias", icon: CalendarClock, modulo: "guardias", adminOnly: false, group: "operacion", hint: "Turnos y cobertura" },
   { to: "/instructivos", label: "Instructivos", icon: BookOpen, modulo: "instructivos", adminOnly: false, group: "operacion", hint: "Procedimientos" },
   { to: "/credenciales", label: "Credenciales", icon: ShieldCheck, modulo: "credenciales", adminOnly: false, group: "operacion", hint: "Accesos cifrados" },
-  { to: "/auditoria", label: "Auditoría", icon: History, modulo: null, adminOnly: true, group: "admin", hint: "Registro de cambios" },
+  { to: "/auditoria", label: "Auditoría", icon: History, modulo: "auditoria", adminOnly: false, group: "admin", hint: "Registro de cambios" },
   { to: "/configuracion", label: "Configuración", icon: Settings2, modulo: null, adminOnly: true, group: "admin", hint: "Usuarios, roles y sistema" },
 ];
 

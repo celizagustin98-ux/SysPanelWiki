@@ -61,6 +61,7 @@ const TABLES = new Set([
   "oficina_telefonos",
   "profiles",
   "role_permissions",
+  "roles",
   "tarea_comentarios",
   "tarea_instructivos",
   "tarea_subtareas",
@@ -94,6 +95,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   oficina_telefonos: { modulo: "oficina", fields: ["sector", "nombre", "interno"] },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
+  roles: { modulo: "roles", fields: ["nombre", "clave"] },
   tareas: { modulo: "tareas", fields: ["numero", "titulo", "estado", "prioridad"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
@@ -266,7 +268,7 @@ async function assertModulo(userId: string, table: string, accion: keyof typeof 
 }
 
 async function assertWriteAccess(userId: string, table: string, accion: "insert" | "update" | "delete" = "update", filters?: Filter[], values?: MutateInput["values"]) {
-  if (["app_settings", "role_permissions", "user_roles", "profiles", "feriados"].includes(table)) {
+  if (["app_settings", "role_permissions", "roles", "user_roles", "profiles", "feriados"].includes(table)) {
     await assertAdmin(userId);
     return;
   }
@@ -283,7 +285,11 @@ function filterValue(filters: Filter[] | undefined, column: string) {
 }
 
 async function assertReadAccess(userId: string, table: string, filters: Filter[] | undefined) {
-  if (["audit_log", "app_settings"].includes(table)) {
+  if (table === "audit_log") {
+    if (!(await hasModulePermission(userId, "auditoria", "ver"))) throw new Error("Tu rol no tiene permiso para ver la auditoría");
+    return;
+  }
+  if (table === "app_settings") {
     await assertAdmin(userId);
     return;
   }
@@ -348,7 +354,7 @@ export const apiMutate = createServerFn({ method: "POST" })
     if ((data.action === "update" || data.action === "delete") && !data.filters?.length) {
       throw new Error("Operación bloqueada: falta indicar qué registros modificar");
     }
-    if (table === "role_permissions") invalidatePermissionCache();
+    if (table === "role_permissions" || table === "roles") invalidatePermissionCache();
     if (table === "user_roles" || table === "profiles") invalidateAuthCache();
     const values: unknown[] = [];
     const where = appendFilters(data.filters, values);
@@ -414,7 +420,7 @@ export const apiMutate = createServerFn({ method: "POST" })
 
 export const apiRpc = createServerFn({ method: "POST" })
   .validator((data: { token?: string | null; name: string; args?: Record<string, any> }) => data)
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<{ data: any; error: null }> => {
     const session = await requireSession(data.token);
     if (data.name === "has_role") {
       const row = await one<{ ok: boolean }>(`select exists(select 1 from user_roles where user_id = $1 and role = $2) as ok`, [data.args?._user_id, data.args?._role]);
@@ -513,12 +519,103 @@ export const apiRpc = createServerFn({ method: "POST" })
     if (data.name === "set_user_role") {
       await assertAdmin(session.user.id);
       if (data.args?._user_id === session.user.id && data.args?._role !== "administrador") throw new Error("No podés quitarte tu propio rol de administrador");
-      if (!["administrador", "tecnico", "consulta"].includes(String(data.args?._role))) throw new Error("Rol inválido");
+      if (!(await one(`select 1 as ok from roles where clave = $1`, [String(data.args?._role)]))) throw new Error("Rol inválido");
       await query(`delete from user_roles where user_id = $1`, [data.args?._user_id]);
       await query(`insert into user_roles (user_id, role) values ($1, $2)`, [data.args?._user_id, data.args?._role]);
       invalidateAuthCache(String(data.args?._user_id));
       await writeAudit(session.user.id, "user_roles", "asignar_rol", [{ id: data.args?._user_id, user_id: data.args?._user_id, role: data.args?._role }], { rol: data.args?._role });
       return { data: null, error: null };
+    }
+    if (data.name === "crear_rol") {
+      await assertAdmin(session.user.id);
+      const nombre = String(data.args?._nombre ?? "").trim().slice(0, 60);
+      if (nombre.length < 2) throw new Error("El rol necesita un nombre");
+      const base = String(data.args?._base ?? "consulta");
+      const clave =
+        nombre
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 40) || "rol";
+      if (await one(`select 1 as ok from roles where clave = $1 or lower(nombre) = lower($2)`, [clave, nombre])) throw new Error("Ya existe un rol con ese nombre");
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        await client.query(`insert into roles (clave, nombre, descripcion, color, sistema, orden) values ($1, $2, $3, $4, false, 50)`, [clave, nombre, String(data.args?._descripcion ?? "").trim() || null, String(data.args?._color ?? "violet")]);
+        await client.query(
+          `insert into role_permissions (role, modulo, can_view, can_create, can_edit, can_delete)
+           select $1, modulo, can_view, can_create, can_edit, can_delete from role_permissions where role = $2
+           on conflict (role, modulo) do nothing`,
+          [clave, base],
+        );
+        await client.query("commit");
+      } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      invalidatePermissionCache();
+      await writeAudit(session.user.id, "roles", "crear", [{ id: clave, nombre, clave }], { base });
+      return { data: { clave }, error: null };
+    }
+    if (data.name === "eliminar_rol") {
+      await assertAdmin(session.user.id);
+      const clave = String(data.args?._clave ?? "");
+      const reasignar = String(data.args?._reasignar ?? "consulta");
+      const rol = await one<{ nombre: string; sistema: boolean }>(`select nombre, sistema from roles where clave = $1`, [clave]);
+      if (!rol) throw new Error("Rol inexistente");
+      if (rol.sistema) throw new Error("Los roles del sistema no se pueden eliminar");
+      if (reasignar === clave || !(await one(`select 1 as ok from roles where clave = $1`, [reasignar]))) throw new Error("Elegí a qué rol pasan sus usuarios");
+      await query(`update user_roles set role = $2 where role = $1`, [clave, reasignar]);
+      await query(`delete from roles where clave = $1`, [clave]);
+      invalidateAuthCache();
+      await writeAudit(session.user.id, "roles", "eliminar", [{ id: clave, nombre: rol.nombre, clave }], { reasignados_a: reasignar });
+      return { data: null, error: null };
+    }
+    if (data.name === "estado_datos") {
+      await assertAdmin(session.user.id);
+      const tablas = await query<{ tabla: string; filas: string; bytes: string }>(
+        `select c.relname as tabla, greatest(coalesce(st.n_live_tup, 0), c.reltuples, 0)::bigint::text as filas, pg_total_relation_size(c.oid)::text as bytes
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+           left join pg_stat_user_tables st on st.relid = c.oid
+          where n.nspname = 'public' and c.relkind = 'r'
+          order by pg_total_relation_size(c.oid) desc`,
+      );
+      const base = await one<{ bytes: string }>(`select pg_database_size(current_database())::text as bytes`);
+      const depurable = await one<{ auditoria: string; notificaciones: string; revisiones: string; sesiones: string }>(
+        `select
+           (select count(*) from audit_log where created_at < now() - interval '12 months')::text as auditoria,
+           (select count(*) from notificaciones where leida)::text as notificaciones,
+           (select count(*) from wiki_doc_revisions r where r.id not in (
+              select id from (select id, row_number() over (partition by doc_id order by created_at desc) n from wiki_doc_revisions) x where n <= 20))::text as revisiones,
+           (select count(*) from app_sessions where expires_at < now())::text as sesiones`,
+      );
+      return {
+        data: {
+          baseBytes: Number(base?.bytes ?? 0),
+          tablas: tablas.rows.map((t) => ({ tabla: t.tabla, filas: Number(t.filas), bytes: Number(t.bytes) })),
+          depurable: Object.fromEntries(Object.entries(depurable ?? {}).map(([k, v]) => [k, Number(v)])),
+        },
+        error: null,
+      };
+    }
+    if (data.name === "depurar_datos") {
+      await assertAdmin(session.user.id);
+      const tipo = String(data.args?._tipo ?? "");
+      const meses = Math.max(3, Math.min(120, Number(data.args?._meses ?? 12)));
+      const sql: Record<string, [string, unknown[]]> = {
+        auditoria: [`delete from audit_log where created_at < now() - make_interval(months => $1)`, [meses]],
+        notificaciones: [`delete from notificaciones where leida`, []],
+        revisiones: [`delete from wiki_doc_revisions where id in (select id from (select id, row_number() over (partition by doc_id order by created_at desc) n from wiki_doc_revisions) x where n > 20)`, []],
+        sesiones: [`delete from app_sessions where expires_at < now()`, []],
+      };
+      if (!sql[tipo]) throw new Error("Tipo de depuración inválido");
+      const r = await query(sql[tipo][0], sql[tipo][1]);
+      await writeAudit(session.user.id, "app_settings", "eliminar", [{ id: tipo, version_actual: `Depuración: ${tipo}` }], { tipo, meses, filas: r.rowCount });
+      return { data: { eliminadas: r.rowCount ?? 0 }, error: null };
     }
     if (data.name === "generar_codigos_toner") {
       if (!(await hasModulePermission(session.user.id, "toners", "crear"))) throw new Error("Tu rol no tiene permiso para generar códigos");

@@ -6,6 +6,7 @@ import { strToU8, zipSync } from "fflate";
 import {
   CheckCircle2,
   ClipboardCheck,
+  Columns3,
   Download,
   FileJson,
   FileSpreadsheet,
@@ -74,6 +75,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { StatTile } from "@/components/StatTile";
@@ -161,6 +163,28 @@ type ItemPayload = {
 
 
 const PAGE_SIZES = [25, 50, 100, 200] as const;
+
+const COLUMNAS_OPCIONALES = [
+  { key: "ubicacion", label: "Ubicación" },
+  { key: "asignado", label: "Asignado a" },
+  { key: "estado", label: "Estado" },
+  { key: "red", label: "Red (IP / host)" },
+  { key: "garantia", label: "Garantía" },
+  { key: "control", label: "Último control" },
+] as const;
+type ColumnaOpcional = (typeof COLUMNAS_OPCIONALES)[number]["key"];
+const COLUMNAS_KEY = "nodara.activos.columnas";
+
+/** Columnas elegidas por el usuario (se recuerdan en este navegador). */
+function leerColumnas(): Set<ColumnaOpcional> {
+  try {
+    const guardadas = JSON.parse(localStorage.getItem(COLUMNAS_KEY) ?? "null") as ColumnaOpcional[] | null;
+    if (Array.isArray(guardadas)) return new Set(guardadas);
+  } catch {
+    /* sin almacenamiento */
+  }
+  return new Set(COLUMNAS_OPCIONALES.map((c) => c.key));
+}
 
 function estadoLabel(value: string | null | undefined) {
   return estadoInfo(value).label;
@@ -986,7 +1010,8 @@ function FilterSelect({
 }
 
 function InventarioPage() {
-  const { canWrite, isAdmin, can } = useAuth();
+  const { isAdmin, can, puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("inventario");
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { item: itemParam } = Route.useSearch();
@@ -1097,9 +1122,34 @@ function InventarioPage() {
     [data, deferredQ, planta, sector, rubro, tipo, propiedad, estado, control],
   );
 
+  const { ordenadas: rowsOrdenadas, orden, alternar } = useOrden(rows, {
+    codigo: (i: Item) => i.codigo,
+    activo: (i: Item) => i.descripcion || i.nombre,
+    ubicacion: (i: Item) => `${i.sector ?? ""} ${i.planta ?? ""}`,
+    asignado: (i: Item) => i.asignado_a,
+    estado: (i: Item) => estadoInfo(i.estado).label,
+    red: (i: Item) => i.ip,
+    garantia: (i: Item) => i.garantia_hasta,
+    control: (i: Item) => i.ultima_vez_controlada,
+  });
+  const [columnas, setColumnas] = useState<Set<ColumnaOpcional>>(() => leerColumnas());
+  const ver = (c: ColumnaOpcional) => columnas.has(c);
+  const alternarColumna = (c: ColumnaOpcional) =>
+    setColumnas((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      try {
+        localStorage.setItem(COLUMNAS_KEY, JSON.stringify([...next]));
+      } catch {
+        /* sin almacenamiento */
+      }
+      return next;
+    });
+
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const paginatedRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginatedRows = rowsOrdenadas.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedRows = rows.filter((row) => selectedIds.has(row.id));
   const allVisibleSelected = paginatedRows.length > 0 && paginatedRows.every((row) => selectedIds.has(row.id));
   const toggleSelected = (id: string, checked: boolean) => {
@@ -1325,6 +1375,22 @@ function InventarioPage() {
                   </Select>
                 </PopoverContent>
               </Popover>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="hidden h-9 lg:inline-flex">
+                    <Columns3 /> Columnas
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 p-2">
+                  <p className="eyebrow px-2 pb-1.5">Columnas visibles</p>
+                  {COLUMNAS_OPCIONALES.map((c) => (
+                    <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                      <Checkbox checked={ver(c.key)} onCheckedChange={() => alternarColumna(c.key)} />
+                      {c.label}
+                    </label>
+                  ))}
+                </PopoverContent>
+              </Popover>
               {hayFiltros && (
                 <Button variant="ghost" className="h-9" onClick={limpiarFiltros}>
                   <X /> Limpiar
@@ -1401,14 +1467,14 @@ function InventarioPage() {
                       />
                     </TableHead>
                   )}
-                  <TableHead>Código</TableHead>
-                  <TableHead>Activo</TableHead>
-                  <TableHead>Ubicación</TableHead>
-                  <TableHead>Asignado a</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Red</TableHead>
-                  <TableHead>Garantía</TableHead>
-                  <TableHead>Último control</TableHead>
+                  <ThOrden campo="codigo" orden={orden} onOrden={alternar} className="h-10 px-2">Código</ThOrden>
+                  <ThOrden campo="activo" orden={orden} onOrden={alternar} className="h-10 px-2">Activo</ThOrden>
+                  {ver("ubicacion") && <ThOrden campo="ubicacion" orden={orden} onOrden={alternar} className="h-10 px-2">Ubicación</ThOrden>}
+                  {ver("asignado") && <ThOrden campo="asignado" orden={orden} onOrden={alternar} className="h-10 px-2">Asignado a</ThOrden>}
+                  {ver("estado") && <ThOrden campo="estado" orden={orden} onOrden={alternar} className="h-10 px-2">Estado</ThOrden>}
+                  {ver("red") && <ThOrden campo="red" orden={orden} onOrden={alternar} className="h-10 px-2">Red</ThOrden>}
+                  {ver("garantia") && <ThOrden campo="garantia" orden={orden} onOrden={alternar} className="h-10 px-2">Garantía</ThOrden>}
+                  {ver("control") && <ThOrden campo="control" orden={orden} onOrden={alternar} className="h-10 px-2">Último control</ThOrden>}
                   <TableHead className="sticky right-0 bg-card text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1440,18 +1506,25 @@ function InventarioPage() {
                           </div>
                         </div>
                       </TableCell>
+                      {ver("ubicacion") && (
                       <TableCell className="max-w-[180px] text-xs">
                         <p className="truncate">{item.sector || "—"}</p>
                         <p className="truncate text-muted-foreground">{item.planta}</p>
                       </TableCell>
-                      <TableCell className="max-w-[160px] truncate text-xs">{item.asignado_a || <span className="text-muted-foreground">—</span>}</TableCell>
+                      )}
+                      {ver("asignado") && <TableCell className="max-w-[160px] truncate text-xs">{item.asignado_a || <span className="text-muted-foreground">—</span>}</TableCell>}
+                      {ver("estado") && (
                       <TableCell>
                         <Badge variant={badgeVariant(est.tono)}>{est.label}</Badge>
                       </TableCell>
+                      )}
+                      {ver("red") && (
                       <TableCell className="num max-w-[160px] text-xs">
                         <p className="truncate">{item.ip || "—"}</p>
                         <p className="truncate text-muted-foreground">{item.hostname}</p>
                       </TableCell>
+                      )}
+                      {ver("garantia") && (
                       <TableCell className="text-xs">
                         {item.garantia_hasta ? (
                           <span className="flex items-center gap-1.5">
@@ -1462,9 +1535,12 @@ function InventarioPage() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
+                      )}
+                      {ver("control") && (
                       <TableCell>
                         <Badge variant={controlBadgeVariant(item)}>{itemField(item, "Ultima vez controlada") || "Sin control"}</Badge>
                       </TableCell>
+                      )}
                       <TableCell className="sticky right-0 bg-card text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-0.5">
                           <Button size="icon" variant="ghost" className="size-8" title="Planilla técnica" aria-label="Planilla técnica" onClick={() => abrirFicha(item.id)}>

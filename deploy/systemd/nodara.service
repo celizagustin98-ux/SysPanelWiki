@@ -1,0 +1,21 @@
+[Unit]
+Description=Nodara · Centro de operaciones IT
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node scripts/serve.mjs
+Restart=always
+RestartSec=5
+# Endurecimiento básico (sin NoNewPrivileges: el botón "Actualizar" usa sudo para reiniciar)
+PrivateTmp=true
+ProtectSystem=full
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

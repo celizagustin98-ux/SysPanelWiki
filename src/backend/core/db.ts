@@ -17,7 +17,8 @@ export const pool = new Pool({
   idleTimeoutMillis: 30_000,
 });
 
-export type AppRole = "administrador" | "tecnico" | "consulta";
+/** Clave del rol (administrador, tecnico, consulta o uno personalizado de la tabla roles). */
+export type AppRole = string;
 
 export type AuthSession = {
   token: string;

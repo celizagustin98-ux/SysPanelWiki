@@ -1,4 +1,4 @@
-# Arquitectura de SysIntranet
+# Arquitectura de Nodara
 
 Es una aplicación **fullstack** con [TanStack Start](https://tanstack.com/start): frontend y backend viven en
 el mismo proyecto y se compilan juntos (`npm run build`). El frontend llama al backend mediante
@@ -55,9 +55,13 @@ SysPanelWiki/
    (`*.functions.ts`), que el framework convierte en llamadas HTTP. El acceso a datos del front pasa
    siempre por `src/lib/api/client.ts`.
 2. **Toda tabla nueva** se agrega en `db/migrations/` y en la lista blanca `TABLES`
-   (y `WRITABLE_BY_TECH` si los técnicos la editan) de `src/backend/api/data.functions.ts`.
-3. **Permisos**: el front oculta lo que el rol no puede ver (`can()` en `lib/auth.tsx`), pero la
-   seguridad real está en el backend (`assertAdmin`, `assertCanWrite`, `hasModulePermission`).
+   de `src/backend/api/data.functions.ts`, y en `MODULO_DE_TABLA` para que la cubra la matriz de permisos.
+3. **Roles y permisos**: los roles viven en la tabla `roles` (3 del sistema + los que cree el administrador)
+   y la matriz `role_permissions` define ver/crear/editar/eliminar por módulo. El front oculta lo que el
+   rol no puede ver (`can()` / `puedeEscribir()` en `lib/auth.tsx`), pero la seguridad real está en el
+   backend (`assertModulo`, `hasModulePermission`, `assertAdmin`).
+5. **Tablas de datos**: usar `components/tabla/Tabla.tsx` (`useOrden`, `ThOrden`, `FiltroChips`,
+   `exportarCsv`, `PieTabla`) para columnas ordenables, filtros rápidos y exportación a Excel.
 4. **Ramas**: trabajar en `fix/…`, `feat/…` o `refactor/…` y entrar a `main` por pull request con
    el CI en verde. Producción se actualiza desde `main`.
 

@@ -78,7 +78,8 @@ function asText(v: unknown, fallback = "") {
 }
 
 export function GuardiasPage() {
-  const { canWrite } = useAuth();
+  const { puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("guardias");
   const qc = useQueryClient();
   const [period, setPeriod] = useState(() => getPeriodContaining(new Date()));
   const { data: feriadosDb } = useFeriados();

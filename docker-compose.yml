@@ -1,21 +1,57 @@
+# Nodara con Docker: base PostgreSQL + aplicación.
+#
+#   cp .env.example .env      # completar POSTGRES_PASSWORD y SECRETS_ENCRYPTION_KEY
+#   docker compose up -d --build
+#
+# Actualizar: git pull && docker compose up -d --build   (las migraciones se aplican solas)
+# Detalle: docs/INSTALACION.md
+
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: syswiki-db
+    container_name: nodara-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: syswiki
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cambia_esta_clave}
-      POSTGRES_DB: syswiki
-    ports:
-      - "127.0.0.1:5433:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-nodara}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definí POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-nodara}
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
     volumes:
-      - syswiki_pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    # Solo para administrar desde el host (psql, backups). Quitalo si no lo necesitás.
+    ports:
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U syswiki -d syswiki"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nodara} -d ${POSTGRES_DB:-nodara}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  app:
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-}
+    image: nodara:latest
+    container_name: nodara-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nodara}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nodara}
+      DATABASE_SSL: "false"
+      HOST: 0.0.0.0
+      PORT: 3090
+      FILE_STORAGE_DIR: /data/storage
+      ENABLE_WEB_UPDATES: "false"
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
+    volumes:
+      - storage:/data/storage
+    ports:
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3090}:3090"
 
 volumes:
-  syswiki_pgdata:
+  pgdata:
+  storage:

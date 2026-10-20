@@ -1,6 +1,6 @@
-# Instructivo PostgreSQL para SysIntranet | Área Wiki
+# Instructivo PostgreSQL para Nodara
 
-Este instructivo deja una base PostgreSQL propia, controlada por vos, lista para usar con SysIntranet | Área Wiki.
+Este instructivo deja una base PostgreSQL propia, controlada por vos, lista para usar con Nodara.
 
 ## 1. Requisitos
 

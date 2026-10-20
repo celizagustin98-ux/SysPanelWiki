@@ -110,7 +110,8 @@ function detalleLegible(detalle: unknown) {
 }
 
 function AuditoriaPage() {
-  const { isAdmin } = useAuth();
+  const { can } = useAuth();
+  const isAdmin = can("auditoria", "view");
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [actores, setActores] = useState<Actor[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -198,7 +199,7 @@ function AuditoriaPage() {
               variant="outline"
               onClick={() =>
                 exportCsv(
-                  "auditoria-sysintranet.csv",
+                  "auditoria-nodara.csv",
                   ["Fecha", "Usuario", "Correo", "Modulo", "Accion", "Elemento", "Detalle"],
                   rows.map((r) => [
                     new Date(r.created_at).toLocaleString("es-AR"),

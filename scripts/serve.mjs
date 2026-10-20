@@ -565,15 +565,16 @@ cd ${shellQuote(process.cwd())}
   fi
   git reset --hard origin/${shellQuote(branch)}
   rm -rf dist .output .vinxi node_modules/.vite
-  npm install --silent
+  npm ci --no-audit --no-fund
   npm run build
+  node scripts/init-db.mjs
   ${shellQuote(nodePath)} - <<'NODE'
 import pg from "pg";
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined });
 await pool.query("update app_settings set version_actual = $1, ultima_actualizacion = now() where singleton = true", [process.env.UPDATE_VERSION || "actualizado"]);
 await pool.end();
 NODE
-  systemctl restart ${shellQuote(serviceName)}
+  if [ "$(id -u)" -eq 0 ]; then systemctl restart ${shellQuote(serviceName)}; else sudo -n systemctl restart ${shellQuote(serviceName)}; fi
   echo "OK $(date -Is)"
 } >> ${shellQuote(logFile)} 2>&1
 `;

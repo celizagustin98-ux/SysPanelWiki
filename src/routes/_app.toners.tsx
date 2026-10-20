@@ -50,6 +50,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { abrirPdfPedido } from "@/lib/toner-pedido-pdf";
@@ -128,12 +129,16 @@ type PedidoItem = {
 };
 
 function TonersPage() {
-  const { canWrite, profile, user } = useAuth();
+  const { profile, user, puedeEscribir } = useAuth();
+  const canWrite = puedeEscribir("toners");
   const qc = useQueryClient();
   const [tab, setTab] = useState("deposito");
   const [stockQuery, setStockQuery] = useState("");
   const [stockEstado, setStockEstado] = useState<"todos" | "ok" | "critico">("todos");
   const [movQuery, setMovQuery] = useState("");
+  const [movTipo, setMovTipo] = useState("todos");
+  const [movModelo, setMovModelo] = useState("todos");
+  const [movPeriodo, setMovPeriodo] = useState("90");
   const [codigoQuery, setCodigoQuery] = useState("");
   const [genOpen, setGenOpen] = useState(false);
   const [modeloSel, setModeloSel] = useState("");
@@ -149,13 +154,11 @@ function TonersPage() {
   });
 
   const { data: movimientos = [] } = useQuery({
-    queryKey: ["toner_movimientos"],
+    queryKey: ["toner_movimientos", movPeriodo],
     queryFn: async () => {
-      const { data, error } = await api
-        .from("toner_movimientos")
-        .select("*, toner_modelos(nombre)")
-        .order("created_at", { ascending: false })
-        .limit(200);
+      let consulta = api.from("toner_movimientos").select("*, toner_modelos(nombre)");
+      if (movPeriodo !== "todo") consulta = consulta.gte("created_at", new Date(Date.now() - Number(movPeriodo) * 86_400_000).toISOString());
+      const { data, error } = await consulta.order("created_at", { ascending: false }).limit(3000);
       if (error) throw error;
       return data as Movimiento[];
     },
@@ -245,13 +248,31 @@ function TonersPage() {
 
   const movimientosFiltrados = useMemo(() => {
     const q = movQuery.trim().toLowerCase();
-    if (!q) return movimientos;
-    return movimientos.filter((m) =>
-      [m.tipo, m.sector, m.responsable, m.notas, m.toner_modelos?.nombre, m.toner_entra, m.toner_sale]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
+    return movimientos.filter(
+      (m) =>
+        (movTipo === "todos" || movimientoLabel(m.tipo) === movTipo) &&
+        (movModelo === "todos" || m.modelo_id === movModelo) &&
+        (!q ||
+          [m.tipo, m.sector, m.responsable, m.notas, m.toner_modelos?.nombre, m.toner_entra, m.toner_sale]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(q))),
     );
-  }, [movimientos, movQuery]);
+  }, [movimientos, movQuery, movTipo, movModelo]);
+
+  const movTipos = useMemo(() => {
+    const c = new Map<string, number>();
+    movimientos.forEach((m) => c.set(movimientoLabel(m.tipo), (c.get(movimientoLabel(m.tipo)) ?? 0) + 1));
+    return [...c.entries()];
+  }, [movimientos]);
+
+  const { ordenadas: movOrdenados, orden: movOrden, alternar: movAlternar } = useOrden(movimientosFiltrados, {
+    fecha: (m) => m.created_at,
+    tipo: (m) => movimientoLabel(m.tipo),
+    modelo: (m) => m.toner_modelos?.nombre,
+    cantidad: (m) => Number(m.cantidad),
+    sector: (m) => m.sector,
+    responsable: (m) => m.responsable,
+  });
 
   const lotesCodigos = useMemo(() => agruparCodigosGenerados(unidades), [unidades]);
   const lotesFiltrados = useMemo(() => {
@@ -466,34 +487,72 @@ function TonersPage() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="relative max-w-sm">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-9" value={movQuery} onChange={(e) => setMovQuery(e.target.value)} placeholder="Buscar…" />
+              <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+                <div className="relative max-w-xs flex-1">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input className="pl-9" value={movQuery} onChange={(e) => setMovQuery(e.target.value)} placeholder="Sector, responsable, código…" />
+                </div>
+                <FiltroChips
+                  valor={movTipo}
+                  onChange={setMovTipo}
+                  opciones={[{ valor: "todos", label: "Todos", n: movimientos.length }, ...movTipos.map(([t, n]) => ({ valor: t, label: t, n }))]}
+                />
+                <div className="flex gap-2 xl:ml-auto">
+                  <Select value={movModelo} onValueChange={setMovModelo}>
+                    <SelectTrigger className="h-8 w-[180px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos los modelos</SelectItem>
+                      {modelos.map((m) => <SelectItem key={m.id} value={m.id}>{m.nombre}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={movPeriodo} onValueChange={setMovPeriodo}>
+                    <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="30">Últimos 30 días</SelectItem>
+                      <SelectItem value="90">Últimos 3 meses</SelectItem>
+                      <SelectItem value="365">Último año</SelectItem>
+                      <SelectItem value="todo">Todo el historial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+              <div className="overflow-hidden rounded-xl border border-border">
               <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fecha</TableHead><TableHead>Tipo</TableHead><TableHead>Modelo</TableHead><TableHead>Cant.</TableHead><TableHead>Sector</TableHead><TableHead>Responsable</TableHead><TableHead>Detalle</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className={THEAD_CLASE}>
+                      <ThOrden campo="fecha" orden={movOrden} onOrden={movAlternar} className="pl-4">Fecha</ThOrden>
+                      <ThOrden campo="tipo" orden={movOrden} onOrden={movAlternar}>Tipo</ThOrden>
+                      <ThOrden campo="modelo" orden={movOrden} onOrden={movAlternar}>Modelo</ThOrden>
+                      <ThOrden campo="cantidad" orden={movOrden} onOrden={movAlternar} alinear="right">Cant.</ThOrden>
+                      <ThOrden campo="sector" orden={movOrden} onOrden={movAlternar}>Sector</ThOrden>
+                      <ThOrden campo="responsable" orden={movOrden} onOrden={movAlternar} className="hidden lg:table-cell">Responsable</ThOrden>
+                      <th className="hidden px-3 py-2.5 font-medium xl:table-cell">Detalle</th>
+                    </tr>
+                  </thead>
                   <TableBody>
-                    {movimientosFiltrados.map((m) => (
+                    {movOrdenados.map((m) => (
                       <TableRow key={m.id}>
-                        <TableCell className="whitespace-nowrap text-xs">{new Date(m.created_at).toLocaleString("es-AR")}</TableCell>
+                        <TableCell className="whitespace-nowrap pl-4 text-xs">{new Date(m.created_at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}</TableCell>
                         <TableCell><Badge variant={tipoBadgeVariant(m.tipo)}>{movimientoLabel(m.tipo)}</Badge></TableCell>
                         <TableCell>{m.toner_modelos?.nombre ?? "—"}</TableCell>
-                        <TableCell className="font-mono tabular-nums">{m.cantidad}</TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">{m.cantidad}</TableCell>
                         <TableCell>{m.sector || "—"}</TableCell>
-                        <TableCell>{m.responsable || "—"}</TableCell>
-                        <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">{[m.toner_entra && `entra ${m.toner_entra}`, m.toner_sale && `sale ${m.toner_sale}`, m.notas].filter(Boolean).join(" · ") || "—"}</TableCell>
+                        <TableCell className="hidden lg:table-cell">{m.responsable || "—"}</TableCell>
+                        <TableCell className="hidden max-w-[240px] truncate text-xs text-muted-foreground xl:table-cell">{[m.toner_entra && `entra ${m.toner_entra}`, m.toner_sale && `sale ${m.toner_sale}`, m.notas].filter(Boolean).join(" · ") || "—"}</TableCell>
                       </TableRow>
                     ))}
-                    {movimientosFiltrados.length === 0 && (
-                      <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">Sin movimientos.</TableCell></TableRow>
+                    {movOrdenados.length === 0 && (
+                      <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">Sin movimientos para este filtro.</TableCell></TableRow>
                     )}
                   </TableBody>
-                </Table>
+                </table>
+              </div>
+              <PieTabla mostrando={movOrdenados.length} total={movimientos.length}>
+                <span>
+                  Ingresaron {movimientosFiltrados.filter((m) => movimientoLabel(m.tipo) === "Ingreso").reduce((s, m) => s + Number(m.cantidad || 0), 0)} · Usados {movimientosFiltrados.filter((m) => movimientoLabel(m.tipo) === "Uso").reduce((s, m) => s + Number(m.cantidad || 0), 0)}
+                </span>
+              </PieTabla>
               </div>
             </CardContent>
           </Card>

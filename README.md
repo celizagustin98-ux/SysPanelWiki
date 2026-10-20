@@ -1,26 +1,35 @@
 # Nodara — Centro de operaciones IT
-·
+
 Wiki operativa con modulos de gestion para sistemas internos. Es una aplicacion propia con backend server-side, autenticacion propia y base PostgreSQL.
 
-## Modulos
+## Módulos
 
-- Dashboard
-- Instructivos/wiki con carpetas, editor y adjuntos PDF
-- Guardias
-- Inventario
-- Toners con stock, movimientos y codigos correlativos
-- Tareas con tablero, subtareas, comentarios e instructivos vinculados
-- Credenciales
-- Usuarios, roles y permisos
-- Auditoria
-- Configuracion y revision de versiones desde GitHub
+- **Dashboard**: resumen operativo y alertas.
+- **Tickets**: mesa de ayuda con prioridades, comentarios, adjuntos y equipo vinculado.
+- **Activos IT**: planilla técnica por equipo, QR, reparaciones, asignaciones y controles.
+- **Tóners**: stock, códigos correlativos, movimientos y pedidos al proveedor.
+- **Guardias**: turnos, operarios y liquidación con feriados.
+- **Instructivos**: carpetas, documentos y PDFs.
+- **Oficina**: teléfonos internos y pedido de insumos con historial mensual.
+- **Credenciales**: bóveda cifrada (AES-GCM) con auditoría de cada lectura.
+- **Auditoría**: registro de cambios.
+- **Configuración**: usuarios, roles personalizables con permisos por módulo, feriados, reporte mensual y depuración de datos.
+
+## Instalación
+
+Docker, Proxmox (LXC) o Linux directo: ver [`docs/INSTALACION.md`](docs/INSTALACION.md).
+
+```bash
+# Actualizar una instalación existente
+sudo bash scripts/actualizar.sh
+```
 
 ## Stack
 
 - React 19
 - TanStack Start
 - Tailwind CSS
-- PostgreSQL 15+
+- PostgreSQL 14+ · Node.js 20+ (recomendado 22)
 - Sesiones y roles persistidos en PostgreSQL
 - Almacenamiento local configurable para adjuntos
 
@@ -28,7 +37,8 @@ Wiki operativa con modulos de gestion para sistemas internos. Es una aplicacion 
 
 ```
 db/            Base de datos: schema.sql + migrations/
-scripts/       Servidor de producción (serve.mjs) e inicialización de BD
+scripts/       Servidor (serve.mjs), migraciones (init-db.mjs) y actualización (actualizar.sh)
+deploy/        Docker, Proxmox LXC, instalador Linux y servicio systemd
 src/backend/   BACKEND: conexión PostgreSQL, sesiones, permisos, API (server functions)
 src/routes/    FRONTEND: páginas
 src/components FRONTEND: componentes (ui/ base + uno por módulo)
@@ -38,36 +48,6 @@ src/lib/       FRONTEND: cliente de API, auth, tema, PDFs
 
 Detalle y reglas: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
 
-## Configuracion
-
-Copiar `.env.example` a `.env` y ajustar valores:
-
-```env
-DATABASE_URL=postgresql://syswiki:CAMBIA_ESTA_CLAVE@127.0.0.1:5432/syswiki
-DATABASE_SSL=false
-FILE_STORAGE_DIR=./storage
-GITHUB_REPO=celizagustin98-ux/SysPanelWiki
-```
-
-## PostgreSQL local
-
-Con Docker:
-
-```bash
-docker compose up -d postgres
-npm run db:init
-```
-
-Sin Docker, crear una base PostgreSQL y luego ejecutar:
-
-```bash
-npm run db:init
-```
-
-El script `db:init` usa `DATABASE_URL` y aplica `db/schema.sql`; no requiere tener `psql` instalado.
-
-Guia completa de instalacion, seguridad, backups y restauracion: `docs/POSTGRESQL_PRODUCCION.md`.
-
 ## Desarrollo
 
 ```bash
@@ -76,16 +56,6 @@ npm run dev
 ```
 
 Abrir `http://localhost:5173`.
-
-## Produccion
-
-```bash
-npm ci
-npm run build
-npm run start
-```
-
-El primer usuario registrado obtiene rol `administrador`. Los siguientes usuarios quedan como `consulta` hasta que un administrador les asigne otro rol.
 
 ## Archivos persistentes
 

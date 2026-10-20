@@ -1,0 +1,13 @@
+.git
+.github
+.tanstack
+node_modules
+dist
+storage
+backups
+*.log
+.env
+.env.*
+!.env.example
+CLAUDE.local.md
+INFORME-*.md
