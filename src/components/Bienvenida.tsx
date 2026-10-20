@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { useAuth } from "@/lib/auth";
-import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
+import { useMarca } from "@/lib/brand";
 
 const KEY = "syswiki.bienvenida";
 
@@ -22,6 +22,7 @@ function saludo() {
 /** Animación de bienvenida al entrar al sistema. */
 export function Bienvenida() {
   const { profile } = useAuth();
+  const marca = useMarca();
   const [visible, setVisible] = useState(() => {
     try {
       return sessionStorage.getItem(KEY) === "1";
@@ -69,7 +70,7 @@ export function Bienvenida() {
           <BrandMark className="size-20" />
         </div>
         <p className="mt-6 font-mono text-[11px] uppercase tracking-[0.3em] text-sidebar-primary [animation:bienvenida-up_0.7s_ease-out_0.35s_both]">
-          {APP_NAME} · {APP_TAGLINE}
+          {marca.nombre} · {marca.personalizada ? marca.area : marca.tagline}
         </p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl [animation:bienvenida-up_0.7s_ease-out_0.55s_both]">
           {saludo()}, {nombre}

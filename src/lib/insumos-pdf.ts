@@ -1,4 +1,5 @@
-import { ESTILO_DOC, encabezadoDoc, escHtml, imprimirHtml, pesos } from "./imprimir";
+import { getMarca } from "./brand";
+import { ESTILO_DOC, encabezadoDoc, escHtml, imprimirHtml, pesos, pieDoc } from "./imprimir";
 
 export type InsumoPdf = {
   descripcion: string;
@@ -47,7 +48,7 @@ export function imprimirPedidoInsumos(p: PedidoInsumosPdf) {
     ${encabezadoDoc("Solicitud de pedido de insumos", numeroPedidoInsumos(p.numero), fecha)}
     <div class="grid">
       <div class="box"><label>Para</label><div>${escHtml(p.destinatario)}</div></div>
-      <div class="box"><label>Solicita</label><div>${escHtml(p.solicitante || "Área de Sistemas")}</div></div>
+      <div class="box"><label>Solicita</label><div>${escHtml(p.solicitante || getMarca().area)}</div></div>
       <div class="box"><label>Ítems</label><div>${p.items.length}</div></div>
     </div>
     <table>
@@ -57,7 +58,7 @@ export function imprimirPedidoInsumos(p: PedidoInsumosPdf) {
     <div class="total">Total estimado: <strong>${pesos(total)}</strong></div>
     ${p.notas ? `<div class="notas"><strong>Observaciones:</strong> ${escHtml(p.notas)}</div>` : ""}
     <div class="firmas"><div>Solicitante</div><div>Responsable de Sistemas</div><div>Compras</div></div>
-    <div class="pie">Nodara · ${numeroPedidoInsumos(p.numero)} · Los precios son estimados y los links son de referencia.</div>
+    <div class="pie">${pieDoc(`${numeroPedidoInsumos(p.numero)} · Los precios son estimados y los links son de referencia.`)}</div>
   </body></html>`;
   imprimirHtml(html, numeroPedidoInsumos(p.numero));
 }

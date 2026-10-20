@@ -61,6 +61,7 @@ import {
 } from "@/components/guardias/domain";
 import { OperariosDialog } from "@/components/guardias/dialogs";
 import { useFeriados } from "@/lib/feriados";
+import { useMarca } from "@/lib/brand";
 
 function asText(v: unknown, fallback = "") {
   if (v == null) return fallback;
@@ -78,6 +79,7 @@ function asText(v: unknown, fallback = "") {
 }
 
 export function GuardiasPage() {
+  const marca = useMarca();
   const { puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("guardias");
   const qc = useQueryClient();
@@ -89,7 +91,7 @@ export function GuardiasPage() {
   const [pdfNotas, setPdfNotas] = useState(
     "Feriado = sábado, domingo o feriado nacional. Cada noche cuenta 20:00–08:00. Las vacaciones (V) no suman.",
   );
-  const [pdfPie, setPdfPie] = useState("Nodara · Documento de liquidación interna");
+  const [pdfPie, setPdfPie] = useState("");
   const [busy, setBusy] = useState(false);
 
   const days = useMemo(
@@ -702,7 +704,7 @@ export function GuardiasPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Pie de página</Label>
-              <Input value={pdfPie} onChange={(e) => setPdfPie(e.target.value)} />
+              <Input value={pdfPie} placeholder={`${marca.pie} · Documento de liquidación interna`} onChange={(e) => setPdfPie(e.target.value)} />
             </div>
           </div>
           <DialogFooter>

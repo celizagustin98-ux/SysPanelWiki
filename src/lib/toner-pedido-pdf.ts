@@ -1,4 +1,5 @@
 /** Solicitud de pedido imprimible / PDF (sin pop-ups). */
+import { estiloMarca, marcaDocHtml, pieDoc } from "./imprimir";
 
 export type PdfPedidoLinea = {
   nombre: string;
@@ -76,11 +77,11 @@ function buildHtml(input: PdfPedidoInput) {
     "*{box-sizing:border-box}" +
     "body{font-family:Segoe UI,system-ui,sans-serif;color:#111;font-size:13px;line-height:1.4;margin:0;padding:24px}" +
     ".sheet{max-width:720px;margin:0 auto}" +
-    ".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0d9488;padding-bottom:12px;margin-bottom:16px}" +
-    ".brand{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#0d9488;font-weight:700}" +
+    ".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid var(--acento,#0d9488);padding-bottom:12px;margin-bottom:16px}" +
+    ".brand{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--acento,#0d9488);font-weight:700}" +
     "h1{margin:4px 0 0;font-size:20px}" +
     ".doc-meta{text-align:right;font-size:12px}" +
-    ".doc-meta strong{display:block;font-size:16px;color:#0d9488}" +
+    ".doc-meta strong{display:block;font-size:16px;color:var(--acento,#0d9488)}" +
     ".proveedor{margin-bottom:16px;font-size:13px}" +
     ".proveedor label{display:block;font-size:10px;text-transform:uppercase;color:#666;letter-spacing:.04em}" +
     ".proveedor div{font-weight:600;margin-top:2px}" +
@@ -97,9 +98,13 @@ function buildHtml(input: PdfPedidoInput) {
     ".notes label{font-size:10px;text-transform:uppercase;color:#666}" +
     ".footer{margin-top:28px;font-size:10px;color:#94a3b8;text-align:center}" +
     "@media print{body{padding:0}}" +
-    "</style></head><body><div class=\"sheet\">" +
+    "</style>" +
+    estiloMarca() +
+    "</head><body><div class=\"sheet\">" +
     '<div class="header"><div>' +
-    '<div class="brand">Nodara · Área Sistemas</div>' +
+    '<div class="brand">' +
+    marcaDocHtml() +
+    "</div>" +
     "<h1>Pedido de tóners</h1></div>" +
     '<div class="doc-meta"><strong>PED-' +
     esc(input.numero) +
@@ -117,8 +122,8 @@ function buildHtml(input: PdfPedidoInput) {
     totalU +
     "</strong> unidad(es)</div>" +
     notasBlock +
-    '<div class="footer">Nodara · Pedido PED-' +
-    esc(input.numero) +
+    '<div class="footer">' +
+    pieDoc("Pedido PED-" + String(input.numero)) +
     "</div></div></body></html>"
   );
 }

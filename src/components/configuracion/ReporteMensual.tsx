@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, FileDown, Loader2 } from "lucide-react";
 import { StatTile } from "@/components/StatTile";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
-import { ESTILO_DOC, encabezadoDoc, escHtml, imprimirHtml, pesos } from "@/lib/imprimir";
+import { ESTILO_DOC, encabezadoDoc, escHtml, imprimirHtml, pesos, pieDoc } from "@/lib/imprimir";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const CERRADOS = ["resuelto", "cerrado"];
@@ -123,7 +123,7 @@ export function ReporteMensual() {
         <tr><td>Altas de equipos</td><td class="r">${data.altas}</td></tr>
         <tr><td>Controles realizados</td><td class="r">${data.controles}</td></tr>
       </tbody></table>
-      <div class="pie">Nodara · Reporte generado el ${new Date().toLocaleString("es-AR")}</div>
+      <div class="pie">${pieDoc(`Reporte generado el ${new Date().toLocaleString("es-AR")}`)}</div>
     </body></html>`;
     imprimirHtml(html, `Reporte-${dFecha.slice(0, 7)}`);
   };

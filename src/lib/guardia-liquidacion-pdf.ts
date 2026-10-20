@@ -1,4 +1,6 @@
 /** Liquidación de guardias — impresión / PDF (iframe, sin pop-up). */
+import { getMarca } from "./brand";
+import { estiloMarca, marcaDocHtml } from "./imprimir";
 
 export type LiqRow = {
   code: string;
@@ -38,7 +40,7 @@ function buildHtml(input: LiqPdfInput) {
 
   const titulo = (input.titulo || "Liquidación de guardias").trim();
   const notas = (input.notas || "").trim();
-  const pie = (input.pie || "Nodara · Documento de liquidación interna").trim();
+  const pie = (input.pie || `${getMarca().pie} · Documento de liquidación interna`).trim();
 
   const totN = input.filas.reduce((s, r) => s + r.normales, 0);
   const totF = input.filas.reduce((s, r) => s + r.feriados, 0);
@@ -82,8 +84,8 @@ function buildHtml(input: LiqPdfInput) {
     "*{box-sizing:border-box}" +
     "body{font-family:Segoe UI,system-ui,sans-serif;color:#0f172a;font-size:13px;line-height:1.45;margin:0;padding:28px}" +
     ".sheet{max-width:720px;margin:0 auto}" +
-    ".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0d9488;padding-bottom:14px;margin-bottom:20px}" +
-    ".brand{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#0d9488;font-weight:700}" +
+    ".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--acento,#0d9488);padding-bottom:14px;margin-bottom:20px}" +
+    ".brand{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--acento,#0d9488);font-weight:700}" +
     "h1{margin:6px 0 0;font-size:22px;font-weight:700}" +
     ".sub{margin:4px 0 0;color:#64748b;font-size:12px}" +
     ".meta{text-align:right;font-size:12px;color:#475569}" +
@@ -93,20 +95,24 @@ function buildHtml(input: LiqPdfInput) {
     ".box label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b}" +
     ".box span{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}" +
     "table{width:100%;border-collapse:collapse;margin-top:4px}" +
-    "th{background:#0f766e;color:#fff;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:10px 12px}" +
+    "th{background:var(--acento,#0f766e);color:#fff;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:10px 12px}" +
     "th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}" +
     "td{padding:11px 12px;border-bottom:1px solid #e2e8f0}" +
     "tr:nth-child(even) td{background:#f8fafc}" +
-    "td.code{font-weight:700;color:#0d9488;width:48px}" +
+    "td.code{font-weight:700;color:var(--acento,#0d9488);width:48px}" +
     "td.fer{color:#be123c;font-weight:600}" +
     "td.tot{font-weight:700}" +
-    "tfoot td{background:#ecfdf5;font-weight:700;border-top:2px solid #0d9488;padding:12px}" +
+    "tfoot td{background:#ecfdf5;font-weight:700;border-top:2px solid var(--acento,#0d9488);padding:12px}" +
     ".note{margin-top:18px;font-size:11px;color:#64748b;line-height:1.5;white-space:pre-wrap}" +
     ".footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}" +
     "@media print{body{padding:0}}" +
-    "</style></head><body><div class=\"sheet\">" +
+    "</style>" +
+    estiloMarca() +
+    "</head><body><div class=\"sheet\">" +
     '<div class="header"><div>' +
-    '<div class="brand">Nodara · Área Sistemas</div>' +
+    '<div class="brand">' +
+    marcaDocHtml() +
+    "</div>" +
     "<h1>" +
     esc(titulo) +
     "</h1>" +

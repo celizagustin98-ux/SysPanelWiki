@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/command";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api/client";
+import { getMarca, useMarca } from "@/lib/brand";
 import { useAuth, type Modulo } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -108,6 +109,7 @@ function useServerStatus() {
 
 export function AppShell() {
   const { profile, role, signOut, user } = useAuth();
+  const marca = useMarca();
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -124,7 +126,7 @@ export function AppShell() {
   const alEscanear = (texto: string) => {
     setEscaner(false);
     const id = idDesdeQr(texto);
-    if (!id) return toast.error("Ese QR no es una etiqueta de Nodara");
+    if (!id) return toast.error(`Ese QR no es una etiqueta de ${getMarca().nombre}`);
     // Escaneado desde adentro del sistema: la sesión ya está verificada.
     try {
       sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
@@ -298,7 +300,7 @@ export function AppShell() {
           {/* Barra superior escritorio */}
           <header className="sticky top-0 z-30 hidden h-14 items-center gap-4 border-b border-border/70 bg-background/80 px-6 backdrop-blur-md md:flex lg:px-8">
             <nav className="flex min-w-0 items-center gap-1.5 text-[13px]" aria-label="Ubicación">
-              <span className="text-muted-foreground">{current ? GROUP_LABEL[current.group] : "Nodara"}</span>
+              <span className="text-muted-foreground">{current ? GROUP_LABEL[current.group] : marca.nombre}</span>
               {current && (
                 <>
                   <ChevronRight className="size-3.5 text-muted-foreground/50" />
@@ -333,7 +335,7 @@ export function AppShell() {
           {/* Encabezado móvil */}
           <header className="sticky top-0 z-30 border-b border-border/60 bg-background/85 backdrop-blur-md md:hidden">
             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-              <BrandLockup tone="default" subtitle={current?.label ?? "Área de Sistemas"} />
+              <BrandLockup tone="default" subtitle={current?.label} />
               <div className="flex shrink-0 items-center gap-0.5">
                 <Button size="icon" variant="ghost" className="size-9" onClick={() => setPaletteOpen(true)} aria-label="Buscar">
                   <Search className="size-4" />
@@ -534,6 +536,7 @@ export function PageHeader({
   eyebrow?: string;
 }) {
   const right = action ?? children;
+  const marca = useMarca();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const item = NAV.find((n) => pathname.startsWith(n.to));
   const Icon = item?.icon;
@@ -546,7 +549,7 @@ export function PageHeader({
           </div>
         )}
         <div className="min-w-0 space-y-1">
-          <p className="eyebrow">{eyebrow ?? item?.hint ?? "Nodara"}</p>
+          <p className="eyebrow">{eyebrow ?? item?.hint ?? marca.nombre}</p>
           <h1 className="text-xl font-semibold tracking-tight sm:text-[1.4rem]">{title}</h1>
           {description ? (
             <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">{description}</p>
