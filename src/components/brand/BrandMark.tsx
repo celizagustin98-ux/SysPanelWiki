@@ -1,7 +1,12 @@
+import { useMarca } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
-/** Isotipo de Nodara: prompt de terminal sobre un nodo de red. */
-export function BrandMark({ className }: { className?: string }) {
+/** Logo de la organización si se subió uno; si no, el isotipo de Nodara (prompt de terminal sobre un nodo de red). */
+export function BrandMark({ className, sinLogo }: { className?: string; sinLogo?: boolean }) {
+  const marca = useMarca();
+  if (marca.logo && !sinLogo) {
+    return <img src={marca.logo} alt="" aria-hidden="true" className={cn("size-9 shrink-0 rounded-[10px] object-contain", className)} />;
+  }
   return (
     <svg viewBox="0 0 40 40" className={cn("size-9 shrink-0", className)} aria-hidden="true">
       <defs>
@@ -30,12 +35,13 @@ export function BrandMark({ className }: { className?: string }) {
 export function BrandLockup({
   collapsed,
   tone = "sidebar",
-  subtitle = "Área de Sistemas",
+  subtitle,
 }: {
   collapsed?: boolean;
   tone?: "sidebar" | "default";
   subtitle?: string;
 }) {
+  const marca = useMarca();
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <BrandMark />
@@ -46,7 +52,7 @@ export function BrandLockup({
             tone === "sidebar" ? "text-sidebar-foreground" : "text-foreground",
           )}
         >
-          Nodara
+          {marca.nombre}
         </p>
         <p
           className={cn(
@@ -54,7 +60,7 @@ export function BrandLockup({
             tone === "sidebar" ? "text-sidebar-foreground/45" : "text-muted-foreground",
           )}
         >
-          {subtitle}
+          {subtitle ?? marca.area}
         </p>
       </div>
     </div>

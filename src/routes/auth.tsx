@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
+import { useMarca } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/auth")({
@@ -132,6 +133,7 @@ function ConsolePanel({
   healthError: boolean;
 }) {
   const now = useClock();
+  const marca = useMarca();
   const online = !!health?.ok && !healthError;
 
   return (
@@ -206,7 +208,7 @@ function ConsolePanel({
       </div>
 
       <p className="relative font-mono text-[10.5px] uppercase tracking-[0.14em] text-sidebar-foreground/30">
-        Nodara · Área de Sistemas
+        {marca.nombre} · {marca.area}
       </p>
     </aside>
   );

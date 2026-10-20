@@ -27,7 +27,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { FeriadosConfig } from "@/components/configuracion/FeriadosConfig";
 import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
-import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
+import { useMarca } from "@/lib/brand";
+import { MarcaConfig } from "@/components/configuracion/MarcaConfig";
 import { api } from "@/lib/api/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
@@ -102,6 +103,7 @@ function formatVersion(value?: string | null) {
 function ConfiguracionPage() {
   const { isAdmin, user } = useAuth();
   const { data: roles = [] } = useRoles();
+  const marca = useMarca();
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([]);
@@ -310,7 +312,7 @@ function ConfiguracionPage() {
                 <BrandMark className="size-12" />
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {APP_NAME} · {APP_TAGLINE}
+                    {marca.nombre} · {marca.personalizada ? marca.area : marca.tagline}
                   </p>
                   <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">
                     {systemInfo?.displayVersion ?? formatVersion(installedVersion)}
@@ -336,6 +338,7 @@ function ConfiguracionPage() {
               </div>
             </CardContent>
           </Card>
+          <MarcaConfig />
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {roles.map((r) => (

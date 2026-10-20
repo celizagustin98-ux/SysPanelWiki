@@ -83,6 +83,7 @@ import { cn } from "@/lib/utils";
 import { estadoInfo, garantiaInfo, diasHasta } from "@/components/activos/catalogo";
 import { ACTIVO_COLUMNAS_SQL, ActivoDialog, ControlDialog, type Activo } from "@/components/activos/dialogs";
 import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/FichaActivo";
+import { getMarca } from "@/lib/brand";
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
@@ -415,7 +416,7 @@ async function printEtiquetas(rows: Item[]) {
       .pie { margin-top: 4mm; font-size: 7pt; color: #777; }
     </style></head><body>
     <div class="grid">${etiquetas.join("")}</div>
-    <div class="pie">Nodara · Área de Sistemas — escaneá el QR para abrir la ficha y registrar el control.</div>
+    <div class="pie">${esc(getMarca().pie)} — escaneá el QR para abrir la ficha y registrar el control.</div>
     <script>window.onload = () => { window.focus(); window.print(); };</script>
     </body></html>`);
   win.document.close();

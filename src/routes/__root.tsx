@@ -15,6 +15,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
+import { tituloConMarca, useMarca } from "@/lib/brand";
 
 function StatusFrame({
   title,
@@ -33,12 +34,13 @@ function StatusFrame({
   secondaryLabel?: string;
   code?: string;
 }) {
+  const marca = useMarca();
   return (
     <div className="grid min-h-screen place-items-center px-4 py-10">
       <div className="panel w-full max-w-md px-6 py-8 text-center rise-in">
         <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           <BrandMark className="size-7" />
-          Nodara
+          {marca.nombre}
         </div>
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
@@ -183,9 +185,26 @@ function RootComponent() {
       <ThemeProvider>
         <AuthProvider>
           <Outlet />
+          <TituloConMarca />
           <Toaster richColors position="bottom-right" closeButton />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+/** Los títulos de página dicen "· Nodara": se reemplaza por el nombre configurado de la organización. */
+function TituloConMarca() {
+  const marca = useMarca();
+  useEffect(() => {
+    const aplicar = () => {
+      const nuevo = tituloConMarca(document.title, marca);
+      if (nuevo !== document.title) document.title = nuevo;
+    };
+    aplicar();
+    const obs = new MutationObserver(aplicar);
+    obs.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => obs.disconnect();
+  }, [marca]);
+  return null;
 }
