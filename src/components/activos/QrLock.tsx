@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Loader2, LockKeyhole, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { InputClave } from "@/components/InputClave";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,9 @@ export function QrLock({ codigo, onOk }: { codigo?: string; onOk: () => void }) 
     if (!clave || busy) return;
     setBusy(true);
     setError(null);
-    const { error: err } = (await api.rpc("verificar_clave", { _clave: clave })) as { error: Error | null };
+    const { error: err } = (await api.rpc("verificar_clave", { _clave: clave })) as {
+      error: Error | null;
+    };
     setBusy(false);
     if (err) {
       setError(err.message);
@@ -63,19 +65,26 @@ export function QrLock({ codigo, onOk }: { codigo?: string; onOk: () => void }) 
         <p className="eyebrow mt-4">Acceso por QR</p>
         <h1 className="mt-1 text-lg font-semibold">Confirmá tu clave</h1>
         <p className="mt-1.5 text-[13px] text-muted-foreground">
-          Escaneaste {codigo ? <span className="num font-medium text-foreground">{codigo}</span> : "la etiqueta de un activo"}. Para ver su planilla técnica ingresá la contraseña de{" "}
+          Escaneaste{" "}
+          {codigo ? (
+            <span className="num font-medium text-foreground">{codigo}</span>
+          ) : (
+            "la etiqueta de un activo"
+          )}
+          . Para ver su planilla técnica ingresá la contraseña de{" "}
           <span className="font-medium text-foreground">{profile?.full_name ?? "tu usuario"}</span>.
         </p>
-        <Input
-          type="password"
-          autoFocus
-          autoComplete="current-password"
-          value={clave}
-          onChange={(e) => setClave(e.target.value)}
-          placeholder="Contraseña"
-          aria-invalid={!!error}
-          className="mt-5 h-11 text-center"
-        />
+        <div className="mt-5">
+          <InputClave
+            autoFocus
+            autoComplete="current-password"
+            value={clave}
+            onChange={(e) => setClave(e.target.value)}
+            placeholder="Contraseña"
+            aria-invalid={!!error}
+            className="h-11 pl-10 text-center"
+          />
+        </div>
         {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
         <Button type="submit" className="mt-4 h-11 w-full" disabled={busy || !clave}>
           {busy ? <Loader2 className="animate-spin" /> : <LockKeyhole />} Ver activo
@@ -87,7 +96,9 @@ export function QrLock({ codigo, onOk }: { codigo?: string; onOk: () => void }) 
         >
           No soy {profile?.full_name?.split(" ")[0] ?? "yo"} · cerrar sesión
         </button>
-        <p className="mt-3 text-[11px] text-muted-foreground/80">No se vuelve a pedir durante 10 minutos.</p>
+        <p className="mt-3 text-[11px] text-muted-foreground/80">
+          No se vuelve a pedir durante 10 minutos.
+        </p>
       </form>
     </div>
   );

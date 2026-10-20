@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { InputClave } from "@/components/InputClave";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api/client";
 
@@ -130,11 +130,11 @@ function ResetPasswordPage() {
             <form className="space-y-4" onSubmit={onSubmit}>
               <div className="space-y-2">
                 <Label htmlFor="password">Nueva contraseña</Label>
-                <Input id="password" name="password" type="password" minLength={8} required />
+                <InputClave id="password" name="password" minLength={8} required autoComplete="new-password" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password2">Repetir contraseña</Label>
-                <Input id="password2" name="password2" type="password" minLength={8} required />
+                <InputClave id="password2" name="password2" minLength={8} required autoComplete="new-password" />
               </div>
               <Button type="submit" className="w-full" disabled={busy}>
                 Guardar contraseña
