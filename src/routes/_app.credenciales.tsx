@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { InputClave } from "@/components/InputClave";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -375,7 +376,7 @@ function CredDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Secreto{isEdit ? " (vacío = no cambiar)" : ""}</Label>
-              <Input name="secreto" type="password" required={!isEdit} autoComplete="new-password" />
+              <InputClave name="secreto" required={!isEdit} autoComplete="new-password" />
             </div>
             <div className="space-y-1.5">
               <Label>IP</Label>

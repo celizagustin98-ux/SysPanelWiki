@@ -6,9 +6,10 @@ import { useMarca } from "@/lib/brand";
 const KEY = "syswiki.bienvenida";
 
 /** Se marca al iniciar sesión: la animación se muestra una sola vez por ingreso. */
-export function marcarBienvenida() {
+export function marcarBienvenida(mostrar = true) {
   try {
-    sessionStorage.setItem(KEY, "1");
+    if (mostrar) sessionStorage.setItem(KEY, "1");
+    else sessionStorage.removeItem(KEY);
   } catch {
     /* sin almacenamiento */
   }

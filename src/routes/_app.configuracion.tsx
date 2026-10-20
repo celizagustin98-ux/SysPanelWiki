@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { InputClave } from "@/components/InputClave";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -522,7 +523,7 @@ function ConfiguracionPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Contraseña</Label>
-              <Input name="password" type="password" required minLength={6} />
+              <InputClave name="password" required minLength={8} autoComplete="new-password" />
             </div>
             <div className="space-y-1.5">
               <Label>Rol</Label>
@@ -569,10 +570,10 @@ function ConfiguracionPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Nueva contraseña (opcional)</Label>
-              <Input
+              <InputClave
                 name="password"
-                type="password"
-                minLength={6}
+                minLength={8}
+                autoComplete="new-password"
                 placeholder="Dejar vacío para no cambiar"
               />
             </div>

@@ -20,6 +20,7 @@ import {
 import { BrandLockup } from "@/components/brand/BrandMark";
 import { marcarBienvenida } from "@/components/Bienvenida";
 import { Button } from "@/components/ui/button";
+import { InputClave } from "@/components/InputClave";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api/client";
@@ -254,18 +255,19 @@ function LoginForm({
     const fd = new FormData(e.currentTarget);
     setBusy(true);
     setError(null);
+    // Se marca antes de ingresar: la app se monta apenas hay sesión y la animación lee la marca al montarse.
+    marcarBienvenida();
+    try {
+      sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
+    } catch {
+      /* sin almacenamiento */
+    }
     const { error: err } = await onSubmit(String(fd.get("username")), String(fd.get("password")));
     setBusy(false);
     if (err) {
+      marcarBienvenida(false);
       setError(err);
       setShaking(true);
-    } else {
-      try {
-        sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
-      } catch {
-        /* sin almacenamiento */
-      }
-      marcarBienvenida();
     }
   };
 
@@ -389,6 +391,7 @@ function SignupForm({
     const fd = new FormData(e.currentTarget);
     setBusy(true);
     setError(null);
+    marcarBienvenida();
     const { error: err } = await onSubmit(
       String(fd.get("full_name")),
       String(fd.get("username")),
@@ -396,7 +399,10 @@ function SignupForm({
       String(fd.get("password")),
     );
     setBusy(false);
-    if (err) setError(err);
+    if (err) {
+      marcarBienvenida(false);
+      setError(err);
+    }
   };
 
   return (
@@ -431,10 +437,9 @@ function SignupForm({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password2">Contraseña</Label>
-            <Input
+            <InputClave
               id="password2"
               name="password"
-              type="password"
               minLength={8}
               required
               autoComplete="new-password"
