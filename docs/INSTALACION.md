@@ -88,6 +88,15 @@ sudo bash /opt/nodara/scripts/actualizar.sh
 
 `actualizar.sh` hace un backup de la base en `/var/backups/nodara` (conserva los últimos 14) y trae `main`. Después instala las dependencias y compila; si el build falla, vuelve a la versión anterior. Al final aplica las migraciones y reinicia el servicio.
 
+### Reinstalar desde cero (borra la instalación vieja)
+
+Elimina el servicio, la carpeta, la base y los adjuntos de SysWiki/Nodara, y después instala limpio. No toca PostgreSQL, Docker ni otros servicios. Antes de borrar muestra la lista de lo que va a eliminar y pide escribir `BORRAR`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/celizagustin98-ux/SysPanelWiki/main/deploy/reinstalar.sh -o reinstalar.sh
+sudo bash reinstalar.sh
+```
+
 ---
 
 ## Mantenimiento

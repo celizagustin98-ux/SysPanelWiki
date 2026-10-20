@@ -28,12 +28,24 @@ export DEBIAN_FRONTEND=noninteractive
 
 paso "Paquetes del sistema"
 apt-get update -qq
-apt-get install -y -qq sudo ca-certificates curl gnupg git openssl postgresql postgresql-client >/dev/null
+apt-get install -y -qq sudo ca-certificates curl gnupg git openssl >/dev/null
+# PostgreSQL: si el servidor ya tiene uno andando (de otros sistemas) se usa ese, no se instala otro.
+if command -v pg_lsclusters >/dev/null && pg_lsclusters -h 2>/dev/null | grep -q online; then
+  echo "  PostgreSQL ya instalado: se usa el existente."
+  apt-get install -y -qq postgresql-client >/dev/null || true
+else
+  apt-get install -y -qq postgresql postgresql-client >/dev/null
+fi
 
-if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]]; then
+if ! command -v node >/dev/null; then
   paso "Node.js 22"
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
   apt-get install -y -qq nodejs >/dev/null
+elif [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]]; then
+  # No se actualiza solo: otros servicios del servidor podrían depender de esa versión.
+  echo "Este servidor tiene Node $(node -v) y Nodara necesita 20 o superior." >&2
+  echo "Actualizalo (curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install nodejs) o usá Docker." >&2
+  exit 1
 fi
 echo "  node $(node -v) · npm $(npm -v) · $(psql --version)"
 
@@ -45,6 +57,8 @@ chown -R "$APP_USER:$APP_USER" "$(dirname "$STORAGE_DIR")" /var/backups/nodara
 paso "Base de datos PostgreSQL"
 systemctl enable --now postgresql >/dev/null 2>&1 || true
 DB_PASS="$(openssl rand -hex 24)"
+PG_PORT="$(sudo -u postgres psql -tAc "show port" 2>/dev/null | tr -d ' ' || true)"
+PG_PORT="${PG_PORT:-5432}"
 if sudo -u postgres psql -tAc "select 1 from pg_roles where rolname='$DB_USER'" | grep -q 1; then
   sudo -u postgres psql -qc "alter role $DB_USER with login password '$DB_PASS'"
 else
@@ -68,10 +82,10 @@ chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 paso "Configuración (.env)"
 if [[ -f "$APP_DIR/.env" ]]; then
   echo "  Ya existe $APP_DIR/.env: se conserva (solo se actualiza la clave de la base)."
-  sed -i "s#^DATABASE_URL=.*#DATABASE_URL=postgresql://$DB_USER:$DB_PASS@127.0.0.1:5432/$DB_NAME#" "$APP_DIR/.env"
+  sed -i "s#^DATABASE_URL=.*#DATABASE_URL=postgresql://$DB_USER:$DB_PASS@127.0.0.1:$PG_PORT/$DB_NAME#" "$APP_DIR/.env"
 else
   cat > "$APP_DIR/.env" <<ENV
-DATABASE_URL=postgresql://$DB_USER:$DB_PASS@127.0.0.1:5432/$DB_NAME
+DATABASE_URL=postgresql://$DB_USER:$DB_PASS@127.0.0.1:$PG_PORT/$DB_NAME
 DATABASE_SSL=false
 SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 48 | tr -d '\n')
 PORT=$PORT
