@@ -7,7 +7,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import { EscanerQR, idDesdeQr } from "./EscanerQR";
+import { leerQr } from "@/lib/qr";
+import { EscanerQR } from "./EscanerQR";
 
 export type ActivoLite = { id: string; codigo: string; descripcion: string | null; nombre: string; sector: string | null; rubro: string | null };
 
@@ -83,8 +84,8 @@ export function ActivoPicker({ value, onChange, className }: { value: string | n
         onOpenChange={setEscanear}
         onResult={(texto) => {
           setEscanear(false);
-          const id = idDesdeQr(texto);
-          const a = activos.find((x) => x.id === id);
+          const leido = leerQr(texto);
+          const a = activos.find((x) => (leido?.id ? x.id === leido.id : x.codigo.toUpperCase() === leido?.codigo?.toUpperCase()));
           if (!a) return toast.error("Ese QR no corresponde a un activo registrado");
           onChange(a.id);
           toast.success(`${a.codigo} vinculado`);

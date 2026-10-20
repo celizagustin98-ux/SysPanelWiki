@@ -6,7 +6,7 @@ Wiki operativa con modulos de gestion para sistemas internos. Es una aplicacion 
 
 - **Dashboard**: resumen operativo y alertas.
 - **Tickets**: mesa de ayuda con prioridades, comentarios, adjuntos y equipo vinculado.
-- **Activos IT**: planilla técnica por equipo, QR, reparaciones, asignaciones y controles.
+- **Activos IT**: planilla técnica por equipo, reparaciones, asignaciones y controles. Etiquetas QR para rollo térmico de 57/80 mm o A4; al escanear, acciones rápidas para Sistemas y reporte de fallas sin cuenta para cualquier usuario. Auditoría física por sector con informe PDF, alta con etiquetas preimpresas y ubicación física dentro del sector.
 - **Tóners**: stock, códigos correlativos, movimientos y pedidos al proveedor.
 - **Guardias**: turnos, operarios y liquidación con feriados.
 - **Instructivos**: carpetas, documentos y PDFs.

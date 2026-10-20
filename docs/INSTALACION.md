@@ -111,14 +111,24 @@ sudo bash reinstalar.sh
 
 **Muy importante:** guardá una copia de `.env` fuera del servidor. Sin `SECRETS_ENCRYPTION_KEY` no se pueden leer las credenciales guardadas en el módulo Credenciales.
 
-### HTTPS (recomendado)
+### HTTPS (necesario para escanear con la cámara del celular)
 
-La cámara (escáner QR) y las notificaciones de escritorio solo funcionan con HTTPS. Para tenerlo, poné Nodara detrás de un proxy inverso, por ejemplo **Nginx Proxy Manager**, **Caddy** o **Traefik**:
+La cámara del navegador y las notificaciones de escritorio solo funcionan con HTTPS. En la red interna:
 
+```bash
+sudo bash /opt/nodara/deploy/https.sh
 ```
-# Caddyfile
-nodara.miempresa.local {
-  tls internal
-  reverse_proxy 127.0.0.1:3090
-}
-```
+
+El script levanta un Caddy propio (servicio `nodara-https`) en el puerto **3443**, sin tocar el 80/443 ni otros servicios. Después:
+
+1. En cada celular o PC instalá una vez el certificado raíz: `https://IP:3443/nodara-ca.crt`.
+2. En **Configuración → General → Etiquetas y escaneo QR**, en "Dirección impresa en el QR", poné `https://IP:3443`.
+3. Reimprimí las etiquetas viejas.
+
+Si ya tenés un proxy (Nginx Proxy Manager, Traefik), apuntalo a `127.0.0.1:3090` y usá esa dirección en el paso 2.
+
+### Etiquetas QR
+
+- **Impresora:** térmica de rollo de 57 mm (o 80 mm, se elige en Configuración) o una impresora común con hojas A4 autoadhesivas.
+- **Configuración de la impresora en el sistema operativo:** papel de 57 mm de ancho, márgenes en 0 y escala 100 %.
+- **Formatos:** "Rollo estándar" (60 mm de alto) para equipos grandes y "Rollo mini" (24 mm de alto) para notebooks, celulares y switches.

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { BrandLockup } from "@/components/brand/BrandMark";
 import { marcarBienvenida } from "@/components/Bienvenida";
+import { marcarQrDesbloqueado, olvidarQrDesbloqueo } from "@/lib/qr";
 import { Button } from "@/components/ui/button";
 import { InputClave } from "@/components/InputClave";
 import { Input } from "@/components/ui/input";
@@ -257,15 +258,13 @@ function LoginForm({
     setError(null);
     // Se marca antes de ingresar: la app se monta apenas hay sesión y la animación lee la marca al montarse.
     marcarBienvenida();
-    try {
-      sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
-    } catch {
-      /* sin almacenamiento */
-    }
+    // Recién ingresó con su contraseña: no se le vuelve a pedir al escanear un QR.
+    marcarQrDesbloqueado();
     const { error: err } = await onSubmit(String(fd.get("username")), String(fd.get("password")));
     setBusy(false);
     if (err) {
       marcarBienvenida(false);
+      olvidarQrDesbloqueo();
       setError(err);
       setShaking(true);
     }

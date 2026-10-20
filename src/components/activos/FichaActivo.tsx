@@ -35,6 +35,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { urlQr } from "@/lib/qr";
+import { useQrAjustes } from "./useQrAjustes";
 import { api } from "@/lib/api/client";
 import { cn, formatFecha } from "@/lib/utils";
 import { categoriaInfo, diasHasta, estadoInfo, garantiaInfo, tipoReparacionLabel, type Tono } from "./catalogo";
@@ -112,6 +114,7 @@ export function FichaActivo({
 }) {
   const qc = useQueryClient();
   const [qr, setQr] = useState("");
+  const qrBase = useQrAjustes().ajustes.urlBase;
   const cat = categoriaInfo(item.rubro || item.categoria);
   const Icono = iconoCategoria(item.rubro || item.categoria);
   const est = estadoInfo(item.estado);
@@ -121,13 +124,13 @@ export function FichaActivo({
 
   useEffect(() => {
     let alive = true;
-    QRCode.toString(`${window.location.origin}/inventario?item=${encodeURIComponent(item.id)}`, { type: "svg", margin: 1, errorCorrectionLevel: "M" }).then(
+    QRCode.toString(urlQr(item.codigo, qrBase), { type: "svg", margin: 1, errorCorrectionLevel: "Q" }).then(
       (svg) => alive && setQr(svg),
     );
     return () => {
       alive = false;
     };
-  }, [item.id]);
+  }, [item.id, item.codigo, qrBase]);
 
   const controles = useQuery({
     queryKey: ["inventario-controles", item.id],
@@ -273,6 +276,7 @@ export function FichaActivo({
           <Bloque titulo="Ubicación y asignación">
             <Dato label="Planta" value={item.planta} />
             <Dato label="Sector" value={item.sector} />
+            <Dato label="Ubicación física" value={item.ubicacion_detalle} />
             <Dato label="Asignado a" value={item.asignado_a} />
             <Dato label="Desde" value={item.asignado_a ? fechaHora(item.asignado_desde) : null} />
           </Bloque>
