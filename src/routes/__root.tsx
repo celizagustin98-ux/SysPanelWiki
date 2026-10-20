@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportSysWikiError } from "../lib/error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 
@@ -36,10 +37,8 @@ function StatusFrame({
     <div className="grid min-h-screen place-items-center px-4 py-10">
       <div className="panel w-full max-w-md px-6 py-8 text-center rise-in">
         <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          <span className="grid size-7 place-items-center rounded-lg bg-primary text-[10px] font-bold text-primary-foreground">
-            SI
-          </span>
-          SysIntranet
+          <BrandMark className="size-7" />
+          Nodara
         </div>
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
@@ -131,12 +130,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "SysIntranet | Área de Sistemas" },
+      { title: "Nodara | Área de Sistemas" },
       {
         name: "description",
         content: "Centro de operaciones del Área de Sistemas: tickets, inventario, tóners, guardias e instructivos.",
       },
-      { property: "og:title", content: "SysIntranet | Área de Sistemas" },
+      { property: "og:title", content: "Nodara | Área de Sistemas" },
       {
         property: "og:description",
         content: "Wiki operativa, guardias, inventario, toners, tareas y credenciales.",

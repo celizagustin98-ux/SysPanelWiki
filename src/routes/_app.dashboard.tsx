@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Dashboard · SysIntranet" },
+      { title: "Dashboard · Nodara" },
       {
         name: "description",
         content: "Alertas operativas, guardia del día y cola de trabajo.",

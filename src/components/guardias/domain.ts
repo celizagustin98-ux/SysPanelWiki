@@ -109,8 +109,16 @@ export function ymd(d: Date) {
   return format(d, "yyyy-MM-dd");
 }
 
+// Feriados cargados desde Configuración (tabla `feriados`). Mientras no llegan se usa la lista fija.
+let feriadosDb: Set<string> | null = null;
+
+export function setFeriados(fechas: string[]) {
+  feriadosDb = new Set(fechas.map((f) => String(f).slice(0, 10)));
+}
+
 export function isFeriado(d: Date) {
   if (isSaturday(d) || isSunday(d)) return true;
+  if (feriadosDb) return feriadosDb.has(ymd(d));
   if (FERIADOS_EXTRA.has(ymd(d))) return true;
   return FERIADOS_FIJOS.includes(format(d, "MM-dd"));
 }

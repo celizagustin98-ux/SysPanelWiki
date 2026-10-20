@@ -50,7 +50,7 @@ const COPY: Record<StatusKind, { title: string; body: string; primary: string; s
   },
   maintenance: {
     title: "Mantenimiento en curso",
-    body: "Estamos actualizando SysIntranet. El servicio vuelve en breve.",
+    body: "Estamos actualizando Nodara. El servicio vuelve en breve.",
     primary: "Reintentar",
   },
   offline: {
@@ -78,7 +78,7 @@ export function renderStatusPage(options?: {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <title>${esc(title)} · SysIntranet</title>
+    <title>${esc(title)} · Nodara</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <style>
       :root {
@@ -132,7 +132,7 @@ export function renderStatusPage(options?: {
   </head>
   <body>
     <div class="card">
-      <div class="brand"><span class="brand-mark">SI</span> SysIntranet</div>
+      <div class="brand"><span class="brand-mark">&gt;_</span> Nodara</div>
       ${illustration(kind)}
       <h1>${esc(title)}</h1>
       <p>${esc(body)}</p>
@@ -156,7 +156,7 @@ export function renderMaintenancePage(message?: string): string {
     message:
       message ||
       (typeof process !== "undefined" && process.env?.MAINTENANCE_MESSAGE) ||
-      "Estamos actualizando SysIntranet. El servicio vuelve en breve.",
+      "Estamos actualizando Nodara. El servicio vuelve en breve.",
     statusCode: 503,
   });
 }

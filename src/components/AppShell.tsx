@@ -14,6 +14,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Printer,
+  ScanLine,
   Search,
   Settings2,
   ShieldCheck,
@@ -23,6 +24,9 @@ import {
 import { BrandLockup, BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Notificaciones } from "@/components/Notificaciones";
+import { Bienvenida } from "@/components/Bienvenida";
+import { EscanerQR, idDesdeQr } from "@/components/activos/EscanerQR";
+import { toast } from "sonner";
 import {
   CommandDialog,
   CommandEmpty,
@@ -116,6 +120,19 @@ export function AppShell() {
     }
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [escaner, setEscaner] = useState(false);
+  const alEscanear = (texto: string) => {
+    setEscaner(false);
+    const id = idDesdeQr(texto);
+    if (!id) return toast.error("Ese QR no es una etiqueta de Nodara");
+    // Escaneado desde adentro del sistema: la sesión ya está verificada.
+    try {
+      sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
+    } catch {
+      /* sin almacenamiento */
+    }
+    void navigate({ to: "/inventario", search: { item: id } });
+  };
   const status = useServerStatus();
 
   useEffect(() => {
@@ -281,7 +298,7 @@ export function AppShell() {
           {/* Barra superior escritorio */}
           <header className="sticky top-0 z-30 hidden h-14 items-center gap-4 border-b border-border/70 bg-background/80 px-6 backdrop-blur-md md:flex lg:px-8">
             <nav className="flex min-w-0 items-center gap-1.5 text-[13px]" aria-label="Ubicación">
-              <span className="text-muted-foreground">{current ? GROUP_LABEL[current.group] : "SysIntranet"}</span>
+              <span className="text-muted-foreground">{current ? GROUP_LABEL[current.group] : "Nodara"}</span>
               {current && (
                 <>
                   <ChevronRight className="size-3.5 text-muted-foreground/50" />
@@ -299,6 +316,15 @@ export function AppShell() {
                 <span className="flex-1 text-left">Buscar módulo o acción…</span>
                 <span className="kbd">Ctrl K</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setEscaner(true)}
+                title="Escanear QR de un equipo"
+                aria-label="Escanear QR de un equipo"
+                className="grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <ScanLine className="size-[18px]" />
+              </button>
               <Notificaciones />
               <LiveClock />
             </div>
@@ -311,6 +337,9 @@ export function AppShell() {
               <div className="flex shrink-0 items-center gap-0.5">
                 <Button size="icon" variant="ghost" className="size-9" onClick={() => setPaletteOpen(true)} aria-label="Buscar">
                   <Search className="size-4" />
+                </Button>
+                <Button size="icon" variant="ghost" className="size-9" onClick={() => setEscaner(true)} aria-label="Escanear QR">
+                  <ScanLine className="size-4" />
                 </Button>
                 <Notificaciones />
                 <Button size="icon" variant="ghost" className="size-9" onClick={toggle} aria-label="Cambiar tema">
@@ -347,7 +376,11 @@ export function AppShell() {
           </main>
         </div>
 
+        <Bienvenida />
+        <EscanerQR open={escaner} onOpenChange={setEscaner} onResult={alEscanear} />
+
         <CommandPalette
+          onScan={() => setEscaner(true)}
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
           nav={nav}
@@ -426,7 +459,9 @@ function CommandPalette({
   onToggleTheme,
   onSignOut,
   theme,
+  onScan,
 }: {
+  onScan: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   nav: NavItem[];
@@ -460,6 +495,10 @@ function CommandPalette({
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Acciones">
+          <CommandItem value="escanear qr etiqueta equipo activo camara" onSelect={() => run(onScan)}>
+            <ScanLine />
+            <span>Escanear QR de un equipo</span>
+          </CommandItem>
           <CommandItem value="cambiar tema claro oscuro" onSelect={() => run(onToggleTheme)}>
             {theme === "dark" ? <Sun /> : <Moon />}
             <span>{theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}</span>
@@ -507,7 +546,7 @@ export function PageHeader({
           </div>
         )}
         <div className="min-w-0 space-y-1">
-          <p className="eyebrow">{eyebrow ?? item?.hint ?? "SysIntranet"}</p>
+          <p className="eyebrow">{eyebrow ?? item?.hint ?? "Nodara"}</p>
           <h1 className="text-xl font-semibold tracking-tight sm:text-[1.4rem]">{title}</h1>
           {description ? (
             <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">{description}</p>

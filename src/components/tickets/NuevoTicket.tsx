@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ActivoPicker } from "@/components/activos/ActivoPicker";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ export function NuevoTicket({
   const [asignado, setAsignado] = useState("none");
   const [categoria, setCategoria] = useState("Otro");
   const [saving, setSaving] = useState(false);
+  const [activoId, setActivoId] = useState<string | null>(null);
 
   return (
     <Dialog
@@ -78,6 +80,7 @@ export function NuevoTicket({
               sector: String(fd.get("sector") || "") || null,
               solicitante_nombre: String(fd.get("solicitante") || "") || userName || null,
               solicitante_id: userId ?? null,
+              activo_id: activoId,
               canal: "sistema",
               estado: asignadoId ? "asignado" : "nuevo",
               asignado_a: asignadoId,
@@ -88,6 +91,7 @@ export function NuevoTicket({
             if (error) return toast.error(error.message);
             toast.success("Ticket creado");
             setOpen(false);
+            setActivoId(null);
             const id =
               data && typeof data === "object" && !Array.isArray(data)
                 ? (data as { id?: string }).id
@@ -172,6 +176,10 @@ export function NuevoTicket({
               <div className="space-y-1.5">
                 <Label>Vence</Label>
                 <Input name="vence_el" type="date" />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Equipo (opcional)</Label>
+                <ActivoPicker value={activoId} onChange={setActivoId} />
               </div>
               <div className="col-span-2 space-y-1.5">
                 <Label>Asignar a</Label>

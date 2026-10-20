@@ -29,6 +29,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
+import { Boxes, Paperclip } from "lucide-react";
+import { Adjuntos } from "@/components/Adjuntos";
+import { ActivoPicker } from "@/components/activos/ActivoPicker";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
 import {
@@ -381,6 +384,25 @@ export function TicketDetail({
                   </SelectContent>
                 </Select>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <SectionTitle icon={<Boxes className="size-3.5" />}>Equipo</SectionTitle>
+              {canWrite ? (
+                <ActivoPicker value={ticket.activo_id ?? null} onChange={(id) => void patch({ activo_id: id }, id ? "Equipo vinculado" : "Equipo desvinculado")} />
+              ) : (
+                <p className="text-xs text-muted-foreground">{ticket.activo_id ? "Vinculado a un activo" : "Sin equipo vinculado."}</p>
+              )}
+              {ticket.activo_id && (
+                <Link to="/inventario" search={{ item: ticket.activo_id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                  Ver planilla técnica del equipo →
+                </Link>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <SectionTitle icon={<Paperclip className="size-3.5" />}>Adjuntos</SectionTitle>
+              <Adjuntos entidad="ticket" entidadId={ticket.id} canEdit={canWrite} compacto />
             </div>
 
             {isAdmin && (

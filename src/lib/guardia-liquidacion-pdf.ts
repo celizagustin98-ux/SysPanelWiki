@@ -38,7 +38,7 @@ function buildHtml(input: LiqPdfInput) {
 
   const titulo = (input.titulo || "Liquidación de guardias").trim();
   const notas = (input.notas || "").trim();
-  const pie = (input.pie || "SysPanelWiki · Documento de liquidación interna").trim();
+  const pie = (input.pie || "Nodara · Documento de liquidación interna").trim();
 
   const totN = input.filas.reduce((s, r) => s + r.normales, 0);
   const totF = input.filas.reduce((s, r) => s + r.feriados, 0);
@@ -106,7 +106,7 @@ function buildHtml(input: LiqPdfInput) {
     "@media print{body{padding:0}}" +
     "</style></head><body><div class=\"sheet\">" +
     '<div class="header"><div>' +
-    '<div class="brand">SysIntranet · Área Sistemas</div>' +
+    '<div class="brand">Nodara · Área Sistemas</div>' +
     "<h1>" +
     esc(titulo) +
     "</h1>" +

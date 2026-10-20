@@ -30,7 +30,7 @@ function AppLayout() {
 /** Esqueleto con la forma del sistema: se percibe más rápido que un texto de "cargando". */
 function BootSkeleton() {
   return (
-    <div className="flex min-h-dvh bg-background" aria-busy="true" aria-label="Cargando SysIntranet">
+    <div className="flex min-h-dvh bg-background" aria-busy="true" aria-label="Cargando Nodara">
       <aside className="hidden w-[248px] shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-4 md:flex">
         <div className="flex items-center gap-2.5">
           <BrandMark />

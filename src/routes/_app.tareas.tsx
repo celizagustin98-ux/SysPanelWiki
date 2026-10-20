@@ -34,11 +34,12 @@ import { NuevoTicket } from "@/components/tickets/NuevoTicket";
 
 export const Route = createFileRoute("/_app/tareas")({
   ssr: false,
+  validateSearch: (s: Record<string, unknown>): { ticket?: string } => (typeof s.ticket === "string" ? { ticket: s.ticket } : {}),
   head: () => ({
     meta: [
-      { title: "Tickets · SysIntranet" },
+      { title: "Tickets · Nodara" },
       { name: "description", content: "Bandeja de trabajo interna de sistemas." },
-      { property: "og:title", content: "Tickets | SysIntranet" },
+      { property: "og:title", content: "Tickets | Nodara" },
     ],
   }),
   component: TicketsPage,
@@ -85,7 +86,11 @@ function TicketsPage() {
   const qc = useQueryClient();
   const [vista, setVista] = useState<Vista>("activos");
   const [q, setQ] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { ticket: ticketParam } = Route.useSearch();
+  const [selectedId, setSelectedId] = useState<string | null>(ticketParam ?? null);
+  useEffect(() => {
+    if (ticketParam) setSelectedId(ticketParam);
+  }, [ticketParam]);
   const [reopenId, setReopenId] = useState<string | null>(null);
 
   const { data: tickets = [], isLoading } = useQuery({
@@ -232,16 +237,21 @@ function TicketsPage() {
     };
   }, [openTickets, historyTickets, user?.id]);
 
+  // Si viene por link (ej. desde un activo) y no está en las listas cargadas, se busca suelto.
+  const { data: ticketSuelto } = useQuery({
+    queryKey: ["tareas", "uno", selectedId],
+    enabled: !!selectedId && !tickets.some((t) => t.id === selectedId) && !historyTickets.some((t) => t.id === selectedId),
+    queryFn: async () => {
+      const { data } = await api.from("tareas").select("*").eq("id", selectedId!).maybeSingle();
+      return (data as TicketT | null) ?? null;
+    },
+  });
   const selected = selectedId
-    ? (tickets.find((t) => t.id === selectedId) ?? historyTickets.find((t) => t.id === selectedId) ?? null)
+    ? (tickets.find((t) => t.id === selectedId) ?? historyTickets.find((t) => t.id === selectedId) ?? ticketSuelto ?? null)
     : null;
   const reopenTarget = reopenId
     ? (tickets.find((t) => t.id === reopenId) ?? historyTickets.find((t) => t.id === reopenId))
     : null;
-
-  useEffect(() => {
-    if (selectedId && !tickets.some((t) => t.id === selectedId)) setSelectedId(null);
-  }, [tickets, selectedId]);
 
   const refetch = () => qc.invalidateQueries({ queryKey: ["tareas"] });
 

@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** Isotipo de SysIntranet: prompt de terminal sobre un nodo de red. */
+/** Isotipo de Nodara: prompt de terminal sobre un nodo de red. */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={cn("size-9 shrink-0", className)} aria-hidden="true">
@@ -46,7 +46,7 @@ export function BrandLockup({
             tone === "sidebar" ? "text-sidebar-foreground" : "text-foreground",
           )}
         >
-          SysIntranet
+          Nodara
         </p>
         <p
           className={cn(

@@ -61,7 +61,7 @@ export const Route = createFileRoute("/_app/instructivos")({
   }),
   head: () => ({
     meta: [
-      { title: "Instructivos · SysIntranet" },
+      { title: "Instructivos · Nodara" },
       { name: "description", content: "Biblioteca de instructivos en carpetas, con PDF y su información." },
     ],
   }),

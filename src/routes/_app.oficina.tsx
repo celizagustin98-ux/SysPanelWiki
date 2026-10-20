@@ -8,6 +8,7 @@ import {
   Phone,
   Plus,
   Search,
+  ShoppingCart,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,12 +36,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { PedidoInsumos } from "@/components/oficina/PedidoInsumos";
 
 export const Route = createFileRoute("/_app/oficina")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Oficina · SysIntranet" },
+      { title: "Oficina · Nodara" },
       {
         name: "description",
         content: "Herramientas del día a día: teléfonos internos y más.",
@@ -50,7 +52,7 @@ export const Route = createFileRoute("/_app/oficina")({
   component: OficinaPage,
 });
 
-type TabKey = "telefonos";
+type TabKey = "telefonos" | "insumos";
 
 type Telefono = {
   id: string;
@@ -98,30 +100,33 @@ function OficinaPage() {
   const [tab, setTab] = useState<TabKey>("telefonos");
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Oficina"
-        description="Herramientas puntuales del día a día."
-      />
+    <div className="space-y-3.5">
+      <PageHeader title="Oficina" description="Herramientas del día a día: teléfonos internos y pedidos de insumos a Compras." />
 
-      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
-        <button
-          type="button"
-          onClick={() => setTab("telefonos")}
-          className={cn(
-            "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            tab === "telefonos"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <Phone className="size-3.5" />
-          Teléfonos
-        </button>
-        {/* Futuras solapas: Enlaces, Checklists, etc. */}
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 shadow-xs">
+        {(
+          [
+            ["telefonos", "Teléfonos internos", Phone],
+            ["insumos", "Pedido de insumos", ShoppingCart],
+          ] as const
+        ).map(([k, label, Icono]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+              tab === k ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icono className="size-3.5" />
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab === "telefonos" && <TelefonosPanel />}
+      {tab === "insumos" && <PedidoInsumos />}
     </div>
   );
 }

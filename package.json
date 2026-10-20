@@ -60,6 +60,7 @@
     "embla-carousel-react": "^8.6.0",
     "fflate": "^0.8.3",
     "input-otp": "^1.4.2",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.575.0",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4",

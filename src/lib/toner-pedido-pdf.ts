@@ -99,7 +99,7 @@ function buildHtml(input: PdfPedidoInput) {
     "@media print{body{padding:0}}" +
     "</style></head><body><div class=\"sheet\">" +
     '<div class="header"><div>' +
-    '<div class="brand">SysIntranet · Área Sistemas</div>' +
+    '<div class="brand">Nodara · Área Sistemas</div>' +
     "<h1>Pedido de tóners</h1></div>" +
     '<div class="doc-meta"><strong>PED-' +
     esc(input.numero) +
@@ -117,7 +117,7 @@ function buildHtml(input: PdfPedidoInput) {
     totalU +
     "</strong> unidad(es)</div>" +
     notasBlock +
-    '<div class="footer">SysPanelWiki · Pedido PED-' +
+    '<div class="footer">Nodara · Pedido PED-' +
     esc(input.numero) +
     "</div></div></body></html>"
   );

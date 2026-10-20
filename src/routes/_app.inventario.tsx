@@ -87,7 +87,7 @@ export const Route = createFileRoute("/_app/inventario")({
   validateSearch: (s: Record<string, unknown>) => ({ item: (s.item as string) || undefined }),
   head: () => ({
     meta: [
-      { title: "Activos IT · SysIntranet" },
+      { title: "Activos IT · Nodara" },
       {
         name: "description",
         content: "Inventario operativo por planta, sector, rubro, tipo y propiedad.",
@@ -391,7 +391,7 @@ async function printEtiquetas(rows: Item[]) {
       .pie { margin-top: 4mm; font-size: 7pt; color: #777; }
     </style></head><body>
     <div class="grid">${etiquetas.join("")}</div>
-    <div class="pie">SysIntranet · Área de Sistemas — escaneá el QR para abrir la ficha y registrar el control.</div>
+    <div class="pie">Nodara · Área de Sistemas — escaneá el QR para abrir la ficha y registrar el control.</div>
     <script>window.onload = () => { window.focus(); window.print(); };</script>
     </body></html>`);
   win.document.close();

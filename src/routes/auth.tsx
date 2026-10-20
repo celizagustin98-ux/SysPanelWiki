@@ -18,6 +18,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { BrandLockup } from "@/components/brand/BrandMark";
+import { marcarBienvenida } from "@/components/Bienvenida";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +30,7 @@ export const Route = createFileRoute("/auth")({
   validateSearch: (s: Record<string, unknown>): { redirect?: string } => (typeof s.redirect === "string" ? { redirect: s.redirect } : {}),
   head: () => ({
     meta: [
-      { title: "Acceso · SysIntranet" },
+      { title: "Acceso · Nodara" },
       { name: "description", content: "Acceso al centro de operaciones del Área de Sistemas." },
     ],
   }),
@@ -205,7 +206,7 @@ function ConsolePanel({
       </div>
 
       <p className="relative font-mono text-[10.5px] uppercase tracking-[0.14em] text-sidebar-foreground/30">
-        SysIntranet · Área de Sistemas
+        Nodara · Área de Sistemas
       </p>
     </aside>
   );
@@ -262,6 +263,7 @@ function LoginForm({
       } catch {
         /* sin almacenamiento */
       }
+      marcarBienvenida();
     }
   };
 
