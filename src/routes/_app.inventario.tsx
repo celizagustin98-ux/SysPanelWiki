@@ -9,18 +9,30 @@ import {
   Download,
   FileJson,
   FileSpreadsheet,
-  Filter,
+  Boxes,
   Info,
   Loader2,
   Pencil,
   Plus,
   Printer,
+  MoreHorizontal,
   QrCode,
+  SlidersHorizontal,
+  X,
   Search,
   Trash2,
   Upload,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { QrLock, qrVerificado } from "@/components/activos/QrLock";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import {
@@ -65,6 +77,7 @@ import {
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { StatTile } from "@/components/StatTile";
+import { cn } from "@/lib/utils";
 import { estadoInfo, garantiaInfo, diasHasta } from "@/components/activos/catalogo";
 import { ACTIVO_COLUMNAS_SQL, ActivoDialog, ControlDialog, type Activo } from "@/components/activos/dialogs";
 import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/FichaActivo";
@@ -977,6 +990,11 @@ function InventarioPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { item: itemParam } = Route.useSearch();
+  // Abierto desde un QR (carga directa con ?item=): se pide la clave antes de mostrar nada.
+  const [bloqueadoQr, setBloqueadoQr] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!new URLSearchParams(window.location.search).get("item") && !qrVerificado();
+  });
   const abrirFicha = (id: string | null) =>
     navigate({ to: "/inventario", search: { item: id ?? undefined }, replace: !id });
   const [q, setQ] = useState("");
@@ -989,7 +1007,7 @@ function InventarioPage() {
   const [control, setControl] = useState("todos");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(25);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const deferredQ = useDeferredValue(q);
 
@@ -1058,7 +1076,7 @@ function InventarioPage() {
   const rows = useMemo(
     () =>
       data.filter((item) => {
-        const searchable = INVENTARIO_COLUMNS.map((column) => itemField(item, column)).join(" ");
+        const searchable = INVENTARIO_COLUMNS.map((column) => itemField(item, column)).join(" ") + " " + (item.sistema_operativo ?? "");
         const days = daysSince(item.ultima_vez_controlada);
         const controlMatch =
           control === "todos" ||
@@ -1104,6 +1122,27 @@ function InventarioPage() {
   };
 
   const codigos = useMemo(() => data.map((d) => d.codigo), [data]);
+  const categoriasConteo = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of data) {
+      const c = d.rubro || d.categoria || "Otro";
+      m.set(c, (m.get(c) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [data]);
+  const filtrosExtra = [planta, tipo, propiedad, control].filter((v) => v !== "todos").length;
+  const hayFiltros = filtrosExtra > 0 || [rubro, sector, estado].some((v) => v !== "todos") || !!q;
+  const limpiarFiltros = () => {
+    setQ("");
+    setPlanta("todos");
+    setSector("todos");
+    setRubro("todos");
+    setTipo("todos");
+    setPropiedad("todos");
+    setEstado("todos");
+    setControl("todos");
+    setPage(1);
+  };
   const contarEstado = (v: string) => rows.filter((r) => estadoInfo(r.estado).value === v).length;
   const enUso = contarEstado("operativo");
   const enDeposito = contarEstado("deposito");
@@ -1136,54 +1175,121 @@ function InventarioPage() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  if (bloqueadoQr) {
+    return <QrLock codigo={fichaItem?.codigo} onOk={() => setBloqueadoQr(false)} />;
+  }
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-3.5">
       <PageHeader
         title="Activos IT"
-        description="PCs, servidores, red, impresoras y periféricos: planilla técnica, asignaciones, reparaciones y controles."
+        description="Planilla técnica, asignaciones, reparaciones y controles de cada equipo."
         action={
-          canWrite ? (
-            <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col">
-              <ImportDialog onDone={refresh} />
-              {canCreate && (
-                <ActivoDialog
-                  codigos={codigos}
-                  plantas={options.plantas}
-                  sectores={options.sectores}
-                  trigger={
-                    <Button>
-                      <Plus className="size-4" /> Nuevo activo
-                    </Button>
-                  }
-                  onDone={refresh}
-                />
-              )}
-            </div>
-          ) : null
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <MoreHorizontal /> Más
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Con los {rows.length} filtrados</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => void printEtiquetas(rows)}>
+                  <QrCode /> Imprimir etiquetas QR
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportXlsx(rows)}>
+                  <FileSpreadsheet /> Exportar a Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportCsv(rows)}>
+                  <Download /> Exportar CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportJson(rows)}>
+                  <FileJson /> Exportar JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => printRows(rows)}>
+                  <Printer /> Listado para imprimir
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {canWrite && <ImportDialog onDone={refresh} />}
+            {canWrite && canCreate && (
+              <ActivoDialog
+                codigos={codigos}
+                plantas={options.plantas}
+                sectores={options.sectores}
+                trigger={
+                  <Button>
+                    <Plus className="size-4" /> Nuevo activo
+                  </Button>
+                }
+                onDone={refresh}
+              />
+            )}
+          </div>
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 stagger">
-        <StatTile label="Activos" value={rows.length} hint={`${enUso} en uso · ${enDeposito} en depósito`} />
-        <StatTile label="En reparación" value={enReparacion} hint="servicio técnico abierto" tone={enReparacion ? "warn" : "ok"} />
-        <StatTile label="Fuera de servicio" value={fueraServicio} hint="sin funcionar" tone={fueraServicio ? "crit" : "ok"} />
-        <StatTile label="Garantía por vencer" value={garantiaPorVencer} hint="en los próximos 90 días" tone={garantiaPorVencer ? "warn" : "neutral"} />
-        <StatTile
-          label="Control vencido"
-          value={control180}
-          hint={`${sinControl} nunca controlados`}
-          tone={control180 > 0 ? "crit" : "ok"}
-        />
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5 stagger">
+        {[
+          { label: "Activos", value: data.length, hint: `${enUso} en uso · ${enDeposito} en depósito`, tone: "neutral" as const, filtro: "todos" },
+          { label: "En reparación", value: enReparacion, hint: "servicio técnico", tone: enReparacion ? ("warn" as const) : ("ok" as const), filtro: "En reparación" },
+          { label: "Fuera de servicio", value: fueraServicio, hint: "sin funcionar", tone: fueraServicio ? ("crit" as const) : ("ok" as const), filtro: "Fuera de servicio" },
+          { label: "Garantía por vencer", value: garantiaPorVencer, hint: "próximos 90 días", tone: garantiaPorVencer ? ("warn" as const) : ("neutral" as const), filtro: null },
+          { label: "Control vencido", value: control180, hint: `${sinControl} sin controlar`, tone: control180 ? ("crit" as const) : ("ok" as const), filtro: "control" },
+        ].map((k) => (
+          <button
+            key={k.label}
+            type="button"
+            disabled={!k.filtro}
+            onClick={() => {
+              if (k.filtro === "control") setControl(control === "vencido_180" ? "todos" : "vencido_180");
+              else if (k.filtro) setEstado(estado === k.filtro || k.filtro === "todos" ? "todos" : k.filtro);
+              setPage(1);
+            }}
+            className={cn(
+              "text-left transition-transform disabled:cursor-default enabled:hover:-translate-y-0.5",
+              ((k.filtro === "control" && control === "vencido_180") || (k.filtro && k.filtro !== "todos" && estado === k.filtro)) &&
+                "rounded-xl ring-2 ring-primary",
+            )}
+          >
+            <StatTile label={k.label} value={k.value} hint={k.hint} tone={k.tone} className="h-full py-3" />
+          </button>
+        ))}
       </div>
 
-      <Card className="panel">
-        <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-center">
-            <div className="relative min-w-0">
-              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+        {[["todos", data.length] as const, ...categoriasConteo].map(([cat, n]) => {
+          const Icono = cat === "todos" ? Boxes : iconoCategoria(cat);
+          const activo = rubro === cat;
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => {
+                setRubro(cat);
+                setPage(1);
+              }}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                activo ? "border-primary bg-primary/12 text-primary" : "border-border bg-card text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icono className="size-3.5" />
+              {cat === "todos" ? "Todas" : cat}
+              <span className="num text-[10.5px] opacity-70">{n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Card className="panel overflow-hidden">
+        <CardContent className="p-0">
+          <div className="flex flex-col gap-2 border-b border-border p-3 md:flex-row md:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="pl-9"
-                placeholder="Buscar por planta, sector, descripcion, marca, serie o propiedad"
+                className="h-9 pl-9"
+                placeholder="Buscar código, descripción, IP, hostname, serie, sector, persona…"
                 value={q}
                 onChange={(e) => {
                   setQ(e.target.value);
@@ -1191,116 +1297,63 @@ function InventarioPage() {
                 }}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              <Button variant="outline" onClick={() => void printEtiquetas(rows)} title="Imprime etiquetas QR de los equipos filtrados">
-                <QrCode className="size-4" /> Etiquetas
-              </Button>
-              <Button variant="outline" onClick={() => exportXlsx(rows)}>
-                <FileSpreadsheet className="size-4" /> Excel
-              </Button>
-              <Button variant="outline" onClick={() => exportCsv(rows)}>
-                <Download className="size-4" /> CSV
-              </Button>
-              <Button variant="outline" onClick={() => exportJson(rows)}>
-                <FileJson className="size-4" /> JSON
-              </Button>
-              <Button variant="outline" onClick={() => printRows(rows)}>
-                <Printer className="size-4" /> PDF
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-7">
-            <FilterSelect label="Todas las plantas" value={planta} onChange={setPlanta} options={options.plantas} />
-            <FilterSelect label="Todos los sectores" value={sector} onChange={setSector} options={options.sectores} />
-            <FilterSelect label="Todas las categorías" value={rubro} onChange={setRubro} options={options.rubros} />
-            <FilterSelect label="Todos los modelos" value={tipo} onChange={setTipo} options={options.tipos} />
-            <FilterSelect
-              label="Todas las propiedades"
-              value={propiedad}
-              onChange={setPropiedad}
-              options={options.propiedades}
-            />
-            <FilterSelect label="Todos los estados" value={estado} onChange={setEstado} options={options.estados} />
-            <Select value={control} onValueChange={(value) => { setControl(value); setPage(1); }}>
-              <SelectTrigger className="w-full md:w-44">
-                <SelectValue placeholder="Control" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos los controles</SelectItem>
-                <SelectItem value="sin_control">Sin control</SelectItem>
-                <SelectItem value="vencido_90">Más de 90 días</SelectItem>
-                <SelectItem value="vencido_180">Más de 180 días</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
             <div className="flex flex-wrap items-center gap-2">
-              <Filter className="size-4" />
-              <span>
-                Mostrando {paginatedRows.length} de {rows.length} filtrado(s), {data.length} total(es)
-              </span>
-              {isFetching && <Badge variant="outline">Actualizando...</Badge>}
-              {canDelete && selectedRows.length > 0 && (
-                <Badge variant="secondary">{selectedRows.length} seleccionado(s)</Badge>
+              <FilterSelect label="Todos los estados" value={estado} onChange={(v) => { setEstado(v); setPage(1); }} options={options.estados} />
+              <FilterSelect label="Todos los sectores" value={sector} onChange={(v) => { setSector(v); setPage(1); }} options={options.sectores} />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-9">
+                    <SlidersHorizontal /> Filtros
+                    {filtrosExtra > 0 && <span className="num rounded bg-primary px-1.5 text-[10px] text-primary-foreground">{filtrosExtra}</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="grid w-72 gap-2">
+                  <p className="eyebrow">Más filtros</p>
+                  <FilterSelect label="Todas las plantas" value={planta} onChange={(v) => { setPlanta(v); setPage(1); }} options={options.plantas} />
+                  <FilterSelect label="Todos los modelos" value={tipo} onChange={(v) => { setTipo(v); setPage(1); }} options={options.tipos} />
+                  <FilterSelect label="Todas las propiedades" value={propiedad} onChange={(v) => { setPropiedad(v); setPage(1); }} options={options.propiedades} />
+                  <Select value={control} onValueChange={(value) => { setControl(value); setPage(1); }}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Control" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos los controles</SelectItem>
+                      <SelectItem value="sin_control">Nunca controlados</SelectItem>
+                      <SelectItem value="vencido_90">Más de 90 días</SelectItem>
+                      <SelectItem value="vencido_180">Más de 180 días</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </PopoverContent>
+              </Popover>
+              {hayFiltros && (
+                <Button variant="ghost" className="h-9" onClick={limpiarFiltros}>
+                  <X /> Limpiar
+                </Button>
               )}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+          </div>
+
+          {(isFetching || (canDelete && selectedRows.length > 0)) && (
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs">
+              <span className="text-muted-foreground">
+                {canDelete && selectedRows.length > 0 ? `${selectedRows.length} seleccionado(s)` : "Actualizando…"}
+              </span>
               {canDelete && selectedRows.length > 0 && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  className="h-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
                   disabled={bulkDelete.isPending}
                   onClick={() => setPendingDeleteIds(selectedRows.map((row) => row.id))}
                 >
-                  <Trash2 className="size-4" />
-                  {bulkDelete.isPending ? "Eliminando..." : "Eliminar seleccionados"}
+                  <Trash2 className="size-3.5" />
+                  {bulkDelete.isPending ? "Eliminando…" : "Eliminar seleccionados"}
                 </Button>
               )}
-              <Badge variant="secondary">Columnas normalizadas para importacion</Badge>
             </div>
-          </div>
+          )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
-            <div className="text-muted-foreground">
-              Página {safePage} de {totalPages}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={String(pageSize)}
-                onValueChange={(value) => {
-                  setPageSize(Number(value) as typeof pageSize);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="h-9 w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAGE_SIZES.map((value) => (
-                    <SelectItem key={value} value={String(value)}>
-                      {value} por página
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage((p) => p - 1)}>
-                Anterior
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={safePage >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Siguiente
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-2.5 lg:hidden">
+          <div className="grid gap-2 p-3 lg:hidden">
             {paginatedRows.map((item) => {
               const est = estadoInfo(item.estado);
               const Icono = iconoCategoria(item.rubro || item.categoria);
@@ -1335,9 +1388,9 @@ function InventarioPage() {
             )}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-lg border border-border/70 lg:block">
+          <div className="hidden overflow-auto lg:block lg:max-h-[calc(100dvh-30rem)] lg:min-h-64">
             <Table className="min-w-[1080px]">
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 [&_th]:bg-muted">
                 <TableRow>
                   {canDelete && (
                     <TableHead className="w-10">
@@ -1468,6 +1521,42 @@ function InventarioPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+            <span className="num">
+              {rows.length === 0 ? "0" : `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, rows.length)}`} de {rows.length}
+              {rows.length !== data.length ? ` (filtrados de ${data.length})` : ""}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => {
+                  setPageSize(Number(value) as typeof pageSize);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[118px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      {value} por página
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" className="h-8" disabled={safePage <= 1} onClick={() => setPage((p) => p - 1)}>
+                Anterior
+              </Button>
+              <span className="num px-1">
+                {safePage}/{totalPages}
+              </span>
+              <Button variant="outline" size="sm" className="h-8" disabled={safePage >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                Siguiente
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

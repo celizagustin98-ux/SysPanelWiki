@@ -399,7 +399,7 @@
     overflow: hidden;
     border-radius: var(--radius-xl);
     background: var(--color-card);
-    padding: 1rem 1.1rem;
+    padding: 0.85rem 1rem;
     box-shadow: var(--shadow-panel);
     min-width: 0;
   }
@@ -413,9 +413,9 @@
   }
 
   .kpi-cell .kpi-value {
-    margin-top: 0.4rem;
+    margin-top: 0.3rem;
     font-family: var(--font-mono);
-    font-size: 1.65rem;
+    font-size: 1.5rem;
     font-weight: 600;
     letter-spacing: -0.04em;
     line-height: 1.1;
@@ -589,6 +589,31 @@
     background: var(--meter, var(--color-primary));
     transform-origin: left;
     animation: meter-grow 0.9s var(--ease-out-expo) both;
+  }
+}
+
+@utility bell-ring {
+  transform-origin: 50% 10%;
+  animation: bell-ring 0.9s ease-in-out;
+}
+
+@utility pop-in {
+  animation: pop-in 0.35s var(--ease-out-expo) both;
+}
+
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+
+@keyframes pop-in {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
   }
 }
 

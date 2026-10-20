@@ -16,7 +16,9 @@ function AppLayout() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && !session && !error) navigate({ to: "/auth", replace: true });
+    // Se recuerda adónde iba (ej. la planilla de un activo escaneado) para volver después del login.
+    if (!loading && !session && !error)
+      navigate({ to: "/auth", search: { redirect: window.location.pathname + window.location.search }, replace: true });
   }, [loading, session, error, navigate]);
 
   if (error && !session) return <BootError message={error} onRetry={retry} />;

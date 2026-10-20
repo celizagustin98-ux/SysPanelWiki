@@ -233,6 +233,12 @@ function Dashboard() {
           .sort((a, b) => rank(a.prioridad) - rank(b.prioridad))
           .slice(0, 6),
         guardia: resolveGuardiaAhora(guardias, now),
+        proximas: guardias
+          .map((g) => ({ ...g, s: parseLocal(g.desde) ?? new Date(g.desde) }))
+          .filter((g) => g.s > now && !isVacacion(g as never))
+          .sort((a, b) => a.s.getTime() - b.s.getTime())
+          .slice(1, 5)
+          .map(({ operador_nombre, desde }) => ({ operador_nombre, desde })),
         misTareas: misTareas.filter((t) => isAbierto(t.estado)).slice(0, 8),
       };
     },
@@ -347,7 +353,7 @@ function Dashboard() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <GuardiaCard guardia={guardia} loading={isLoading} canOpen={can("guardias", "view")} />
+        <GuardiaCard guardia={guardia} proximas={data?.proximas ?? []} loading={isLoading} canOpen={can("guardias", "view")} />
 
         <TicketList
           title="Asignados a vos"
@@ -444,10 +450,12 @@ function PanelHeader({
 
 function GuardiaCard({
   guardia,
+  proximas,
   loading,
   canOpen,
 }: {
   guardia: GuardiaEstado | null;
+  proximas: { operador_nombre: string; desde: string }[];
   loading: boolean;
   canOpen: boolean;
 }) {
@@ -519,6 +527,24 @@ function GuardiaCard({
               <span className="led" data-tone="warn" data-pulse="true" /> Sin cobertura cargada
             </span>
             <p className="text-xs text-muted-foreground">No hay un turno vigente ni próximo en la planilla.</p>
+          </div>
+        )}
+        {!loading && proximas.length > 0 && (
+          <div className="mt-auto border-t border-border/70 pt-3">
+            <p className="eyebrow mb-2">Próximas</p>
+            <ul className="space-y-1.5 stagger">
+              {proximas.map((p) => {
+                const d = parseLocal(p.desde) ?? new Date(p.desde);
+                return (
+                  <li key={p.desde + p.operador_nombre} className="flex items-center justify-between gap-2 text-[13px]">
+                    <span className="truncate">{p.operador_nombre}</span>
+                    <span className="num shrink-0 text-xs text-muted-foreground first-letter:uppercase">
+                      {format(d, "EEE dd/MM", { locale: es })}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
       </div>

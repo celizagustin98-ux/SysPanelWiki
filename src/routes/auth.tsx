@@ -26,6 +26,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (s: Record<string, unknown>): { redirect?: string } => (typeof s.redirect === "string" ? { redirect: s.redirect } : {}),
   head: () => ({
     meta: [
       { title: "Acceso · SysIntranet" },
@@ -57,6 +58,7 @@ function useClock() {
 function AuthPage() {
   const { session, signIn, signUp } = useAuth();
   const navigate = useNavigate();
+  const { redirect } = Route.useSearch();
   const [mode, setMode] = useState<"login" | "signup">("login");
 
   const health = useQuery({
@@ -67,8 +69,11 @@ function AuthPage() {
   });
 
   useEffect(() => {
-    if (session) navigate({ to: "/dashboard", replace: true });
-  }, [session, navigate]);
+    if (!session) return;
+    // Solo rutas internas: evita redirecciones a otros sitios.
+    const destino = redirect && redirect.startsWith("/") && !redirect.startsWith("//") && !redirect.startsWith("/auth") ? redirect : "/dashboard";
+    navigate({ href: destino, replace: true });
+  }, [session, navigate, redirect]);
 
   const setupRequired = !!health.data?.setupRequired;
   const signupEnabled = !!health.data?.signupEnabled;
@@ -251,6 +256,12 @@ function LoginForm({
     if (err) {
       setError(err);
       setShaking(true);
+    } else {
+      try {
+        sessionStorage.setItem("syswiki.qr.ok", String(Date.now()));
+      } catch {
+        /* sin almacenamiento */
+      }
     }
   };
 
