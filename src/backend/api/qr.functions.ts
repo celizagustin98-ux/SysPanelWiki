@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireAppAuth } from "@/backend/core/auth-middleware";
 import { assertAdmin, hashPassword, hasModulePermission, one, pool, query, verifyPassword } from "@/backend/core/db";
+import { validarPin } from "@/backend/core/seguridad";
 
 /* ───────────────────────────── Ajustes del QR ───────────────────────────── */
 
@@ -56,6 +57,8 @@ export const qrGuardarAjustes = createServerFn({ method: "POST" })
 /* ─────────────────────────── Clave o PIN al escanear ─────────────────────────── */
 
 const intentos = new Map<string, { n: number; hasta: number }>();
+/** Fallos seguidos de PIN por usuario: al llegar a 10 se borra el PIN y se pide la contraseña. */
+const fallosPin = new Map<string, number>();
 
 function frenar(userId: string) {
   const now = Date.now();
@@ -81,9 +84,19 @@ export const qrVerificar = createServerFn({ method: "POST" })
       : !!u && (await verifyPassword(data.clave, u.password_hash));
     if (!ok) {
       fallo(context.userId);
+      if (data.pin) {
+        const n = (fallosPin.get(context.userId) ?? 0) + 1;
+        fallosPin.set(context.userId, n);
+        if (n >= 10) {
+          await query(`update app_users set qr_pin_hash = null where id = $1`, [context.userId]);
+          fallosPin.delete(context.userId);
+          throw new Error("Demasiados PIN incorrectos: el PIN se borró. Entrá con tu contraseña y creá uno nuevo.");
+        }
+      }
       throw new Error(data.pin ? "PIN incorrecto" : "Clave incorrecta");
     }
     intentos.delete(context.userId);
+    fallosPin.delete(context.userId);
     return { ok: true };
   });
 
@@ -92,7 +105,7 @@ export const qrGuardarPin = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
   .validator((d: { clave: string; pin?: string | null }) => {
     const pin = d?.pin ? String(d.pin) : null;
-    if (pin && !/^\d{4,6}$/.test(pin)) throw new Error("El PIN debe tener de 4 a 6 números");
+    if (pin) validarPin(pin);
     return { clave: String(d?.clave ?? ""), pin };
   })
   .handler(async ({ data, context }) => {

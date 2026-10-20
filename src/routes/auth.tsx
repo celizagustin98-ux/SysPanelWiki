@@ -439,11 +439,12 @@ function SignupForm({
             <InputClave
               id="password2"
               name="password"
-              minLength={8}
+              minLength={10}
               required
               autoComplete="new-password"
               className="h-10"
             />
+            <p className="text-[11px] text-muted-foreground">10 o más caracteres, con letras y números.</p>
           </div>
         </div>
         <div className="space-y-1.5">

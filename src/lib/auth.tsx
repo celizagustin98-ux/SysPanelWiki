@@ -69,7 +69,7 @@ function traducirError(msg: string): string {
     m.includes("authentification par mot de passe") ||
     (m.includes("authentication failed") && m.includes("syswiki"))
   ) {
-    return "La aplicacion no puede conectar a PostgreSQL (usuario syswiki). Revisá DATABASE_URL en el servidor: la clave del usuario de base no coincide.";
+    return "El servidor no puede conectarse a la base de datos. Avisá al administrador.";
   }
   if (
     m.includes("econnrefused") ||
@@ -77,10 +77,10 @@ function traducirError(msg: string): string {
     m.includes("could not connect") ||
     m.includes("connect econnrefused")
   ) {
-    return "No hay conexion con PostgreSQL. Verificá que el servicio este activo y que DATABASE_URL apunte al host/puerto correctos.";
+    return "El servidor no puede conectarse a la base de datos. Avisá al administrador.";
   }
   if (m.includes("does not exist") && (m.includes("database") || m.includes("relation") || m.includes("role"))) {
-    return "Falta la base o las tablas. En el servidor ejecuta: npm run db:init";
+    return "El sistema no terminó de instalarse. Avisá al administrador.";
   }
   if (m.includes("invalid login credentials") || m.includes("usuario o contrasena incorrectos"))
     return "Usuario o contraseña incorrectos.";
@@ -89,7 +89,7 @@ function traducirError(msg: string): string {
   if (m.includes("known to be weak") || m.includes("pwned"))
     return "Esa contraseña es demasiado común e insegura. Elegí una más fuerte (mayúsculas, números y símbolos).";
   if (m.includes("password should be at least") || m.includes("at least 6") || m.includes("al menos 8"))
-    return "La contraseña debe tener al menos 8 caracteres.";
+    return "La contraseña debe tener al menos 10 caracteres, con letras y números.";
   if (
     m.includes("user already registered") ||
     m.includes("already been registered") ||
@@ -102,7 +102,7 @@ function traducirError(msg: string): string {
   if (m.includes("rate limit") || m.includes("too many"))
     return "Demasiados intentos. Esperá unos minutos y volvé a intentar.";
   if (m.includes("database error") || m.includes("error: 28p01"))
-    return "Error de base de datos al crear la cuenta. Revisá DATABASE_URL y que PostgreSQL acepte al usuario syswiki.";
+    return "No se pudo crear la cuenta por un error del servidor. Avisá al administrador.";
   return msg;
 }
 

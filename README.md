@@ -46,7 +46,7 @@ src/lib/       FRONTEND: cliente de API, auth, tema, PDFs
 .github/       CI y plantillas de PR / issues
 ```
 
-Detalle y reglas: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+Detalle y reglas: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md). Seguridad: [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md).
 
 ## Desarrollo
 

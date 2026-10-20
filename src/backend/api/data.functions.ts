@@ -21,6 +21,7 @@ import {
   verifyPassword,
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
+import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
 import { alertasArea, notificarCambios } from "@/backend/core/notificaciones";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
@@ -179,6 +180,14 @@ async function writeAudit(
   );
 }
 
+/** Columnas que identifican a quien hace la acción: siempre las completa el servidor. */
+const CAMPOS_AUTOR = ["autor_id", "created_by", "actor_id", "controlado_por"] as const;
+function forzarAutor(row: Record<string, unknown>, userId: string) {
+  const r = { ...row };
+  for (const campo of CAMPOS_AUTOR) if (campo in r) r[campo] = userId;
+  return r;
+}
+
 function prepareCredentialPayload(payload: Record<string, unknown>) {
   const next = { ...payload };
   if ("secreto" in next) next.secreto = encryptSecret(next.secreto as string | null | undefined);
@@ -278,6 +287,8 @@ async function assertModulo(userId: string, table: string, accion: keyof typeof 
 }
 
 async function assertWriteAccess(userId: string, table: string, accion: "insert" | "update" | "delete" = "update", filters?: Filter[], values?: MutateInput["values"]) {
+  // El registro de auditoría no se puede editar ni borrar por la API (solo depurar desde Configuración → Datos).
+  if (table === "audit_log" || table === "inventario_escaneos") throw new Error("Este registro no se puede modificar");
   if (["app_settings", "role_permissions", "roles", "user_roles", "profiles", "feriados"].includes(table)) {
     await assertAdmin(userId);
     return;
@@ -346,10 +357,10 @@ export const apiSelect = createServerFn({ method: "POST" })
     }
     const cols = parseColumns(data.columns);
     let sql = `select ${cols} from ${table}${where}${appendOrder(data.order)}`;
-    if (data.limit) {
-      values.push(data.limit);
-      sql += ` limit $${values.length}`;
-    }
+    // Siempre con tope: evita volcar tablas enteras en una sola respuesta.
+    const limite = Math.min(Math.max(1, Math.floor(Number(data.limit) || 5000)), 10000);
+    values.push(limite);
+    sql += ` limit $${values.length}`;
     const result = await query(sql, values);
     const rows = sanitizeRows(table, await withJoinedModels(table, result.rows)());
     return { data: data.maybeSingle ? (rows[0] ?? null) : rows, count: null, error: null };
@@ -385,7 +396,9 @@ export const apiMutate = createServerFn({ method: "POST" })
     }
 
     if (data.action === "update") {
-      let payload = data.values as Record<string, unknown>;
+      let payload = { ...(data.values as Record<string, unknown>) };
+      for (const campo of CAMPOS_AUTOR) delete payload[campo];
+      delete payload.id;
       if (table === "credenciales") payload = prepareCredentialPayload(payload);
       if (table === "wiki_docs") await snapshotWikiDoc(session.user.id, data.filters);
       const assignments = Object.keys(payload).map((key) => {
@@ -407,6 +420,9 @@ export const apiMutate = createServerFn({ method: "POST" })
 
     let rows = Array.isArray(data.values) ? data.values : [data.values as Record<string, unknown>];
     if (!rows.length || !rows[0]) throw new Error("Sin datos para insertar");
+    if (rows.length > 1000) throw new Error("Demasiados registros en una sola operación");
+    // Quién hizo algo lo decide el servidor, no el navegador (evita suplantar a otro usuario).
+    rows = rows.map((row) => forzarAutor(row, session.user.id));
     if (table === "credenciales") rows = rows.map((row) => prepareCredentialPayload(row));
     if (table === "tareas") {
       const prepared: Record<string, unknown>[] = [];
@@ -441,6 +457,7 @@ export const apiRpc = createServerFn({ method: "POST" })
       return { data: result.rows, error: null };
     }
     if (data.name === "audit_actores") {
+      if (!(await hasModulePermission(session.user.id, "auditoria", "ver"))) throw new Error("Tu rol no tiene permiso para ver la auditoría");
       const result = await query(`select id as actor_id, full_name as actor_nombre, email as actor_email from profiles order by full_name`);
       return { data: result.rows, error: null };
     }
@@ -515,11 +532,13 @@ export const apiRpc = createServerFn({ method: "POST" })
       return { data: { ok: true }, error: null };
     }
     if (data.name === "registrar_vista_instructivo") {
+      if (!(await hasModulePermission(session.user.id, "instructivos", "ver"))) return { data: null, error: null };
       const id = String(data.args?._id ?? "");
       if (id) await query(`update wiki_docs set views = views + 1 where id = $1`, [id]);
       return { data: null, error: null };
     }
     if (data.name === "buscar_instructivos") {
+      if (!(await hasModulePermission(session.user.id, "instructivos", "ver"))) throw new Error("Tu rol no tiene permiso en Instructivos");
       const term = String(data.args?._q ?? "").trim();
       if (!term) return { data: [], error: null };
       const like = `%${term.replace(/[%_]/g, "\\$&")}%`;
@@ -703,54 +722,6 @@ export const apiRpc = createServerFn({ method: "POST" })
     throw new Error("Función no permitida");
   });
 
-export const authGetSession = createServerFn({ method: "POST" })
-  .validator((data: { token?: string | null }) => data)
-  .handler(async ({ data }) => ({ session: await getSession(data.token) }));
-
-export const authSignIn = createServerFn({ method: "POST" })
-  .validator((data: { username: string; password: string }) => data)
-  .handler(async ({ data }) => {
-    const username = (data.username ?? "").trim().toLowerCase();
-    const user = await one<{ id: string; password_hash: string }>(`select u.id, u.password_hash from app_users u join profiles p on p.id = u.id where p.username = $1 or u.email = $1`, [username]);
-    if (!user || !(await verifyPassword(data.password ?? "", user.password_hash))) {
-      try { await query(`insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_desc, detalle) values (null, $1, '', 'usuarios', 'login_fallido', $1, $2::jsonb)`, [username, JSON.stringify({ username })]); } catch { /* ignore */ }
-      throw new Error("Usuario o contraseña incorrectos");
-    }
-    const token = await createSession(user.id);
-    await writeAudit(user.id, "profiles", "login", [{ id: user.id }], {}, "usuarios");
-    return { session: await getSession(token) };
-  });
-
-export const authSignUp = createServerFn({ method: "POST" })
-  .validator((data: { fullName: string; username: string; email: string; password: string }) => data)
-  .handler(async ({ data }) => {
-    const fullName = (data.fullName ?? "").trim();
-    const username = (data.username ?? "").trim().toLowerCase();
-    const email = (data.email ?? "").trim().toLowerCase();
-    if (fullName.length < 2) throw new Error("Ingresá tu nombre y apellido");
-    if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error("Usuario inválido");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
-    if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
-    const userCount = await one<{ count: string }>(`select count(*)::text as count from app_users`);
-    if (Number(userCount?.count ?? 0) > 0 && process.env.ALLOW_PUBLIC_SIGNUP !== "true") throw new Error("El registro público está deshabilitado. Un administrador debe crear el usuario.");
-    const exists = await one(`select id from app_users where email = $1 union select id from profiles where username = $2`, [email, username]);
-    if (exists) throw new Error("Ese usuario o correo ya está registrado");
-    const passwordHash = await hashPassword(data.password);
-    const result = await query<{ id: string }>(`insert into app_users (email, password_hash) values ($1, $2) returning id`, [email, passwordHash]);
-    const userId = result.rows[0].id;
-    await query(`insert into profiles (id, full_name, email, username) values ($1, $2, $3, $4)`, [userId, fullName, email, username]);
-    await query(`insert into user_roles (user_id, role) values ($1, $2)`, [userId, Number(userCount?.count ?? 0) === 0 ? "administrador" : "consulta"]);
-    const token = await createSession(userId);
-    return { session: await getSession(token) };
-  });
-
-export const authSignOut = createServerFn({ method: "POST" })
-  .validator((data: { token?: string | null }) => data)
-  .handler(async ({ data }) => {
-    await deleteSession(data.token);
-    return { ok: true };
-  });
-
 export const authResetPassword = createServerFn({ method: "POST" })
   .validator((data: { email: string }) => data)
   .handler(async () => {
@@ -761,7 +732,7 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
   .validator((data: { token?: string | null; password: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
-    if ((data.password ?? "").length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
+    validarClave(data.password ?? "", session.profile.username);
     await query(`update app_users set password_hash = $1 where id = $2`, [await hashPassword(data.password), session.user.id]);
     // Cierra las demás sesiones abiertas de este usuario.
     await query(`delete from app_sessions where user_id = $1 and token_hash <> encode(sha256(convert_to($2, 'utf8')), 'hex')`, [session.user.id, data.token ?? ""]);
@@ -769,11 +740,28 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Carpetas de archivos y el módulo que controla cada una. */
+async function assertArchivo(userId: string, bucket: string, path: string, accion: "ver" | "crear" | "eliminar") {
+  if (bucket === "instructivos") {
+    if (!(await hasModulePermission(userId, "instructivos", accion))) throw new Error("Tu rol no tiene permiso en Instructivos");
+    return;
+  }
+  if (bucket === "adjuntos") {
+    const modulo = String(path).startsWith("ticket/") ? "tareas" : "inventario";
+    // Subir o quitar un adjunto es editar el ticket o el activo.
+    const permiso = accion === "ver" ? "ver" : "editar";
+    if (!(await hasModulePermission(userId, modulo, permiso))) throw new Error("Tu rol no tiene permiso para esos archivos");
+    return;
+  }
+  throw new Error("Carpeta de archivos no permitida");
+}
+
 export const storageUpload = createServerFn({ method: "POST" })
   .validator((data: { token?: string | null; bucket: string; path: string; base64: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
-    await assertCanWrite(session.user.id);
+    await assertArchivo(session.user.id, String(data.bucket), String(data.path), "crear");
+    validarNombreArchivo(data.path);
     await saveFile(data.bucket, data.path, data.base64);
     return { data: { path: data.path }, error: null };
   });
@@ -781,7 +769,8 @@ export const storageUpload = createServerFn({ method: "POST" })
 export const storageSignedUrl = createServerFn({ method: "POST" })
   .validator((data: { token?: string | null; bucket: string; path: string }) => data)
   .handler(async ({ data }) => {
-    await requireSession(data.token);
+    const session = await requireSession(data.token);
+    await assertArchivo(session.user.id, String(data.bucket), String(data.path), "ver");
     return { data: { signedUrl: await readFileAsDataUrl(data.bucket, data.path) }, error: null };
   });
 
@@ -789,7 +778,7 @@ export const storageRemove = createServerFn({ method: "POST" })
   .validator((data: { token?: string | null; bucket: string; path: string }) => data)
   .handler(async ({ data }) => {
     const session = await requireSession(data.token);
-    await assertCanWrite(session.user.id);
+    await assertArchivo(session.user.id, String(data.bucket), String(data.path), "eliminar");
     await removeFile(data.bucket, data.path);
     return { data: null, error: null };
   });

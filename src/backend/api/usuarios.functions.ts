@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireAppAuth } from "@/backend/core/auth-middleware";
 import { assertAdmin, hashPassword, invalidateAuthCache, query } from "@/backend/core/db";
+import { validarClave } from "@/backend/core/seguridad";
 
 type AppRole = string;
 
@@ -54,7 +55,7 @@ export const crearUsuario = createServerFn({ method: "POST" })
       const fullName = (data?.fullName ?? "").trim();
       const role = data?.role;
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
-      if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
+      validarClave(password, username);
       if (fullName.length < 2 || fullName.length > 120) throw new Error("Nombre inválido");
       if (!role) throw new Error("Rol inválido");
       return { email, username, password, fullName, role };
@@ -117,8 +118,7 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
     const password = data.password?.trim();
     if (fullName !== undefined && (fullName.length < 2 || fullName.length > 120))
       throw new Error("Nombre inválido");
-    if (password && password.length < 8)
-      throw new Error("La contraseña debe tener al menos 8 caracteres");
+    if (password) validarClave(password);
     return { userId: data.userId, fullName, password };
   })
   .handler(async ({ data, context }) => {

@@ -130,11 +130,11 @@ function ResetPasswordPage() {
             <form className="space-y-4" onSubmit={onSubmit}>
               <div className="space-y-2">
                 <Label htmlFor="password">Nueva contraseña</Label>
-                <InputClave id="password" name="password" minLength={8} required autoComplete="new-password" />
+                <InputClave id="password" name="password" minLength={10} required autoComplete="new-password" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password2">Repetir contraseña</Label>
-                <InputClave id="password2" name="password2" minLength={8} required autoComplete="new-password" />
+                <InputClave id="password2" name="password2" minLength={10} required autoComplete="new-password" />
               </div>
               <Button type="submit" className="w-full" disabled={busy}>
                 Guardar contraseña
