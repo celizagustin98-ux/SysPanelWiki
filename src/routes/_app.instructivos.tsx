@@ -967,7 +967,7 @@ function UploadDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && !busy && (done ? void onDone() : onClose())}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[calc(var(--av)*0.90)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Subir {rows.length === 1 ? "instructivo" : `${rows.length} instructivos`}</DialogTitle>
           <DialogDescription>Completá la información de cada PDF. El título se toma del nombre del archivo.</DialogDescription>
@@ -1259,13 +1259,13 @@ function DocViewer({
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="panel overflow-hidden">
           {loadingPdf ? (
-            <div className="grid h-[70vh] place-items-center text-sm text-muted-foreground">
+            <div className="grid h-[calc(var(--av)*0.70)] place-items-center text-sm text-muted-foreground">
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : pdfSrc ? (
-            <iframe title={doc.title} src={pdfSrc} className="h-[min(78vh,900px)] w-full border-0 bg-muted" />
+            <iframe title={doc.title} src={pdfSrc} className="h-[min(calc(var(--av)*0.78),900px)] w-full border-0 bg-muted" />
           ) : (
-            <div className="flex h-[50vh] flex-col items-center justify-center gap-3 bg-grid text-center">
+            <div className="flex h-[calc(var(--av)*0.50)] flex-col items-center justify-center gap-3 bg-grid text-center">
               <FileText className="size-8 text-muted-foreground" />
               <p className="text-sm font-medium">Este instructivo todavía no tiene PDF</p>
               {canWrite && (

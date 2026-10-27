@@ -109,7 +109,7 @@ function ResetPasswordPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center px-4 py-10">
+    <div className="grid min-h-[var(--av)] place-items-center px-4 py-10">
       <Card className="panel w-full max-w-md">
         <CardHeader>
           <CardTitle>Nueva contraseña</CardTitle>

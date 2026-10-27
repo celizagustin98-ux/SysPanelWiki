@@ -544,7 +544,7 @@ function filaItem(i: AuditoriaItem) {
 function Lista({ filas, vacio }: { filas: { key: string; codigo: string; titulo: string | null; sub?: string; accion?: React.ReactNode }[]; vacio: string }) {
   if (!filas.length) return <p className="px-4 pb-8 pt-4 text-center text-sm text-muted-foreground">{vacio}</p>;
   return (
-    <ul className="max-h-[60vh] divide-y divide-border/70 overflow-y-auto border-t border-border/70">
+    <ul className="max-h-[calc(var(--av)*0.60)] divide-y divide-border/70 overflow-y-auto border-t border-border/70">
       {filas.map((f) => (
         <li key={f.key} className="flex items-center gap-3 px-4 py-2.5">
           <span className="num w-24 shrink-0 text-xs font-semibold text-primary">{f.codigo}</span>

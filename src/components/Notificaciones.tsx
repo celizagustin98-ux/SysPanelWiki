@@ -147,7 +147,7 @@ export function Notificaciones({ className }: { className?: string }) {
           ))}
         </div>
 
-        <div className="max-h-[min(60vh,420px)] overflow-y-auto">
+        <div className="max-h-[min(calc(var(--av)*0.60),420px)] overflow-y-auto">
           {tab === "mias" ? (
             items.length === 0 ? (
               <p className="px-4 py-10 text-center text-[13px] text-muted-foreground">Sin notificaciones. Te avisamos cuando te asignen un ticket o te comenten.</p>

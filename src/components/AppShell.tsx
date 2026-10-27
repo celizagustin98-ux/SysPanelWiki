@@ -179,10 +179,10 @@ export function AppShell() {
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-dvh w-full max-w-[100vw] overflow-hidden bg-background">
+      <div className="flex h-[var(--av)] w-full max-w-[100vw] overflow-hidden bg-background">
         <aside
           className={cn(
-            "hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:flex",
+            "hidden h-[var(--av)] shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:flex",
             collapsed ? "w-[68px]" : "w-[248px]",
           )}
         >
@@ -288,7 +288,7 @@ export function AppShell() {
           </div>
         </aside>
 
-        <div ref={contenidoRef} id="contenido" className="flex h-dvh min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-clip">
+        <div ref={contenidoRef} id="contenido" className="flex h-[var(--av)] min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-clip">
           {/* Barra superior escritorio */}
           <header className="sticky top-0 z-30 hidden h-14 items-center gap-4 border-b border-border/70 bg-background/80 px-6 backdrop-blur-md md:flex lg:px-8">
             <nav className="flex min-w-0 items-center gap-1.5 text-[13px]" aria-label="Ubicación">
