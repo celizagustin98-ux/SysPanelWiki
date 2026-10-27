@@ -30,7 +30,7 @@ function AppLayout() {
 /** Esqueleto con la forma del sistema: se percibe más rápido que un texto de "cargando". */
 function BootSkeleton() {
   return (
-    <div className="flex min-h-dvh bg-background" aria-busy="true" aria-label="Cargando Nodara">
+    <div className="flex min-h-[var(--av)] bg-background" aria-busy="true" aria-label="Cargando Nodara">
       <aside className="hidden w-[248px] shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-4 md:flex">
         <div className="flex items-center gap-2.5">
           <BrandMark />
@@ -67,7 +67,7 @@ function BootSkeleton() {
 
 function BootError({ message, onRetry }: { message: string; onRetry: () => Promise<void> }) {
   return (
-    <div className="grid min-h-dvh place-items-center bg-background bg-grid px-4">
+    <div className="grid min-h-[var(--av)] place-items-center bg-background bg-grid px-4">
       <div className="panel w-full max-w-md p-7 text-center rise-in">
         <div className="mx-auto mb-4 grid size-12 place-items-center rounded-xl bg-destructive/10 text-destructive">
           <ServerCrash className="size-6" />

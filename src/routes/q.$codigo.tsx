@@ -70,7 +70,7 @@ function QrPage() {
   });
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="min-h-[var(--av)] bg-background">
       <Cabecera />
       <main className="mx-auto w-full max-w-lg px-4 pb-10 pt-4">
         {loading || info.isLoading ? (

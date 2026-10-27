@@ -14,6 +14,7 @@ import { reportSysWikiError } from "../lib/error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { AuthProvider } from "@/lib/auth";
+import { useZonaVisible } from "@/lib/zona-visible";
 import { ThemeProvider } from "@/lib/theme";
 import { tituloConMarca, useMarca } from "@/lib/brand";
 
@@ -36,7 +37,7 @@ function StatusFrame({
 }) {
   const marca = useMarca();
   return (
-    <div className="grid min-h-screen place-items-center px-4 py-10">
+    <div className="grid min-h-[var(--av)] place-items-center px-4 py-10">
       <div className="panel w-full max-w-md px-6 py-8 text-center rise-in">
         <div className="mb-4 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           <BrandMark className="size-7" />
@@ -179,6 +180,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useZonaVisible();
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -186,7 +188,7 @@ function RootComponent() {
         <AuthProvider>
           <Outlet />
           <TituloConMarca />
-          <Toaster richColors position="bottom-right" closeButton />
+          <Toaster richColors position="top-right" closeButton offset={{ top: 64, right: 16 }} />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

@@ -498,7 +498,7 @@ function TicketsPage() {
       )}
 
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
-        <DialogContent className="flex h-[min(92dvh,900px)] max-w-[min(1180px,96vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1180px,96vw)] [&>button:last-child]:hidden">
+        <DialogContent className="flex h-[min(calc(var(--av)*0.92),900px)] max-w-[min(1180px,96vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1180px,96vw)] [&>button:last-child]:hidden">
           <DialogTitle className="sr-only">Detalle del ticket</DialogTitle>
           {selected && (
             <TicketDetail

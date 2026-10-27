@@ -71,7 +71,7 @@ export function QrLock({ codigo, onOk }: { codigo?: string; onOk: () => void }) 
 
   if (ofrecerPin) {
     return (
-      <div className="grid min-h-[70vh] place-items-center px-2">
+      <div className="grid min-h-[calc(var(--av)*0.70)] place-items-center px-2">
         <form onSubmit={guardarPin} className="panel w-full max-w-sm p-6 text-center rise-in">
           <CheckCircle2 className="mx-auto size-10 text-ok" />
           <h1 className="mt-3 text-lg font-semibold">Clave confirmada</h1>
@@ -100,7 +100,7 @@ export function QrLock({ codigo, onOk }: { codigo?: string; onOk: () => void }) 
   }
 
   return (
-    <div className="grid min-h-[70vh] place-items-center px-2">
+    <div className="grid min-h-[calc(var(--av)*0.70)] place-items-center px-2">
       <form
         onSubmit={submit}
         onAnimationEnd={(e) => e.target === e.currentTarget && setShaking(false)}

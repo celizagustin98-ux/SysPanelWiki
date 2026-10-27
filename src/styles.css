@@ -849,3 +849,9 @@
     padding-block: 0.3rem;
   }
 }
+
+/* Alto realmente visible: la ventana menos lo que tapa la barra de tareas (ver lib/zona-visible.ts) */
+:root {
+  --zona-oculta: 0px;
+  --av: calc(100dvh - var(--zona-oculta));
+}

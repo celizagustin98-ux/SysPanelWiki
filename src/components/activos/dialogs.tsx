@@ -225,7 +225,7 @@ export function ActivoDialog({
       }}
     >
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[calc(var(--av)*0.92)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{item ? `Editar ${item.codigo}` : "Alta de activo"}</DialogTitle>
           <DialogDescription>Los campos técnicos cambian según la categoría del equipo.</DialogDescription>
@@ -447,7 +447,7 @@ export function ReparacionDialog({ item, trigger, onDone }: { item: Activo; trig
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) { setTipo("reparacion"); setFinalizada(false); } }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[calc(var(--av)*0.92)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Registrar reparación / mantenimiento</DialogTitle>
           <DialogDescription>{item.codigo} · {item.descripcion || item.nombre}</DialogDescription>

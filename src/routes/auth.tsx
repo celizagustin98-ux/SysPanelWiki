@@ -87,7 +87,7 @@ function AuthPage() {
   }, [setupRequired]);
 
   return (
-    <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(420px,1fr)_minmax(460px,0.9fr)]">
+    <div className="grid min-h-[var(--av)] bg-background lg:grid-cols-[minmax(420px,1fr)_minmax(460px,0.9fr)]">
       <ConsolePanel health={health.data} healthError={health.isError} />
 
       <main className="relative grid place-items-center px-5 py-12 sm:px-10">

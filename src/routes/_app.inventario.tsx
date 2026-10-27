@@ -793,7 +793,7 @@ function ImportDialog({ onDone }: { onDone: () => void }) {
           <Upload className="size-4" /> Importar
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[calc(var(--av)*0.92)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Importación masiva</DialogTitle>
           <DialogDescription>
@@ -1440,7 +1440,7 @@ function InventarioPage() {
             )}
           </div>
 
-          <div className="hidden overflow-auto lg:block lg:max-h-[calc(100dvh-30rem)] lg:min-h-64">
+          <div className="hidden overflow-auto lg:block lg:max-h-[calc(var(--av)-30rem)] lg:min-h-64">
             <Table className="min-w-[1080px]">
               <TableHeader className="sticky top-0 z-10 [&_th]:bg-muted">
                 <TableRow>

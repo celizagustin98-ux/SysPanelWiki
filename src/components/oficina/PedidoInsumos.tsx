@@ -586,7 +586,7 @@ function EditarPedido({ pedido, items, onClose, onGuardado }: { pedido: Pedido; 
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[92dvh] flex-col gap-3 overflow-hidden sm:max-w-[min(1100px,96vw)]">
+      <DialogContent className="flex max-h-[calc(var(--av)*0.92)] flex-col gap-3 overflow-hidden sm:max-w-[min(1100px,96vw)]">
         <DialogHeader>
           <DialogTitle>Editar {numeroPedidoInsumos(pedido.numero)}</DialogTitle>
           <DialogDescription>
