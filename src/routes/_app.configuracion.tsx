@@ -29,7 +29,7 @@ import { BrandMark } from "@/components/brand/BrandMark";
 import { FeriadosConfig } from "@/components/configuracion/FeriadosConfig";
 import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
 import { useMarca } from "@/lib/brand";
-import { MarcaConfig } from "@/components/configuracion/MarcaConfig";
+import { UserAvatar } from "@/components/UserAvatar";
 import { QrConfig } from "@/components/configuracion/QrConfig";
 import { GuiaSistema } from "@/components/configuracion/GuiaSistema";
 import { api } from "@/lib/api/client";
@@ -58,6 +58,8 @@ type UsuarioRow = {
   full_name: string;
   email: string;
   username: string | null;
+  avatar_url: string | null;
+  cargo: string | null;
   role: AppRole;
 };
 
@@ -73,15 +75,6 @@ type SystemInfo = {
   ultimaActualizacion: string | null;
   ultimaActualizacionFuente: "commit" | "variable" | "build" | null;
 };
-
-function iniciales(texto: string) {
-  return texto
-    .split(/\s+/)
-    .map((x) => x[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -133,7 +126,7 @@ function ConfiguracionPage() {
   const cargarUsuarios = useCallback(async () => {
     setCargandoUsuarios(true);
     const [{ data: profiles }, { data: userRoles }] = await Promise.all([
-      api.from("profiles").select("id, full_name, email, username").order("full_name"),
+      api.from("profiles").select("id, full_name, email, username, avatar_url, cargo").order("full_name"),
       api.from("user_roles").select("user_id, role"),
     ]);
     const mapa = new Map<string, AppRole>();
@@ -142,11 +135,13 @@ function ConfiguracionPage() {
     );
     setUsuarios(
       (profiles ?? []).map(
-        (p: { id: string; full_name: string; email: string; username: string | null }) => ({
+        (p: { id: string; full_name: string; email: string; username: string | null; avatar_url?: string | null; cargo?: string | null }) => ({
           id: p.id,
           full_name: p.full_name,
           email: p.email,
           username: p.username ?? null,
+          avatar_url: p.avatar_url ?? null,
+          cargo: p.cargo ?? null,
           role: mapa.get(p.id) ?? "consulta",
         }),
       ),
@@ -342,7 +337,6 @@ function ConfiguracionPage() {
               </div>
             </CardContent>
           </Card>
-          <MarcaConfig />
           <QrConfig esAdmin={isAdmin} />
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -422,9 +416,7 @@ function ConfiguracionPage() {
                       >
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-3">
-                            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                              {iniciales(u.full_name || u.email)}
-                            </span>
+                            <UserAvatar nombre={u.full_name || u.email} foto={u.avatar_url} />
                             <div className="min-w-0">
                               <p className="truncate font-medium">
                                 {u.full_name || "Sin nombre"}
@@ -434,7 +426,10 @@ function ConfiguracionPage() {
                                   </span>
                                 )}
                               </p>
-                              <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {u.cargo ? `${u.cargo} · ` : ""}
+                                {u.email}
+                              </p>
                             </div>
                           </div>
                         </td>

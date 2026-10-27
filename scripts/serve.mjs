@@ -240,7 +240,7 @@ async function createSession(userId) {
 async function getSession(token) {
   if (!token) return null;
   const session = await one(
-    `select s.user_id, u.email, p.full_name, p.username, ur.role
+    `select s.user_id, u.email, p.full_name, p.username, p.avatar_url, p.cargo, ur.role
        from app_sessions s
        join app_users u on u.id = s.user_id
        join profiles p on p.id = u.id
@@ -256,7 +256,14 @@ async function getSession(token) {
   return {
     token,
     user: { id: session.user_id, email: session.email },
-    profile: { id: session.user_id, full_name: session.full_name, email: session.email, username: session.username },
+    profile: {
+      id: session.user_id,
+      full_name: session.full_name,
+      email: session.email,
+      username: session.username,
+      avatar_url: session.avatar_url ?? null,
+      cargo: session.cargo ?? null,
+    },
     role: session.role || "consulta",
   };
 }
