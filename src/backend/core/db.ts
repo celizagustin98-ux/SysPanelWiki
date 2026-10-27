@@ -24,7 +24,7 @@ export type AppRole = string;
 export type AuthSession = {
   token: string;
   user: { id: string; email: string };
-  profile: { id: string; full_name: string; email: string; username: string | null };
+  profile: { id: string; full_name: string; email: string; username: string | null; avatar_url: string | null; cargo: string | null };
   role: AppRole;
 };
 
@@ -137,9 +137,11 @@ export async function getSession(token: string | null | undefined): Promise<Auth
     email: string;
     full_name: string;
     username: string | null;
+    avatar_url: string | null;
+    cargo: string | null;
     role: AppRole | null;
   }>(
-    `select s.user_id, u.email, p.full_name, p.username, ur.role
+    `select s.user_id, u.email, p.full_name, p.username, p.avatar_url, p.cargo, ur.role
        from app_sessions s
        join app_users u on u.id = s.user_id
        join profiles p on p.id = u.id
@@ -160,6 +162,8 @@ export async function getSession(token: string | null | undefined): Promise<Auth
       full_name: session.full_name,
       email: session.email,
       username: session.username,
+      avatar_url: session.avatar_url ?? null,
+      cargo: session.cargo ?? null,
     },
     role: session.role ?? "consulta",
   };

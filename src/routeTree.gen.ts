@@ -22,6 +22,7 @@ import { Route as AppInstructivosRouteImport } from './routes/_app.instructivos'
 import { Route as AppInventarioRouteImport } from './routes/_app.inventario'
 import { Route as AppInventarioAuditoriaRouteImport } from './routes/_app.inventario-auditoria'
 import { Route as AppOficinaRouteImport } from './routes/_app.oficina'
+import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
 import { Route as AppRolesRouteImport } from './routes/_app.roles'
 import { Route as AppTareasRouteImport } from './routes/_app.tareas'
 import { Route as AppTonersRouteImport } from './routes/_app.toners'
@@ -92,6 +93,11 @@ const AppOficinaRoute = AppOficinaRouteImport.update({
   path: '/oficina',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPerfilRoute = AppPerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRolesRoute = AppRolesRouteImport.update({
   id: '/roles',
   path: '/roles',
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/inventario': typeof AppInventarioRoute
   '/inventario-auditoria': typeof AppInventarioAuditoriaRoute
   '/oficina': typeof AppOficinaRoute
+  '/perfil': typeof AppPerfilRoute
   '/roles': typeof AppRolesRoute
   '/tareas': typeof AppTareasRoute
   '/toners': typeof AppTonersRoute
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/inventario': typeof AppInventarioRoute
   '/inventario-auditoria': typeof AppInventarioAuditoriaRoute
   '/oficina': typeof AppOficinaRoute
+  '/perfil': typeof AppPerfilRoute
   '/roles': typeof AppRolesRoute
   '/tareas': typeof AppTareasRoute
   '/toners': typeof AppTonersRoute
@@ -171,6 +179,7 @@ export interface FileRoutesById {
   '/_app/inventario': typeof AppInventarioRoute
   '/_app/inventario-auditoria': typeof AppInventarioAuditoriaRoute
   '/_app/oficina': typeof AppOficinaRoute
+  '/_app/perfil': typeof AppPerfilRoute
   '/_app/roles': typeof AppRolesRoute
   '/_app/tareas': typeof AppTareasRoute
   '/_app/toners': typeof AppTonersRoute
@@ -192,6 +201,7 @@ export interface FileRouteTypes {
     | '/inventario'
     | '/inventario-auditoria'
     | '/oficina'
+    | '/perfil'
     | '/roles'
     | '/tareas'
     | '/toners'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/inventario'
     | '/inventario-auditoria'
     | '/oficina'
+    | '/perfil'
     | '/roles'
     | '/tareas'
     | '/toners'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/_app/inventario'
     | '/_app/inventario-auditoria'
     | '/_app/oficina'
+    | '/_app/perfil'
     | '/_app/roles'
     | '/_app/tareas'
     | '/_app/toners'
@@ -339,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOficinaRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/perfil': {
+      id: '/_app/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof AppPerfilRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/roles': {
       id: '/_app/roles'
       path: '/roles'
@@ -387,6 +406,7 @@ interface AppRouteChildren {
   AppInventarioRoute: typeof AppInventarioRoute
   AppInventarioAuditoriaRoute: typeof AppInventarioAuditoriaRoute
   AppOficinaRoute: typeof AppOficinaRoute
+  AppPerfilRoute: typeof AppPerfilRoute
   AppRolesRoute: typeof AppRolesRoute
   AppTareasRoute: typeof AppTareasRoute
   AppTonersRoute: typeof AppTonersRoute
@@ -403,6 +423,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventarioRoute: AppInventarioRoute,
   AppInventarioAuditoriaRoute: AppInventarioAuditoriaRoute,
   AppOficinaRoute: AppOficinaRoute,
+  AppPerfilRoute: AppPerfilRoute,
   AppRolesRoute: AppRolesRoute,
   AppTareasRoute: AppTareasRoute,
   AppTonersRoute: AppTonersRoute,

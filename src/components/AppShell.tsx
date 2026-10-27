@@ -10,6 +10,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  UserRound,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -259,21 +260,30 @@ export function AppShell() {
               className={cn("flex items-center gap-2.5 rounded-lg bg-white/[0.04] p-2", collapsed && "flex-col bg-transparent p-0")}
               title={online ? `En línea${status.data?.version ? ` · ${status.data.version}` : ""}` : "Sin conexión con el servidor"}
             >
-              <div className="relative grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-sidebar-primary/35 to-sidebar-primary/10 font-mono text-[11px] font-semibold text-sidebar-primary ring-1 ring-sidebar-primary/25">
-                {initials}
+              <Link
+                to="/perfil"
+                title="Mi perfil"
+                aria-label="Mi perfil"
+                className="relative grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-sidebar-primary/35 to-sidebar-primary/10 font-mono text-[11px] font-semibold text-sidebar-primary ring-1 ring-sidebar-primary/25 transition hover:ring-sidebar-primary/60"
+              >
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="" className="size-full rounded-md object-cover" />
+                ) : (
+                  initials
+                )}
                 <span
                   className="led absolute -bottom-0.5 -right-0.5 ring-2 ring-sidebar"
                   data-tone={status.isLoading ? undefined : online ? "ok" : "crit"}
                   data-pulse={!!online}
                 />
-              </div>
+              </Link>
               {!collapsed && (
-                <div className="min-w-0 flex-1">
+                <Link to="/perfil" className="min-w-0 flex-1 rounded-sm hover:[&>p:first-child]:text-white">
                   <p className="truncate text-[13px] font-medium text-sidebar-foreground">{displayName}</p>
                   <p className="truncate text-[11px] text-sidebar-foreground/45">
                     {roles.find((r) => r.clave === role)?.nombre ?? ROLE_LABEL[role ?? ""] ?? "—"} · {status.isLoading ? "verificando…" : online ? "en línea" : "sin conexión"}
                   </p>
-                </div>
+                </Link>
               )}
               <div className={cn("flex shrink-0 gap-0.5", collapsed && "flex-col items-center")}>
                 <SidebarIconButton label={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggle} icon={theme === "dark" ? <Sun /> : <Moon />} />
@@ -339,6 +349,13 @@ export function AppShell() {
                 <Button size="icon" variant="ghost" className="size-9" onClick={toggle} aria-label="Cambiar tema">
                   {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
                 </Button>
+                <Link to="/perfil" aria-label="Mi perfil" className="grid size-9 place-items-center rounded-md hover:bg-muted">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="" className="size-6 rounded-full object-cover" />
+                  ) : (
+                    <UserRound className="size-4" />
+                  )}
+                </Link>
                 <Button size="icon" variant="ghost" className="size-9 text-destructive" onClick={handleSignOut} aria-label="Salir">
                   <LogOut className="size-4" />
                 </Button>
@@ -492,6 +509,10 @@ function CommandPalette({
           <CommandItem value="escanear qr etiqueta equipo activo camara" onSelect={() => run(onScan)}>
             <ScanLine />
             <span>Escanear QR de un equipo</span>
+          </CommandItem>
+          <CommandItem value="mi perfil foto contraseña datos cuenta" onSelect={() => run(() => navigate({ to: "/perfil" }))}>
+            <UserRound />
+            <span>Mi perfil</span>
           </CommandItem>
           <CommandItem value="cambiar tema claro oscuro" onSelect={() => run(onToggleTheme)}>
             {theme === "dark" ? <Sun /> : <Moon />}

@@ -29,7 +29,14 @@ export type PermRow = {
   can_delete: boolean;
 };
 
-type Profile = { id: string; full_name: string; email: string; username: string | null };
+type Profile = {
+  id: string;
+  full_name: string;
+  email: string;
+  username: string | null;
+  avatar_url?: string | null;
+  cargo?: string | null;
+};
 type User = { id: string; email: string };
 type Session = { token: string; user: User; profile: Profile; role: AppRole };
 

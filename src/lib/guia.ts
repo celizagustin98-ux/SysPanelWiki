@@ -24,6 +24,7 @@ export const GUIA: SeccionGuia[] = [
       { titulo: "Moverse por el sistema", detalle: "El menú de la izquierda lleva a cada módulo. Con Ctrl + K se abre el buscador: escribí el nombre de un módulo o una acción y presioná Enter." },
       { titulo: "Escanear un equipo", detalle: "El ícono de escaneo de la barra superior abre la cámara para leer la etiqueta QR de un equipo." },
       { titulo: "Notificaciones", detalle: "La campana muestra avisos: tickets asignados, fallas reportadas por QR, stock crítico y vencimientos." },
+      { titulo: "Mi perfil", detalle: "Tocá tu nombre o tu foto al pie del menú. Ahí subís tu foto (la podés encuadrar y hacer zoom), cargás tu puesto, teléfono e interno, cambiás tu contraseña y elegís el tema." },
       { titulo: "Modo claro u oscuro", detalle: "Con el botón de sol o luna al pie del menú cambiás el tema. Se recuerda en cada computadora." },
     ],
     consejos: ["Si el menú ocupa mucho lugar, contraelo con el botón de panel al pie: quedan solo los íconos.", "Cerrá sesión al usar una computadora compartida."],
@@ -180,7 +181,7 @@ export const GUIA: SeccionGuia[] = [
     icono: "Settings2",
     resumen: "Administración del sistema (solo administradores).",
     pasos: [
-      { titulo: "General", detalle: "Versión instalada, marca de la organización (nombre, logo, color y pie de documentos) y ajustes del QR." },
+      { titulo: "General", detalle: "Versión instalada, cantidad de usuarios por rol y ajustes del QR." },
       { titulo: "Usuarios", detalle: "Alta, edición y baja de usuarios; asignación de rol." },
       { titulo: "Roles y permisos", detalle: "Creá roles propios (por ejemplo 'Soporte N1') y marcá qué pueden ver, crear, editar o eliminar en cada módulo. El servidor aplica estos permisos." },
       { titulo: "Feriados", detalle: "Feriados nacionales y propios que usa la liquidación de guardias." },
