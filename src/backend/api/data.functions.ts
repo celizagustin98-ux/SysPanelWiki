@@ -51,6 +51,7 @@ const TABLES = new Set([
   "feriados",
   "insumos_items",
   "insumos_pedidos",
+  "insumos_pedido_eventos",
   "audit_log",
   "credenciales",
   "guardia_operarios",
@@ -64,6 +65,7 @@ const TABLES = new Set([
   "inventario_escaneos",
   "inventario_etiquetas_libres",
   "oficina_telefonos",
+  "oficina_contactos",
   "profiles",
   "role_permissions",
   "roles",
@@ -100,6 +102,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   inventario_auditorias: { modulo: "inventario", fields: ["nombre", "sector", "estado"] },
   inventario_etiquetas_libres: { modulo: "inventario", fields: ["codigo"] },
   oficina_telefonos: { modulo: "oficina", fields: ["sector", "nombre", "interno"] },
+  oficina_contactos: { modulo: "oficina", fields: ["tipo", "nombre", "email"] },
   profiles: { modulo: "usuarios", fields: ["full_name", "email", "username"] },
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
   roles: { modulo: "roles", fields: ["nombre", "clave"] },
@@ -259,6 +262,8 @@ const MODULO_DE_TABLA: Record<string, string> = {
   oficina_telefonos: "oficina",
   insumos_items: "oficina",
   insumos_pedidos: "oficina",
+  insumos_pedido_eventos: "oficina",
+  oficina_contactos: "oficina",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
@@ -288,7 +293,7 @@ async function assertModulo(userId: string, table: string, accion: keyof typeof 
 
 async function assertWriteAccess(userId: string, table: string, accion: "insert" | "update" | "delete" = "update", filters?: Filter[], values?: MutateInput["values"]) {
   // El registro de auditoría no se puede editar ni borrar por la API (solo depurar desde Configuración → Datos).
-  if (table === "audit_log" || table === "inventario_escaneos") throw new Error("Este registro no se puede modificar");
+  if (table === "audit_log" || table === "inventario_escaneos" || table === "insumos_pedido_eventos") throw new Error("Este registro no se puede modificar");
   if (["app_settings", "role_permissions", "roles", "user_roles", "profiles", "feriados"].includes(table)) {
     await assertAdmin(userId);
     return;
@@ -521,7 +526,9 @@ export const apiRpc = createServerFn({ method: "POST" })
           const valores = [i.descripcion, i.cantidad, i.unidad, i.link, i.precio, i.sector, i.prioridad, i.notas];
           const upd = i.id
             ? await client.query(
-                `update insumos_items set descripcion = $3, cantidad = $4, unidad = $5, link = $6, precio_estimado = $7, sector = $8, prioridad = $9, notas = $10
+                `update insumos_items set descripcion = $3, cantidad = $4, unidad = $5, link = $6, precio_estimado = $7, sector = $8, prioridad = $9, notas = $10,
+                        cantidad_comprada = least(cantidad_comprada, $4::numeric), cantidad_recibida = least(cantidad_recibida, $4::numeric),
+                        comprado = (least(cantidad_comprada, $4::numeric) >= $4::numeric)
                   where id = $1 and pedido_id = $2`,
                 [i.id, pedidoId, ...valores],
               )
@@ -537,6 +544,147 @@ export const apiRpc = createServerFn({ method: "POST" })
         await client.query("commit");
         await writeAudit(session.user.id, "insumos_pedidos", "editar", ped.rows, { items: items.length, total });
         return { data: ped.rows[0], error: null };
+      } catch (error) {
+        await client.query("rollback").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+    if (data.name === "seguimiento_pedido") {
+      // Evolución de un pedido: estado general, compra/recepción por ítem y notas, con historial.
+      if (!(await hasModulePermission(session.user.id, "oficina", "editar"))) throw new Error("Tu rol no tiene permiso para actualizar pedidos");
+      const pedidoId = String(data.args?._pedido_id ?? "");
+      const accion = String(data.args?._accion ?? "");
+      const actor = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [session.user.id]);
+      const autor = actor?.full_name ?? "";
+      const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""));
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        const ped = await client.query<{ id: string; numero: number; estado: string; aprobado_at: string | null }>(
+          `select id, numero, estado, aprobado_at from insumos_pedidos where id = $1 for update`,
+          [pedidoId],
+        );
+        const pedido = ped.rows[0];
+        if (!pedido) throw new Error("Pedido inexistente");
+        const evento = (texto: string, tipo: string, itemId: string | null = null) =>
+          client.query(
+            `insert into insumos_pedido_eventos (pedido_id, item_id, tipo, texto, autor_id, autor_nombre) values ($1, $2, $3, $4, $5, $6)`,
+            [pedidoId, itemId, tipo, texto.slice(0, 600), session.user.id, autor],
+          );
+        const ETIQUETA: Record<string, string> = {
+          enviado: "Enviado",
+          aprobado: "Aprobado",
+          en_compra: "Compra parcial",
+          comprado: "Comprado",
+          recibido: "Recibido",
+          rechazado: "Rechazado",
+        };
+
+        if (accion === "estado") {
+          const estado = String(data.args?._estado ?? "");
+          if (!["enviado", "aprobado", "rechazado"].includes(estado)) throw new Error("Estado inválido");
+          if (estado !== pedido.estado) {
+            await client.query(
+              `update insumos_pedidos set estado = $2::text, actualizado_at = now(),
+                      aprobado_at = case when $2::text = 'aprobado' then coalesce(aprobado_at, now()) else aprobado_at end,
+                      cerrado_at = case when $2::text = 'rechazado' then now() else null end
+                where id = $1`,
+              [pedidoId, estado],
+            );
+            const motivo = String(data.args?._motivo ?? "").trim().slice(0, 300);
+            await evento(`${ETIQUETA[pedido.estado] ?? pedido.estado} → ${ETIQUETA[estado]}${motivo ? `: ${motivo}` : ""}`, "estado");
+          }
+        } else if (accion === "nota") {
+          const texto = String(data.args?._texto ?? "").trim();
+          if (!texto) throw new Error("Escribí la nota");
+          await evento(texto, "nota");
+        } else if (accion === "items") {
+          if (pedido.estado === "rechazado") throw new Error("El pedido está rechazado: volvelo a Enviado para seguir");
+          const cambios = Array.isArray(data.args?._items) ? (data.args?._items as Record<string, unknown>[]) : [];
+          if (!cambios.length || cambios.length > 300) throw new Error("Sin cambios");
+          const actuales = await client.query<{ id: string; descripcion: string; cantidad: string; unidad: string; cantidad_comprada: string; cantidad_recibida: string; cancelado: boolean; proveedor: string | null; precio_real: string | null }>(
+            `select id, descripcion, cantidad, unidad, cantidad_comprada, cantidad_recibida, cancelado, proveedor, precio_real from insumos_items where pedido_id = $1`,
+            [pedidoId],
+          );
+          const porId = new Map(actuales.rows.map((i) => [i.id, i]));
+          const num = (v: unknown) => {
+            const n = Number(String(v ?? "").replace(",", "."));
+            return Number.isFinite(n) ? n : NaN;
+          };
+          for (const c of cambios) {
+            const it = porId.get(String(c.id ?? ""));
+            if (!it) throw new Error("Ítem inexistente en este pedido");
+            const total = Number(it.cantidad);
+            const antesC = Number(it.cantidad_comprada);
+            const antesR = Number(it.cantidad_recibida);
+            const comprada = c.comprada === undefined ? antesC : num(c.comprada);
+            let recibida = c.recibida === undefined ? antesR : num(c.recibida);
+            if (!(comprada >= 0 && comprada <= total)) throw new Error(`"${it.descripcion}": lo comprado va de 0 a ${fmt(total)}`);
+            if (!(recibida >= 0 && recibida <= total)) throw new Error(`"${it.descripcion}": lo recibido va de 0 a ${fmt(total)}`);
+            // Lo recibido nunca supera lo comprado: si llega algo, también está comprado.
+            const compradaFinal = Math.max(comprada, recibida);
+            recibida = Math.min(recibida, total);
+            const cancelado = c.cancelado === undefined ? it.cancelado : !!c.cancelado;
+            const proveedor = c.proveedor === undefined ? it.proveedor : String(c.proveedor ?? "").trim().slice(0, 160) || null;
+            const precio = c.precio_real === undefined ? (it.precio_real == null ? null : Number(it.precio_real)) : c.precio_real === null || c.precio_real === "" ? null : num(c.precio_real);
+            if (precio !== null && !(precio >= 0)) throw new Error(`"${it.descripcion}": precio inválido`);
+            const nota = String(c.nota ?? "").trim().slice(0, 300);
+            await client.query(
+              `update insumos_items set cantidad_comprada = $2::numeric, cantidad_recibida = $3::numeric, cancelado = $4::boolean,
+                      proveedor = $5::text, precio_real = $6::numeric,
+                      comprado = ($2::numeric >= cantidad),
+                      comprado_at = case when $2::numeric > 0 then coalesce(comprado_at, now()) else null end,
+                      recibido_at = case when $3::numeric > 0 then coalesce(recibido_at, now()) else null end,
+                      nota_compra = coalesce($7::text, nota_compra)
+                where id = $1`,
+              [it.id, compradaFinal, recibida, cancelado, proveedor, precio, nota || null],
+            );
+            const partes: string[] = [];
+            const u = it.unidad || "u.";
+            if (cancelado !== it.cancelado) partes.push(cancelado ? "sin comprar (cancelado)" : "vuelve a pendiente");
+            if (compradaFinal !== antesC) partes.push(`comprado ${fmt(compradaFinal)}/${fmt(total)} ${u}`);
+            if (recibida !== antesR) partes.push(`recibido ${fmt(recibida)}/${fmt(total)} ${u}`);
+            if (proveedor !== it.proveedor && proveedor) partes.push(`proveedor ${proveedor}`);
+            if (partes.length || nota) await evento(`${it.descripcion}: ${partes.join(" · ")}${nota ? `${partes.length ? " — " : ""}${nota}` : ""}`, "item", it.id);
+          }
+          // Estado del pedido según cómo quedaron los ítems.
+          const resumen = await client.query<{ activos: string; comprados: string; recibidos: string; con_algo: string }>(
+            `select count(*) filter (where not cancelado) as activos,
+                    count(*) filter (where not cancelado and cantidad_comprada >= cantidad) as comprados,
+                    count(*) filter (where not cancelado and cantidad_recibida >= cantidad) as recibidos,
+                    count(*) filter (where not cancelado and (cantidad_comprada > 0 or cantidad_recibida > 0)) as con_algo
+               from insumos_items where pedido_id = $1`,
+            [pedidoId],
+          );
+          const t = resumen.rows[0];
+          const activos = Number(t.activos);
+          let nuevo = pedido.estado;
+          if (activos > 0 && Number(t.recibidos) === activos) nuevo = "recibido";
+          else if (activos > 0 && Number(t.comprados) === activos) nuevo = "comprado";
+          else if (Number(t.con_algo) > 0) nuevo = "en_compra";
+          else if (["en_compra", "comprado", "recibido"].includes(pedido.estado)) nuevo = pedido.aprobado_at ? "aprobado" : "enviado";
+          if (nuevo !== pedido.estado) {
+            await client.query(
+              `update insumos_pedidos set estado = $2::text, actualizado_at = now(),
+                      comprado_at = case when $2::text in ('comprado', 'recibido') then coalesce(comprado_at, now()) else null end,
+                      recibido_at = case when $2::text = 'recibido' then coalesce(recibido_at, now()) else null end,
+                      cerrado_at = case when $2::text = 'recibido' then now() else null end
+                where id = $1`,
+              [pedidoId, nuevo],
+            );
+            await evento(`${ETIQUETA[pedido.estado] ?? pedido.estado} → ${ETIQUETA[nuevo]}`, "estado");
+          } else {
+            await client.query(`update insumos_pedidos set actualizado_at = now() where id = $1`, [pedidoId]);
+          }
+        } else {
+          throw new Error("Acción inválida");
+        }
+        await client.query("commit");
+        const fila = await one<Record<string, unknown>>(`select * from insumos_pedidos where id = $1`, [pedidoId]);
+        if (fila) await writeAudit(session.user.id, "insumos_pedidos", "editar", [fila], { seguimiento: accion });
+        return { data: fila, error: null };
       } catch (error) {
         await client.query("rollback").catch(() => {});
         throw error;

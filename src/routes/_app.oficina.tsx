@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
+  BookUser,
   Building2,
   Copy,
   Pencil,
@@ -37,6 +38,7 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PedidoInsumos } from "@/components/oficina/PedidoInsumos";
+import { Agenda } from "@/components/oficina/Agenda";
 
 export const Route = createFileRoute("/_app/oficina")({
   ssr: false,
@@ -45,14 +47,14 @@ export const Route = createFileRoute("/_app/oficina")({
       { title: "Oficina · Nodara" },
       {
         name: "description",
-        content: "Herramientas del día a día: teléfonos internos y más.",
+        content: "Herramientas del día a día: teléfonos internos, pedidos de compra y agenda de proveedores.",
       },
     ],
   }),
   component: OficinaPage,
 });
 
-type TabKey = "telefonos" | "insumos";
+type TabKey = "telefonos" | "insumos" | "agenda";
 
 type Telefono = {
   id: string;
@@ -101,13 +103,14 @@ function OficinaPage() {
 
   return (
     <div className="space-y-3.5">
-      <PageHeader title="Oficina" description="Herramientas del día a día: teléfonos internos y pedidos de insumos a Compras." />
+      <PageHeader title="Oficina" description="Herramientas del día a día: teléfonos internos, pedidos de compra y la agenda de proveedores y correos." />
 
       <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 shadow-xs">
         {(
           [
             ["telefonos", "Teléfonos internos", Phone],
-            ["insumos", "Pedido de insumos", ShoppingCart],
+            ["insumos", "Pedido de compra", ShoppingCart],
+            ["agenda", "Agenda", BookUser],
           ] as const
         ).map(([k, label, Icono]) => (
           <button
@@ -127,6 +130,7 @@ function OficinaPage() {
 
       {tab === "telefonos" && <TelefonosPanel />}
       {tab === "insumos" && <PedidoInsumos />}
+      {tab === "agenda" && <Agenda />}
     </div>
   );
 }

@@ -1,8 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent } from "react";
-import { ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Pencil, Plus, Send, ShoppingCart, Trash2 } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { ExternalLink, FileText, Loader2, Pencil, Plus, Send, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { StatTile } from "@/components/StatTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { pesos } from "@/lib/imprimir";
 import { imprimirPedidoInsumos, numeroPedidoInsumos } from "@/lib/insumos-pdf";
 import { cn } from "@/lib/utils";
+import { PedidosHistorico, PendientesCompra } from "./PedidosSeguimiento";
 
 type Item = {
   id: string;
@@ -42,16 +42,6 @@ type Pedido = {
   created_at: string;
 };
 
-const ESTADOS_PEDIDO = [
-  { value: "enviado", label: "Enviado", tono: "info" },
-  { value: "aprobado", label: "Aprobado", tono: "info" },
-  { value: "comprado", label: "Comprado", tono: "ok" },
-  { value: "recibido", label: "Recibido", tono: "ok" },
-  { value: "rechazado", label: "Rechazado", tono: "crit" },
-] as const;
-
-const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-
 const subtotal = (i: Item) => (Number(i.precio_estimado) || 0) * (Number(i.cantidad) || 0);
 
 function dominio(link: string | null) {
@@ -64,14 +54,15 @@ function dominio(link: string | null) {
 }
 
 export function PedidoInsumos() {
-  const [vista, setVista] = useState<"lista" | "historico">("lista");
+  const [vista, setVista] = useState<"lista" | "historico" | "pendientes">("lista");
   return (
     <div className="space-y-3">
       <div className="inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
         {(
           [
             ["lista", "Lista actual"],
-            ["historico", "Histórico de pedidos"],
+            ["historico", "Pedidos"],
+            ["pendientes", "Pendientes de compra"],
           ] as const
         ).map(([k, label]) => (
           <button
@@ -84,7 +75,13 @@ export function PedidoInsumos() {
           </button>
         ))}
       </div>
-      {vista === "lista" ? <ListaActual onGenerado={() => setVista("historico")} /> : <Historico />}
+      {vista === "lista" ? (
+        <ListaActual onGenerado={() => setVista("historico")} />
+      ) : vista === "historico" ? (
+        <PedidosHistorico />
+      ) : (
+        <PendientesCompra />
+      )}
     </div>
   );
 }
@@ -317,185 +314,6 @@ function GenerarDialog({ items, total, onClose, onDone }: { items: Item[]; total
   );
 }
 
-/* ───────────── Histórico mes a mes ───────────── */
-
-function Historico() {
-  const { puedeEscribir } = useAuth();
-  const canWrite = puedeEscribir("oficina");
-  const qc = useQueryClient();
-  const [mes, setMes] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const [abierto, setAbierto] = useState<string | null>(null);
-  const [editando, setEditando] = useState<Pedido | null>(null);
-
-  const { data } = useQuery({
-    queryKey: ["insumos", "historico"],
-    queryFn: async () => {
-      const [p, i] = await Promise.all([
-        api.from("insumos_pedidos").select("*").order("created_at", { ascending: false }),
-        api.from("insumos_items").select("*").order("created_at"),
-      ]);
-      if (p.error) throw p.error;
-      return { pedidos: (p.data ?? []) as Pedido[], items: ((i.data ?? []) as Item[]).filter((x) => x.pedido_id) };
-    },
-  });
-  const pedidos = data?.pedidos ?? [];
-  const items = data?.items ?? [];
-
-  const delMes = pedidos.filter((p) => {
-    const d = new Date(p.created_at);
-    return d.getFullYear() === mes.getFullYear() && d.getMonth() === mes.getMonth();
-  });
-  const itemsDe = (id: string) => items.filter((i) => i.pedido_id === id);
-
-  // Últimos 6 meses: total pedido vs. comprado
-  const ultimos = useMemo(() => {
-    return Array.from({ length: 6 }).map((_, k) => {
-      const m = new Date(mes.getFullYear(), mes.getMonth() - 5 + k, 1);
-      const ps = pedidos.filter((p) => {
-        const d = new Date(p.created_at);
-        return d.getFullYear() === m.getFullYear() && d.getMonth() === m.getMonth() && p.estado !== "rechazado";
-      });
-      const pedido = ps.reduce((s, p) => s + Number(p.total_estimado || 0), 0);
-      const comprado = ps.reduce((s, p) => s + itemsDe(p.id).filter((i) => i.comprado).reduce((a, i) => a + subtotal(i), 0), 0);
-      return { m, pedido, comprado };
-    });
-  }, [pedidos, items, mes]); // eslint-disable-line react-hooks/exhaustive-deps
-  const maxMes = Math.max(1, ...ultimos.map((u) => u.pedido));
-
-  const totalMes = delMes.filter((p) => p.estado !== "rechazado").reduce((s, p) => s + Number(p.total_estimado || 0), 0);
-  const compradoMes = delMes.reduce((s, p) => s + itemsDe(p.id).filter((i) => i.comprado).reduce((a, i) => a + subtotal(i), 0), 0);
-  const itemsMes = delMes.reduce((s, p) => s + itemsDe(p.id).length, 0);
-  const itemsComprados = delMes.reduce((s, p) => s + itemsDe(p.id).filter((i) => i.comprado).length, 0);
-
-  const cambiarEstado = async (p: Pedido, estado: string) => {
-    const extra: Record<string, string> = {};
-    if (estado === "aprobado") extra.aprobado_at = new Date().toISOString();
-    if (estado === "comprado") extra.comprado_at = new Date().toISOString();
-    if (estado === "recibido") extra.recibido_at = new Date().toISOString();
-    const { error } = await api.from("insumos_pedidos").update({ estado, ...extra }).eq("id", p.id);
-    if (error) return toast.error(error.message);
-    // Marcar todo como comprado al pasar a comprado/recibido
-    if (estado === "comprado" || estado === "recibido") await api.from("insumos_items").update({ comprado: true }).eq("pedido_id", p.id);
-    toast.success(`${numeroPedidoInsumos(p.numero)} → ${ESTADOS_PEDIDO.find((e) => e.value === estado)?.label}`);
-    void qc.invalidateQueries({ queryKey: ["insumos", "historico"] });
-  };
-
-  const toggleComprado = async (i: Item) => {
-    const { error } = await api.from("insumos_items").update({ comprado: !i.comprado }).eq("id", i.id);
-    if (error) return toast.error(error.message);
-    void qc.invalidateQueries({ queryKey: ["insumos", "historico"] });
-  };
-
-  const hoy = new Date();
-  const esActual = mes.getFullYear() === hoy.getFullYear() && mes.getMonth() === hoy.getMonth();
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center rounded-lg border border-border bg-card p-1 shadow-xs">
-          <Button variant="ghost" size="icon" className="size-8" onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))} aria-label="Mes anterior"><ChevronLeft className="size-4" /></Button>
-          <p className="min-w-36 text-center text-sm font-semibold">{MESES[mes.getMonth()]} {mes.getFullYear()}</p>
-          <Button variant="ghost" size="icon" className="size-8" disabled={esActual} onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1))} aria-label="Mes siguiente"><ChevronRight className="size-4" /></Button>
-        </div>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 stagger">
-          <StatTile label="Pedidos" value={delMes.length} hint="solicitudes del mes" />
-          <StatTile label="Total pedido" value={pesos(totalMes)} hint="estimado" />
-          <StatTile label="Comprado" value={pesos(compradoMes)} hint={`${itemsComprados}/${itemsMes} ítems`} tone={itemsMes && itemsComprados === itemsMes ? "ok" : "neutral"} />
-          <StatTile label="Pendiente" value={itemsMes - itemsComprados} hint="ítems sin comprar" tone={itemsMes - itemsComprados ? "warn" : "ok"} />
-        </div>
-        <div className="panel p-3">
-          <p className="eyebrow mb-2">Últimos 6 meses</p>
-          <div className="flex h-20 items-end gap-2">
-            {ultimos.map((u) => (
-              <button key={u.m.toISOString()} type="button" onClick={() => setMes(u.m)} className="group flex flex-1 flex-col items-center gap-1" title={`${MESES[u.m.getMonth()]}: pedido ${pesos(u.pedido)} · comprado ${pesos(u.comprado)}`}>
-                <div className="relative flex w-full flex-1 items-end">
-                  <div className="w-full rounded-t bg-info/25 transition-all" style={{ height: `${(u.pedido / maxMes) * 100}%` }} />
-                  <div className="absolute bottom-0 w-full rounded-t bg-ok" style={{ height: `${(u.comprado / maxMes) * 100}%` }} />
-                </div>
-                <span className={cn("text-[10px]", u.m.getMonth() === mes.getMonth() && u.m.getFullYear() === mes.getFullYear() ? "font-semibold text-primary" : "text-muted-foreground")}>{MESES[u.m.getMonth()].slice(0, 3)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {delMes.length === 0 ? (
-        <div className="empty-state panel bg-grid">
-          <p className="text-sm font-semibold">Sin pedidos en {MESES[mes.getMonth()].toLowerCase()}</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">Usá las flechas o tocá un mes del gráfico.</p>
-        </div>
-      ) : (
-        <div className="panel divide-y divide-border/70 overflow-hidden">
-          {delMes.map((p) => {
-            const its = itemsDe(p.id);
-            const est = ESTADOS_PEDIDO.find((e) => e.value === p.estado) ?? ESTADOS_PEDIDO[0];
-            const comprados = its.filter((i) => i.comprado).length;
-            return (
-              <div key={p.id}>
-                <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <button type="button" onClick={() => setAbierto(abierto === p.id ? null : p.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                    <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", abierto === p.id && "rotate-90")} />
-                    <span className="num text-sm font-semibold text-primary">{numeroPedidoInsumos(p.numero)}</span>
-                    <span className="min-w-0 truncate text-xs text-muted-foreground">
-                      {new Date(p.created_at).toLocaleDateString("es-AR")} · {its.length} ítems · {p.solicitante_nombre || "—"} → {p.destinatario}
-                    </span>
-                  </button>
-                  <span className="num text-xs text-muted-foreground">{comprados}/{its.length} comprados</span>
-                  <span className="num w-28 text-right text-sm font-medium">{pesos(p.total_estimado)}</span>
-                  {canWrite ? (
-                    <Select value={p.estado} onValueChange={(v) => void cambiarEstado(p, v)}>
-                      <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{ESTADOS_PEDIDO.map((e) => <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                  ) : (
-                    <Badge variant={est.tono}>{est.label}</Badge>
-                  )}
-                  {canWrite && (
-                    <Button size="icon" variant="ghost" className="size-8" title="Editar pedido" aria-label="Editar pedido" onClick={() => setEditando(p)}>
-                      <Pencil className="size-4" />
-                    </Button>
-                  )}
-                  <Button size="icon" variant="ghost" className="size-8" title="Abrir PDF" aria-label="Abrir PDF" onClick={() => imprimirPedidoInsumos({ numero: p.numero, fecha: p.created_at, destinatario: p.destinatario, solicitante: p.solicitante_nombre, notas: p.notas, items: its })}>
-                    <FileText className="size-4" />
-                  </Button>
-                </div>
-                {abierto === p.id && (
-                  <div className="border-t border-border/60 bg-muted/20 px-4 py-2 rise-in">
-                    {its.map((i) => (
-                      <label key={i.id} className="flex items-center gap-3 py-1.5 text-[13px]">
-                        <input type="checkbox" className="size-4 accent-[var(--ok)]" checked={i.comprado} disabled={!canWrite} onChange={() => void toggleComprado(i)} />
-                        <span className={cn("min-w-0 flex-1 truncate", i.comprado && "text-muted-foreground line-through")}>{i.descripcion}</span>
-                        <span className="num text-xs text-muted-foreground">{Number(i.cantidad)} {i.unidad}</span>
-                        {i.link && (
-                          <a href={i.link.startsWith("http") ? i.link : `https://${i.link}`} target="_blank" rel="noopener noreferrer" className="text-primary" aria-label="Abrir link"><ExternalLink className="size-3.5" /></a>
-                        )}
-                        <span className="num w-24 text-right text-xs">{subtotal(i) ? pesos(subtotal(i)) : "—"}</span>
-                      </label>
-                    ))}
-                    {p.notas && <p className="pt-1 text-xs text-muted-foreground">Observaciones: {p.notas}</p>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {editando && (
-        <EditarPedido
-          pedido={editando}
-          items={itemsDe(editando.id)}
-          onClose={() => setEditando(null)}
-          onGuardado={() => void qc.invalidateQueries({ queryKey: ["insumos", "historico"] })}
-        />
-      )}
-    </div>
-  );
-}
-
 /* ───────────── Editar un pedido ya generado ───────────── */
 
 type Fila = {
@@ -536,7 +354,7 @@ function aNumero(v: string) {
 }
 
 /** Corrige datos, ítems y observaciones de un pedido y vuelve a generar el mismo SOL-xxxx. */
-function EditarPedido({ pedido, items, onClose, onGuardado }: { pedido: Pedido; items: Item[]; onClose: () => void; onGuardado: () => void }) {
+export function EditarPedido({ pedido, items, onClose, onGuardado }: { pedido: Pedido; items: Item[]; onClose: () => void; onGuardado: () => void }) {
   const [filas, setFilas] = useState<Fila[]>(() => items.map(aFila));
   const [destinatario, setDestinatario] = useState(pedido.destinatario);
   const [notas, setNotas] = useState(pedido.notas ?? "");

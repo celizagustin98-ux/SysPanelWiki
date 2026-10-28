@@ -17,6 +17,11 @@ export const pool = new Pool({
   max: Number(process.env.PG_POOL_MAX || 10),
   idleTimeoutMillis: 30_000,
 });
+// Una conexión inactiva que se corta (reinicio de PostgreSQL, red) no debe tirar abajo el servidor:
+// el pool la descarta y abre otra en la próxima consulta.
+pool.on("error", (error) => {
+  console.error("[db] conexión inactiva con error:", error.message);
+});
 
 /** Clave del rol (administrador, tecnico, consulta o uno personalizado de la tabla roles). */
 export type AppRole = string;
