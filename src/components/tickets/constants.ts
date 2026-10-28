@@ -34,6 +34,24 @@ export const ESTADOS = [
   { key: "cancelado", label: "Cancelado" },
 ] as const;
 
+/**
+ * Color propio de cada estado, bien distinto uno de otro. Se usa igual en la barra de
+ * distribución, los chips de estado, la barra de evolución del detalle y el punto de cada fila.
+ */
+export const ESTADO_COLOR: Record<string, { punto: string; barra: string; chip: string; texto: string; hex: string }> = {
+  nuevo: { punto: "bg-rose-500", barra: "bg-rose-500", chip: "bg-rose-500/12 text-rose-600 ring-rose-500/30 dark:text-rose-300", texto: "text-rose-600 dark:text-rose-300", hex: "#f43f5e" },
+  asignado: { punto: "bg-violet-500", barra: "bg-violet-500", chip: "bg-violet-500/12 text-violet-600 ring-violet-500/30 dark:text-violet-300", texto: "text-violet-600 dark:text-violet-300", hex: "#8b5cf6" },
+  en_curso: { punto: "bg-sky-500", barra: "bg-sky-500", chip: "bg-sky-500/12 text-sky-700 ring-sky-500/30 dark:text-sky-300", texto: "text-sky-700 dark:text-sky-300", hex: "#0ea5e9" },
+  esperando: { punto: "bg-amber-500", barra: "bg-amber-500", chip: "bg-amber-500/15 text-amber-700 ring-amber-500/35 dark:text-amber-300", texto: "text-amber-700 dark:text-amber-300", hex: "#f59e0b" },
+  resuelto: { punto: "bg-emerald-500", barra: "bg-emerald-500", chip: "bg-emerald-500/12 text-emerald-700 ring-emerald-500/30 dark:text-emerald-300", texto: "text-emerald-700 dark:text-emerald-300", hex: "#10b981" },
+  cerrado: { punto: "bg-slate-500", barra: "bg-slate-500", chip: "bg-slate-500/12 text-slate-600 ring-slate-500/30 dark:text-slate-300", texto: "text-slate-600 dark:text-slate-300", hex: "#64748b" },
+  cancelado: { punto: "bg-zinc-400", barra: "bg-zinc-400", chip: "bg-zinc-500/10 text-zinc-500 ring-zinc-500/25 line-through", texto: "text-zinc-500", hex: "#a1a1aa" },
+};
+
+export function colorEstado(estado: string) {
+  return ESTADO_COLOR[estado] ?? ESTADO_COLOR.cerrado;
+}
+
 /** Camino normal de un ticket (En espera es un desvío desde Trabajando). */
 export const FLUJO = ["nuevo", "asignado", "en_curso", "resuelto", "cerrado"] as const;
 

@@ -46,6 +46,8 @@ export const GUIA: SeccionGuia[] = [
     resumen:
       "Registra cada pedido o problema y lo acompaña hasta que se termina. Todo queda en la actividad del ticket: quién lo tomó, qué se hizo y cuándo se cerró.",
     pasos: [
+      { titulo: "Ver mis tickets", detalle: "Arriba de la lista elegí Todos, Mis tickets (asignados o creados por vos), Asignados a mí o Creados por mí. También podés tocar las tarjetas de arriba. El sistema recuerda tu elección." },
+      { titulo: "Colores de cada estado", detalle: "Pendiente rojo, Asignado violeta, Trabajando celeste, En espera ámbar, Resuelto verde y Terminado gris. Se usan igual en la barra de arriba, en la franja de cada fila y en la barra de evolución del ticket." },
       { titulo: "Crear un ticket", detalle: "Botón 'Nuevo ticket'. Completá título, descripción, prioridad, sector y, si corresponde, el equipo afectado (podés buscarlo o escanear su QR)." },
       { titulo: "Filtrar la bandeja", detalle: "Los cuadros de arriba (Sin asignar, Asignados y trabajando, En espera, Resueltos) filtran la lista. La búsqueda encuentra por número, título o sector." },
       { titulo: "Abrir un ticket", detalle: "Hacé clic en el título: se abre la ficha completa con la barra de progreso del ticket." },
@@ -146,11 +148,13 @@ export const GUIA: SeccionGuia[] = [
     id: "oficina",
     titulo: "Oficina",
     icono: "BriefcaseBusiness",
-    resumen: "Teléfonos internos de toda la organización y el pedido de insumos a Compras.",
+    resumen: "Teléfonos internos, pedidos de compra con seguimiento por ítem y la agenda de proveedores y correos de la empresa.",
     pasos: [
       { titulo: "Teléfonos internos", detalle: "Buscá por nombre, sector o número. Clic en el interno lo copia. Se exporta a Excel." },
-      { titulo: "Pedido de insumos", detalle: "Cargá lo que falta (cantidad, link de compra, precio estimado). 'Generar pedido a Compras' crea la solicitud numerada en PDF." },
-      { titulo: "Histórico", detalle: "Muestra los pedidos mes a mes; marcá qué se compró y en qué estado está cada pedido." },
+      { titulo: "Lista actual", detalle: "Cargá lo que falta (cantidad, link de compra, precio estimado). 'Generar pedido a Compras' crea la solicitud numerada en PDF." },
+      { titulo: "Pedidos", detalle: "Cada pedido muestra una barra con cuántos ítems están pendientes, comprados en parte, comprados o recibidos. 'Seguimiento' abre el detalle: aprobar o rechazar, marcar cada ítem comprado o recibido (también cantidades parciales, como 3 de 5), cargar proveedor y precio real y dejar notas. El estado del pedido avanza solo: Enviado → Aprobado → Compra parcial → Comprado → Recibido, y todo queda en el historial." },
+      { titulo: "Pendientes de compra", detalle: "Junta lo que falta comprar o recibir de todos los pedidos, con los urgentes primero. Un clic lo marca como comprado o recibido." },
+      { titulo: "Agenda", detalle: "Proveedores (rubro, contacto, email, teléfono, WhatsApp, web, CUIT) y los emails de cada área de la empresa. Tocá un email o teléfono para escribir o llamar, o copialo. Los favoritos quedan arriba y los proveedores aparecen al cargar una compra." },
     ],
   },
   {

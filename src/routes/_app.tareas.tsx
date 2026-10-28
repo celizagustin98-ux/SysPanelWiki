@@ -27,6 +27,8 @@ import {
   tiempoRelativo,
   initials,
   ESTADOS,
+  ESTADO_COLOR,
+  colorEstado,
 } from "@/components/tickets/constants";
 import { ReopenDialog } from "@/components/tickets/ReopenDialog";
 import { TicketDetail } from "@/components/tickets/TicketDetail";
@@ -59,22 +61,22 @@ const PRIO_LABEL: Record<string, string> = {
   media: "Media",
   baja: "Baja",
 };
-const ESTADO_BADGE: Record<string, string> = {
-  nuevo: "bg-info/12 text-info",
-  asignado: "bg-chart-4/12 text-chart-4",
-  en_curso: "bg-info/12 text-info",
-  esperando: "bg-warn/12 text-[color-mix(in_oklab,var(--warn),var(--foreground)_30%)]",
-  resuelto: "bg-ok/12 text-ok",
-  cerrado: "bg-muted text-muted-foreground",
-  cancelado: "bg-muted text-muted-foreground",
-};
+const ESTADO_BADGE: Record<string, string> = Object.fromEntries(
+  Object.entries(ESTADO_COLOR).map(([k, c]) => [k, cn("ring-1 ring-inset", c.chip)]),
+);
 
-function progressBucket(estado: string): "nuevo" | "progreso" | "espera" | "resuelto" {
-  if (estado === "nuevo") return "nuevo";
-  if (estado === "esperando") return "espera";
-  if (estado === "resuelto" || estado === "cerrado" || estado === "cancelado") return "resuelto";
-  return "progreso";
-}
+/** Qué tickets se ven: todos o solo los propios. */
+type Alcance = "todos" | "mis" | "asignados" | "creados";
+const ALCANCES: { key: Alcance; label: string; hint: string }[] = [
+  { key: "todos", label: "Todos", hint: "Todos los tickets del área" },
+  { key: "mis", label: "Mis tickets", hint: "Asignados a mí o creados por mí" },
+  { key: "asignados", label: "Asignados a mí", hint: "Los que tengo que resolver" },
+  { key: "creados", label: "Creados por mí", hint: "Las solicitudes que abrí" },
+];
+const ALCANCE_KEY = "nodara.tickets.alcance";
+
+/** Orden en que se muestran los estados activos en la barra de distribución. */
+const ESTADOS_BARRA = ["nuevo", "asignado", "en_curso", "esperando", "resuelto"] as const;
 
 function formatDay(iso?: string | null) {
   if (!iso) return "";
@@ -86,6 +88,22 @@ function TicketsPage() {
   const canWrite = puedeEscribir("tareas");
   const qc = useQueryClient();
   const [vista, setVista] = useState<Vista>("activos");
+  const [alcance, setAlcanceState] = useState<Alcance>(() => {
+    try {
+      const v = localStorage.getItem(ALCANCE_KEY);
+      return ALCANCES.some((a) => a.key === v) ? (v as Alcance) : "todos";
+    } catch {
+      return "todos";
+    }
+  });
+  const setAlcance = (a: Alcance) => {
+    setAlcanceState(a);
+    try {
+      localStorage.setItem(ALCANCE_KEY, a);
+    } catch {
+      /* sin almacenamiento */
+    }
+  };
   const [q, setQ] = useState("");
   const { ticket: ticketParam } = Route.useSearch();
   const [selectedId, setSelectedId] = useState<string | null>(ticketParam ?? null);
@@ -142,7 +160,15 @@ function TicketsPage() {
     },
   });
 
-  const applyQ = (list: TicketT[]) => {
+  const esMio = (t: TicketT) => {
+    if (alcance === "asignados") return t.asignado_a === user?.id;
+    if (alcance === "creados") return t.solicitante_id === user?.id;
+    if (alcance === "mis") return t.asignado_a === user?.id || t.solicitante_id === user?.id;
+    return true;
+  };
+
+  const applyQ = (todos: TicketT[]) => {
+    const list = todos.filter(esMio);
     const term = q.trim().toLowerCase();
     if (!term) return sortTickets(list);
     return sortTickets(
@@ -163,8 +189,8 @@ function TicketsPage() {
     );
   };
 
-  const list = useMemo(() => applyQ(openTickets), [openTickets, q]);
-  const hist = useMemo(() => applyQ(historyTickets), [historyTickets, q]);
+  const list = useMemo(() => applyQ(openTickets), [openTickets, q, alcance, user?.id]);
+  const hist = useMemo(() => applyQ(historyTickets), [historyTickets, q, alcance, user?.id]);
 
   const groups = useMemo(() => {
     const sinAsignar = list.filter((t) => !t.asignado_a);
@@ -185,28 +211,28 @@ function TicketsPage() {
         key: "sin",
         title: "Sin asignar",
         hint: "Tickets que todavía necesitan una persona responsable.",
-        dot: "bg-muted-foreground/50",
+        dot: ESTADO_COLOR.nuevo.punto,
         items: sinAsignar,
       },
       {
         key: "prog",
         title: "Asignados y trabajando",
         hint: "Tickets con responsable, esperando empezar o en trabajo.",
-        dot: "bg-info",
+        dot: ESTADO_COLOR.en_curso.punto,
         items: enProgreso,
       },
       {
         key: "esp",
         title: "En espera",
         hint: "Tickets en espera de información o una dependencia.",
-        dot: "bg-warn",
+        dot: ESTADO_COLOR.esperando.punto,
         items: pendiente,
       },
       {
         key: "res",
         title: "Resueltos sin terminar",
         hint: "Resueltos que falta dar por terminados.",
-        dot: "bg-ok",
+        dot: ESTADO_COLOR.resuelto.punto,
         items: resueltos,
       },
       {
@@ -219,10 +245,15 @@ function TicketsPage() {
     ];
   }, [list]);
 
+  const porEstado = useMemo(
+    () => ESTADOS_BARRA.map((key) => ({ key, n: list.filter((t) => t.estado === key).length })),
+    [list],
+  );
+
   // Un grupo a la vez y paginado: evita la lista eterna de tickets.
   const [grupoSel, setGrupoSel] = useState<string>("todos");
   const [pagina, setPagina] = useState(1);
-  useEffect(() => setPagina(1), [grupoSel, q]);
+  useEffect(() => setPagina(1), [grupoSel, q, alcance]);
   const POR_PAGINA = 15;
   const grupoActual = groups.find((g) => g.key === grupoSel);
   const visibles = grupoActual ? grupoActual.items : list;
@@ -236,14 +267,10 @@ function TicketsPage() {
     const seguimiento = openTickets.filter(
       (t) => t.asignado_a === user?.id || t.solicitante_id === user?.id,
     ).length;
-    const buckets = { nuevo: 0, progreso: 0, espera: 0, resuelto: 0 };
-    for (const t of openTickets) buckets[progressBucket(t.estado)]++;
-    buckets.resuelto = openTickets.filter((t) => t.estado === "resuelto").length;
     return {
       mios,
       creados,
       seguimiento,
-      ...buckets,
       total: openTickets.length,
       historial: historyTickets.length,
     };
@@ -303,8 +330,6 @@ function TicketsPage() {
     refetch();
   };
 
-  const barTotal = Math.max(1, counts.nuevo + counts.progreso + counts.espera + counts.resuelto);
-  const pct = (n: number) => `${Math.round((n / barTotal) * 100)}%`;
 
   return (
     <div className="page-content">
@@ -343,6 +368,8 @@ function TicketsPage() {
           tone="info"
           value={counts.mios}
           title="Pendientes para mí"
+          activo={alcance === "asignados"}
+          onClick={() => setAlcance(alcance === "asignados" ? "todos" : "asignados")}
           hint="Asignados que todavía requieren una acción"
         />
         <KpiCard
@@ -350,6 +377,8 @@ function TicketsPage() {
           tone="warn"
           value={counts.creados}
           title="Creados por mí"
+          activo={alcance === "creados"}
+          onClick={() => setAlcance(alcance === "creados" ? "todos" : "creados")}
           hint="Solicitudes que abriste y siguen activas"
         />
         <KpiCard
@@ -357,11 +386,14 @@ function TicketsPage() {
           tone="ok"
           value={counts.seguimiento}
           title="Seguimiento"
+          activo={alcance === "mis"}
+          onClick={() => setAlcance(alcance === "mis" ? "todos" : "mis")}
           hint="Cambios recientes en tickets que seguís"
         />
       </div>
 
-      <div className="mb-3 inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
         <button
           type="button"
           onClick={() => setVista("activos")}
@@ -404,15 +436,48 @@ function TicketsPage() {
           </span>
         </button>
       </div>
+        <div role="group" aria-label="Qué tickets ver" className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-xs">
+          {ALCANCES.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              title={a.hint}
+              aria-pressed={alcance === a.key}
+              onClick={() => setAlcance(a.key)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-[13px] font-medium transition",
+                alcance === a.key ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {vista === "activos" && (
         <>
           <div className="panel mb-3 p-3">
-            <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-muted">
-              <span className="bg-muted-foreground/50 transition-[width] duration-700" style={{ width: pct(counts.nuevo) }} />
-              <span className="bg-info transition-[width] duration-700" style={{ width: pct(counts.progreso) }} />
-              <span className="bg-warn transition-[width] duration-700" style={{ width: pct(counts.espera) }} />
-              <span className="bg-ok transition-[width] duration-700" style={{ width: pct(counts.resuelto) }} />
+            <div className="mb-2 flex h-3 gap-0.5 overflow-hidden rounded-full bg-muted">
+              {porEstado.map((e) =>
+                e.n ? (
+                  <span
+                    key={e.key}
+                    title={`${estadoLabel(e.key)}: ${e.n}`}
+                    className={cn("transition-[width] duration-700", colorEstado(e.key).barra)}
+                    style={{ width: `${(e.n / Math.max(1, list.length)) * 100}%` }}
+                  />
+                ) : null,
+              )}
+            </div>
+            <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
+              {porEstado.map((e) => (
+                <span key={e.key} className="inline-flex items-center gap-1.5">
+                  <span className={cn("size-2.5 rounded-sm", colorEstado(e.key).punto)} />
+                  {estadoLabel(e.key)}
+                  <span className="num font-semibold text-foreground">{e.n}</span>
+                </span>
+              ))}
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {[{ key: "todos", title: "Todos", dot: "bg-foreground/40", items: list }, ...groups.filter((g) => g.key !== "otros" || g.items.length)].map((g) => (
@@ -554,10 +619,11 @@ function TicketTable({
         <div
           key={t.id}
           className={cn(
-            "grid grid-cols-1 gap-2 px-4 py-3 transition hover:bg-muted/25 lg:grid-cols-[minmax(0,1.7fr)_88px_120px_140px_100px_110px] lg:items-center",
+            "relative grid grid-cols-1 gap-2 px-4 py-3 transition hover:bg-muted/25 lg:grid-cols-[minmax(0,1.7fr)_88px_120px_140px_100px_110px] lg:items-center",
             i > 0 && "border-t border-border/40",
           )}
         >
+          <span aria-hidden className={cn("absolute inset-y-2 left-0 w-1 rounded-r-full", colorEstado(t.estado).barra)} />
           <button type="button" className="min-w-0 text-left" onClick={() => onOpen(t.id)}>
             <p className="truncate text-[14px] font-semibold tracking-tight">{t.titulo}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -610,7 +676,10 @@ function TicketTable({
                 <SelectContent>
                   {ESTADOS.map((e) => (
                     <SelectItem key={e.key} value={e.key}>
-                      {e.label}
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn("size-2 rounded-full", colorEstado(e.key).punto)} />
+                        {e.label}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -664,23 +733,33 @@ function KpiCard({
   value,
   title,
   hint,
+  activo,
+  onClick,
 }: {
   icon: ReactNode;
   tone: "ok" | "warn" | "info";
   value: number;
   title: string;
   hint: string;
+  activo?: boolean;
+  onClick?: () => void;
 }) {
   const toneClass = { ok: "bg-ok/12 text-ok", warn: "bg-warn/14 text-warn", info: "bg-info/12 text-info" }[tone];
   return (
-    <div className="kpi-cell">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      title={activo ? "Volver a ver todos los tickets" : "Filtrar la lista"}
+      className={cn("kpi-cell text-left transition hover:ring-1 hover:ring-primary/30", activo && "ring-2 ring-primary")}
+    >
       <div className="flex items-center justify-between">
         <p className="kpi-label">{title}</p>
         <div className={cn("grid size-8 place-items-center rounded-lg", toneClass)}>{icon}</div>
       </div>
       <p className="kpi-value">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-    </div>
+    </button>
   );
 }
 

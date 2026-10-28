@@ -40,6 +40,7 @@ import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
 import {
   ESTADOS,
+  colorEstado,
   FLUJO,
   PRIORIDAD_STYLE,
   PRIORIDADES,
@@ -517,14 +518,16 @@ function FlujoTicket({ estado }: { estado: string }) {
           <li key={p.key} className="min-w-0" aria-current={actual ? "step" : undefined}>
             <div
               className={cn(
-                "h-1.5 rounded-full transition-colors duration-500",
-                hecho ? "bg-ok" : actual ? (estado === "esperando" ? "bg-warn" : "bg-primary") : "bg-muted",
+                "rounded-full transition-all duration-500",
+                actual ? "h-2.5 shadow-sm" : "h-2",
+                hecho || actual ? colorEstado(actual ? estado : p.key).barra : "bg-muted",
+                hecho && "opacity-55",
               )}
             />
             <p
               className={cn(
                 "mt-1.5 flex items-center gap-1 truncate text-[11px]",
-                actual ? "font-semibold text-foreground" : hecho ? "text-ok" : "text-muted-foreground",
+                actual ? cn("font-semibold", colorEstado(estado).texto) : hecho ? colorEstado(p.key).texto : "text-muted-foreground",
               )}
             >
               {hecho && <CheckCircle2 className="size-3 shrink-0" />}

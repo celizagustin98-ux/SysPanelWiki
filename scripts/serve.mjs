@@ -20,6 +20,11 @@ const pool = new Pool({
   max: Number(process.env.PG_POOL_MAX || 10),
   idleTimeoutMillis: 30_000,
 });
+// Una conexión inactiva que se corta (reinicio de PostgreSQL, red) no debe tirar abajo el servidor:
+// el pool la descarta y abre otra en la próxima consulta.
+pool.on("error", (error) => {
+  console.error("[db] conexión inactiva con error:", error.message);
+});
 const DEFAULT_BRANCH = "main";
 const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 1024 * 1024);
 
