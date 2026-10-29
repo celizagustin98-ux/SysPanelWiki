@@ -3,6 +3,8 @@ import { useRef, useState, type DragEvent } from "react";
 import { Download, Eye, File, FileImage, FileSpreadsheet, FileText, Loader2, Paperclip, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { VisorPdf } from "@/components/VisorPdf";
 import { api, getToken } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -29,6 +31,18 @@ function icono(mime?: string | null, nombre = "") {
   if (mime === "application/pdf" || /\.pdf$/i.test(nombre)) return FileText;
   if (/sheet|excel|csv/.test(mime ?? "") || /\.(xlsx?|csv)$/i.test(nombre)) return FileSpreadsheet;
   return File;
+}
+
+const esPdf = (a: Adjunto) => a.mime === "application/pdf" || /\.pdf$/i.test(a.file_name);
+
+/** Los PDF se ven en el visor propio (en celulares y algunos navegadores el visor integrado no existe). */
+async function verPdf(a: Adjunto, mostrar: (v: { nombre: string; url: string }) => void) {
+  const r = await fetch(`/api/adjuntos/${encodeURIComponent(a.id)}`, { headers: { authorization: `Bearer ${getToken() ?? ""}` } });
+  if (!r.ok) {
+    const p = await r.json().catch(() => null);
+    return toast.error(p?.error ?? "No se pudo abrir el archivo");
+  }
+  mostrar({ nombre: a.file_name, url: URL.createObjectURL(await r.blob()) });
 }
 
 async function abrir(a: Adjunto, descargar = false) {
@@ -61,6 +75,12 @@ export function Adjuntos({ entidad, entidadId, canEdit, compacto }: { entidad: "
   const input = useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = useState(0);
   const [arrastrando, setArrastrando] = useState(false);
+  const [pdf, setPdf] = useState<{ nombre: string; url: string } | null>(null);
+  const ver = (a: Adjunto) => void (esPdf(a) ? verPdf(a, setPdf) : abrir(a));
+  const cerrarPdf = () => {
+    if (pdf) URL.revokeObjectURL(pdf.url);
+    setPdf(null);
+  };
   const key = ["adjuntos", entidad, entidadId];
 
   const { data: adjuntos = [], isLoading } = useQuery({
@@ -162,13 +182,13 @@ export function Adjuntos({ entidad, entidadId, canEdit, compacto }: { entidad: "
             return (
               <li key={a.id} className="flex items-center gap-3 px-3 py-2">
                 <Icono className="size-4 shrink-0 text-primary" />
-                <button type="button" onClick={() => void abrir(a)} className="min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => ver(a)} className="min-w-0 flex-1 text-left">
                   <span className="block truncate text-[13px] font-medium hover:underline">{a.file_name}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">
                     {[peso(a.file_size), a.created_by_nombre, new Date(a.created_at).toLocaleDateString("es-AR")].filter(Boolean).join(" · ")}
                   </span>
                 </button>
-                <Button size="icon" variant="ghost" className="size-7" aria-label="Ver" onClick={() => void abrir(a)}><Eye className="size-3.5" /></Button>
+                <Button size="icon" variant="ghost" className="size-7" aria-label="Ver" onClick={() => ver(a)}><Eye className="size-3.5" /></Button>
                 <Button size="icon" variant="ghost" className="size-7" aria-label="Descargar" onClick={() => void abrir(a, true)}><Download className="size-3.5" /></Button>
                 {canEdit && (
                   <Button size="icon" variant="ghost" className="size-7" aria-label="Eliminar" onClick={() => void eliminar(a)}><Trash2 className="size-3.5 text-destructive" /></Button>
@@ -178,6 +198,15 @@ export function Adjuntos({ entidad, entidadId, canEdit, compacto }: { entidad: "
           })}
         </ul>
       )}
+
+      <Dialog open={!!pdf} onOpenChange={(o) => !o && cerrarPdf()}>
+        <DialogContent className="flex h-[90dvh] max-w-4xl flex-col gap-3 p-3 sm:p-4">
+          <DialogHeader>
+            <DialogTitle className="truncate pr-8 text-sm">{pdf?.nombre}</DialogTitle>
+          </DialogHeader>
+          {pdf && <VisorPdf src={pdf.url} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border" />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
