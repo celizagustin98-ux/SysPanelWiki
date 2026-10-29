@@ -1,10 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
+  ArrowRight,
   AtSign,
   Building2,
+  CircleCheck,
+  CircleOff,
   Copy,
   Globe,
+  History,
+  KeyRound,
   Loader2,
   Mail,
   MapPin,
@@ -12,6 +17,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  RotateCcw,
   Search,
   Star,
   Trash2,
@@ -25,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
@@ -48,8 +55,48 @@ type Contacto = {
   notas: string | null;
   favorito: boolean;
   activo: boolean;
+  /** Casilla en uso (activo) o dada de baja (inactivo). "activo" en cambio es si sigue en la agenda. */
+  vigente?: boolean;
+  inactivo_desde?: string | null;
   has_secreto?: boolean;
 };
+
+type CambioContacto = {
+  id: string;
+  contacto_id: string;
+  campo: string;
+  antes: string | null;
+  despues: string | null;
+  cifrado: boolean;
+  tiene_antes: boolean;
+  tiene_despues: boolean;
+  actor_nombre: string | null;
+  created_at: string;
+  contacto_nombre: string;
+  contacto_email: string | null;
+};
+
+const ETIQUETA_CAMPO: Record<string, string> = {
+  _alta: "Alta en la agenda",
+  nombre: "Área",
+  rubro: "Grupo",
+  email: "Email",
+  usuario: "Usuario",
+  secreto: "Clave",
+  contacto: "Responsable",
+  telefono: "Teléfono",
+  whatsapp: "WhatsApp",
+  web: "Webmail",
+  direccion: "Dirección",
+  cuit: "CUIT",
+  notas: "Notas",
+  vigente: "Estado",
+  activo: "En la agenda",
+};
+
+const fechaHora = (v: string) =>
+  new Date(v).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const fecha = (v: string) => new Date(v).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 const soloDigitos = (v: string) => v.replace(/\D/g, "");
 const urlWeb = (v: string) => (/^https?:\/\//i.test(v) ? v : `https://${v}`);
@@ -101,7 +148,7 @@ export function Agenda() {
           icono={AtSign}
           titulo="Emails de la empresa"
           detalle="Casillas de cada área con su usuario y clave protegida"
-          n={emails.length}
+          n={emails.filter((c) => c.vigente !== false).length}
           tono="sky"
         />
       </div>
@@ -411,6 +458,8 @@ function ProveedorForm({
 
 /* ───────────── Emails de la empresa ───────────── */
 
+type VistaEmails = "activos" | "inactivos" | "historial";
+
 function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boolean }) {
   const { profile, puedeEscribir, can } = useAuth();
   const canWrite = puedeEscribir("oficina");
@@ -418,126 +467,190 @@ function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boole
   const qc = useQueryClient();
   const claves = useSecretos();
   const [q, setQ] = useState("");
+  const [vista, setVista] = useState<VistaEmails>("activos");
+  const [historialDe, setHistorialDe] = useState<string | null>(null);
   const [editando, setEditando] = useState<Contacto | "nuevo" | null>(null);
+
+  const activos = lista.filter((c) => c.vigente !== false);
+  const inactivos = lista.filter((c) => c.vigente === false);
+  const enVista = vista === "inactivos" ? inactivos : activos;
 
   const visibles = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return lista
+    return enVista
       .filter((c) => !term || [c.nombre, c.rubro, c.contacto, c.email, c.usuario, c.notas].filter(Boolean).some((v) => String(v).toLowerCase().includes(term)))
       .sort((a, b) => Number(b.favorito) - Number(a.favorito) || a.nombre.localeCompare(b.nombre));
-  }, [lista, q]);
+  }, [enVista, q]);
   const grupos = useMemo(() => [...new Set(lista.map((c) => c.rubro?.trim()).filter(Boolean) as string[])], [lista]);
-  const refrescar = () => void qc.invalidateQueries({ queryKey: ["oficina_contactos"] });
+  const refrescar = () => {
+    void qc.invalidateQueries({ queryKey: ["oficina_contactos"] });
+    void qc.invalidateQueries({ queryKey: ["oficina_contactos_historial"] });
+  };
+
+  const cambiarEstado = async (c: Contacto) => {
+    const vigente = c.vigente === false;
+    const { error } = await api
+      .from("oficina_contactos")
+      .update({ vigente, inactivo_desde: vigente ? null : new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", c.id);
+    if (error) return toast.error(error.message);
+    toast.success(vigente ? `«${c.email ?? c.nombre}» volvió a Activos` : `«${c.email ?? c.nombre}» pasó a Correos inactivos`);
+    refrescar();
+  };
+  const verHistorial = (c: Contacto) => {
+    setHistorialDe(c.id);
+    setVista("historial");
+  };
 
   return (
     <div className="space-y-3">
-      <Barra
-        q={q}
-        setQ={setQ}
-        placeholder="Buscar área, email, usuario o responsable…"
-        csv={() =>
-          // Sin claves: el Excel nunca incluye secretos.
-          exportarCsv(
-            "emails-empresa",
-            [
-              { titulo: "Área", valor: (c: Contacto) => c.nombre },
-              { titulo: "Grupo", valor: (c: Contacto) => c.rubro },
-              { titulo: "Email", valor: (c: Contacto) => c.email },
-              { titulo: "Usuario", valor: (c: Contacto) => c.usuario },
-              { titulo: "Responsable", valor: (c: Contacto) => c.contacto },
-              { titulo: "Notas", valor: (c: Contacto) => c.notas },
-            ],
-            visibles,
-          )
-        }
-        hayDatos={!!visibles.length}
-        boton={canWrite ? { texto: "Nuevo email", onClick: () => setEditando("nuevo") } : null}
-      />
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1 sm:w-fit">
+        <BotonVista activo={vista === "activos"} onClick={() => setVista("activos")} icono={CircleCheck} n={activos.length}>
+          Activos
+        </BotonVista>
+        <BotonVista activo={vista === "inactivos"} onClick={() => setVista("inactivos")} icono={CircleOff} n={inactivos.length}>
+          Correos inactivos
+        </BotonVista>
+        <BotonVista
+          activo={vista === "historial"}
+          onClick={() => {
+            setHistorialDe(null);
+            setVista("historial");
+          }}
+          icono={History}
+        >
+          Historial de cambios
+        </BotonVista>
+      </div>
 
-      {cargando ? (
-        <Esqueleto />
-      ) : visibles.length === 0 ? (
-        <Vacio
-          titulo={lista.length ? "No hay emails con esa búsqueda" : "Todavía no hay emails cargados"}
-          detalle="Guardá las casillas de cada área (compras@, rrhh@, facturación@…) con su usuario y clave. La clave queda cifrada y se ve con el ojito."
-          accion={canWrite && !lista.length ? { texto: "Agregar el primero", onClick: () => setEditando("nuevo") } : null}
-        />
+      {vista === "historial" ? (
+        <HistorialCambios contactos={lista} contactoId={historialDe} onContacto={setHistorialDe} canWrite={canWrite} onRestaurado={refrescar} />
       ) : (
-        <div className="panel overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="w-8 px-3 py-2.5" />
-                <th className="px-3 py-2.5 font-medium">Área</th>
-                <th className="px-3 py-2.5 font-medium">Email</th>
-                <th className="px-3 py-2.5 font-medium">Usuario</th>
-                <th className="px-3 py-2.5 font-medium">Clave</th>
-                <th className="hidden px-3 py-2.5 font-medium lg:table-cell">Responsable / notas</th>
-                {canWrite && <th className="w-24 px-3 py-2.5 text-right font-medium">Acciones</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.map((c) => (
-                <tr key={c.id} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
-                  <td className="px-3 py-2">
-                    <Favorito c={c} canWrite={canWrite} onCambio={refrescar} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <p className="font-medium">{c.nombre}</p>
-                    {c.rubro && <p className="text-xs text-muted-foreground">{c.rubro}</p>}
-                  </td>
-                  <td className="px-3 py-2">
-                    {c.email ? (
-                      <span className="group inline-flex items-center gap-1">
-                        <a href={`mailto:${c.email}`} className="text-primary hover:underline">
-                          {c.email}
-                        </a>
-                        <BotonCopiar onClick={() => void copiar(c.email!, "Email")} />
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {c.usuario ? (
-                      <span className="group inline-flex items-center gap-1">
-                        {c.usuario}
-                        <BotonCopiar onClick={() => void copiar(c.usuario!, "Usuario")} />
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">igual al email</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <SecretoOculto
-                      id={c.id}
-                      tiene={!!c.has_secreto}
-                      ctl={claves}
-                      compacto
-                      fetcher={rpcRevelar("revelar_contacto", { _id: c.id, _via: "ver" })}
-                    />
-                  </td>
-                  <td className="hidden max-w-[260px] px-3 py-2 text-xs text-muted-foreground lg:table-cell">
-                    <p className="truncate">{c.contacto || "—"}</p>
-                    {c.notas && <p className="truncate">{c.notas}</p>}
-                  </td>
-                  {canWrite && (
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
-                      <Button size="icon" variant="ghost" className="size-8" aria-label="Editar" onClick={() => setEditando(c)}>
-                        <Pencil className="size-4" />
-                      </Button>
-                      {canDelete && (
-                        <Button size="icon" variant="ghost" className="size-8" aria-label="Quitar" onClick={() => void quitar(c, refrescar)}>
-                          <Trash2 className="size-4 text-destructive" />
+        <>
+          <Barra
+            q={q}
+            setQ={setQ}
+            placeholder="Buscar área, email, usuario o responsable…"
+            csv={() =>
+              // Sin claves: el Excel nunca incluye secretos.
+              exportarCsv(
+                "emails-empresa",
+                [
+                  { titulo: "Área", valor: (c: Contacto) => c.nombre },
+                  { titulo: "Grupo", valor: (c: Contacto) => c.rubro },
+                  { titulo: "Email", valor: (c: Contacto) => c.email },
+                  { titulo: "Usuario", valor: (c: Contacto) => c.usuario },
+                  { titulo: "Responsable", valor: (c: Contacto) => c.contacto },
+                  { titulo: "Notas", valor: (c: Contacto) => c.notas },
+                ],
+                visibles,
+              )
+            }
+            hayDatos={!!visibles.length}
+            boton={canWrite && vista === "activos" ? { texto: "Nuevo email", onClick: () => setEditando("nuevo") } : null}
+          />
+
+          {cargando ? (
+            <Esqueleto />
+          ) : visibles.length === 0 ? (
+            vista === "inactivos" ? (
+              <Vacio
+                titulo={inactivos.length ? "No hay correos inactivos con esa búsqueda" : "No hay correos inactivos"}
+                detalle="Cuando una casilla deja de usarse, pasala a Inactivo con el control de Estado: sale de la lista principal pero conserva sus datos y su historial."
+                accion={null}
+              />
+            ) : (
+              <Vacio
+                titulo={activos.length ? "No hay emails con esa búsqueda" : "Todavía no hay emails activos"}
+                detalle="Guardá las casillas de cada área (compras@, rrhh@, facturación@…) con su usuario y clave. La clave queda cifrada y se ve con el ojito."
+                accion={canWrite && !lista.length ? { texto: "Agregar el primero", onClick: () => setEditando("nuevo") } : null}
+              />
+            )
+          ) : (
+            <div className="panel overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <th className="w-8 px-3 py-2.5" />
+                    <th className="px-3 py-2.5 font-medium">Área</th>
+                    <th className="px-3 py-2.5 font-medium">Email</th>
+                    <th className="px-3 py-2.5 font-medium">Usuario</th>
+                    <th className="px-3 py-2.5 font-medium">Clave</th>
+                    <th className="hidden px-3 py-2.5 font-medium lg:table-cell">Responsable / notas</th>
+                    <th className="px-3 py-2.5 font-medium">Estado</th>
+                    <th className="w-28 px-3 py-2.5 text-right font-medium">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibles.map((c) => (
+                    <tr key={c.id} className={cn("border-b border-border/60 last:border-0 hover:bg-muted/20", c.vigente === false && "text-muted-foreground")}>
+                      <td className="px-3 py-2">
+                        <Favorito c={c} canWrite={canWrite} onCambio={refrescar} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{c.nombre}</p>
+                        {c.rubro && <p className="text-xs text-muted-foreground">{c.rubro}</p>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {c.email ? (
+                          <span className="group inline-flex items-center gap-1">
+                            <a href={`mailto:${c.email}`} className="text-primary hover:underline">
+                              {c.email}
+                            </a>
+                            <BotonCopiar onClick={() => void copiar(c.email!, "Email")} />
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {c.usuario ? (
+                          <span className="group inline-flex items-center gap-1">
+                            {c.usuario}
+                            <BotonCopiar onClick={() => void copiar(c.usuario!, "Usuario")} />
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">igual al email</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <SecretoOculto
+                          id={c.id}
+                          tiene={!!c.has_secreto}
+                          ctl={claves}
+                          compacto
+                          fetcher={rpcRevelar("revelar_contacto", { _id: c.id, _via: "ver" })}
+                        />
+                      </td>
+                      <td className="hidden max-w-[260px] px-3 py-2 text-xs text-muted-foreground lg:table-cell">
+                        <p className="truncate">{c.contacto || "—"}</p>
+                        {c.notas && <p className="truncate">{c.notas}</p>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <InterruptorEstado c={c} canWrite={canWrite} onCambiar={() => void cambiarEstado(c)} />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right">
+                        <Button size="icon" variant="ghost" className="size-8" aria-label="Historial de cambios" title="Historial de cambios" onClick={() => verHistorial(c)}>
+                          <History className="size-4" />
                         </Button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        {canWrite && (
+                          <Button size="icon" variant="ghost" className="size-8" aria-label="Editar" title="Editar" onClick={() => setEditando(c)}>
+                            <Pencil className="size-4" />
+                          </Button>
+                        )}
+                        {canWrite && canDelete && (
+                          <Button size="icon" variant="ghost" className="size-8" aria-label="Quitar" title="Quitar de la agenda" onClick={() => void quitar(c, refrescar)}>
+                            <Trash2 className="size-4 text-destructive" />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
       {editando && (
@@ -663,6 +776,283 @@ function EmailForm({
       </DialogContent>
     </Dialog>
   );
+}
+
+function BotonVista({
+  activo,
+  onClick,
+  icono: Icono,
+  n,
+  children,
+}: {
+  activo: boolean;
+  onClick: () => void;
+  icono: typeof Mail;
+  n?: number;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={cn(
+        "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors",
+        activo ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <Icono className="size-3.5" />
+      {children}
+      {n !== undefined && <span className="num rounded bg-muted px-1.5 text-[10.5px] text-muted-foreground">{n}</span>}
+    </button>
+  );
+}
+
+/** Control Activo / Inactivo de una casilla. */
+function InterruptorEstado({ c, canWrite, onCambiar }: { c: Contacto; canWrite: boolean; onCambiar: () => void }) {
+  const activo = c.vigente !== false;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={activo}
+        disabled={!canWrite}
+        onClick={onCambiar}
+        title={canWrite ? (activo ? "Pasar a Correos inactivos" : "Volver a Activos") : undefined}
+        className={cn(
+          "inline-flex items-center gap-2 whitespace-nowrap rounded-full py-0.5 pl-0.5 pr-2.5 text-[11px] font-medium transition-colors disabled:cursor-default",
+          activo ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground",
+        )}
+      >
+        <span className={cn("relative h-4 w-7 rounded-full transition-colors", activo ? "bg-emerald-500" : "bg-muted-foreground/40")}>
+          <span className={cn("absolute top-0.5 size-3 rounded-full bg-white shadow-sm transition-all", activo ? "left-3.5" : "left-0.5")} />
+        </span>
+        {activo ? "Activo" : "Inactivo"}
+      </button>
+      {!activo && c.inactivo_desde && <span className="pl-1 text-[10.5px] text-muted-foreground">desde {fecha(c.inactivo_desde)}</span>}
+    </div>
+  );
+}
+
+function useHistorialContactos(contactoId: string | null) {
+  return useQuery({
+    queryKey: ["oficina_contactos_historial", contactoId],
+    queryFn: async () => {
+      const { data, error } = await api.rpc("historial_contactos", { _tipo: "empresa", _contacto_id: contactoId });
+      if (error) throw new Error(error.message);
+      return (data ?? []) as CambioContacto[];
+    },
+  });
+}
+
+function valorLegible(campo: string, v: string | null) {
+  if (v === null) return null;
+  if (campo === "vigente") return v === "false" ? "Inactivo" : "Activo";
+  if (campo === "activo") return v === "false" ? "Quitado" : "En la agenda";
+  return v;
+}
+
+/** Registro de qué tenía cada casilla antes y qué tiene ahora, con la opción de volver al valor anterior. */
+function HistorialCambios({
+  contactos,
+  contactoId,
+  onContacto,
+  canWrite,
+  onRestaurado,
+}: {
+  contactos: Contacto[];
+  contactoId: string | null;
+  onContacto: (id: string | null) => void;
+  canWrite: boolean;
+  onRestaurado: () => void;
+}) {
+  const { data: cambios = [], isLoading, error } = useHistorialContactos(contactoId);
+  const claves = useSecretos();
+  const [q, setQ] = useState("");
+  const [campo, setCampo] = useState("todos");
+  const [restaurando, setRestaurando] = useState<string | null>(null);
+
+  const visibles = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return cambios
+      .filter((h) => campo === "todos" || h.campo === campo)
+      .filter(
+        (h) =>
+          !term ||
+          [h.contacto_nombre, h.contacto_email, h.actor_nombre, h.cifrado ? "" : h.antes, h.cifrado ? "" : h.despues]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(term)),
+      );
+  }, [cambios, q, campo]);
+
+  const restaurar = async (h: CambioContacto) => {
+    const que = ETIQUETA_CAMPO[h.campo] ?? h.campo;
+    const valor = h.cifrado ? "la clave anterior" : `«${valorLegible(h.campo, h.antes) ?? "vacío"}»`;
+    if (!window.confirm(`¿Volver ${que.toLowerCase()} de «${h.contacto_nombre}» a ${valor}?`)) return;
+    setRestaurando(h.id);
+    const { error } = await api.rpc("restaurar_historial_contacto", { _id: h.id });
+    setRestaurando(null);
+    if (error) return toast.error(error.message);
+    toast.success(`${que} restaurado`);
+    onRestaurado();
+  };
+
+  const ordenados = [...contactos].sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-52 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-9 pl-8" placeholder="Buscar valor, casilla o quién lo cambió…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <Select value={contactoId ?? "todas"} onValueChange={(v) => onContacto(v === "todas" ? null : v)}>
+          <SelectTrigger className="h-9 w-full sm:w-60">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas las casillas</SelectItem>
+            {ordenados.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.email ?? c.nombre}
+                {c.vigente === false ? " (inactivo)" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={campo} onValueChange={setCampo}>
+          <SelectTrigger className="h-9 w-full sm:w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos los cambios</SelectItem>
+            {["email", "secreto", "usuario", "vigente", "nombre", "rubro", "contacto", "web", "notas", "activo", "_alta"].map((k) => (
+              <SelectItem key={k} value={k}>
+                {ETIQUETA_CAMPO[k]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <BotonCsv
+          disabled={!visibles.length}
+          onClick={() =>
+            // Sin claves: el Excel nunca incluye secretos.
+            exportarCsv(
+              "historial-emails",
+              [
+                { titulo: "Fecha", valor: (h: CambioContacto) => fechaHora(h.created_at) },
+                { titulo: "Casilla", valor: (h: CambioContacto) => h.contacto_email ?? h.contacto_nombre },
+                { titulo: "Campo", valor: (h: CambioContacto) => ETIQUETA_CAMPO[h.campo] ?? h.campo },
+                { titulo: "Antes", valor: (h: CambioContacto) => (h.cifrado ? (h.tiene_antes ? "(clave oculta)" : "") : valorLegible(h.campo, h.antes)) },
+                { titulo: "Después", valor: (h: CambioContacto) => (h.cifrado ? (h.tiene_despues ? "(clave oculta)" : "") : valorLegible(h.campo, h.despues)) },
+                { titulo: "Quién", valor: (h: CambioContacto) => h.actor_nombre },
+              ],
+              visibles,
+            )
+          }
+        />
+      </div>
+
+      {isLoading ? (
+        <Esqueleto />
+      ) : error ? (
+        <Vacio titulo="No se pudo cargar el historial" detalle={error instanceof Error ? error.message : "Probá de nuevo en un momento."} accion={null} />
+      ) : visibles.length === 0 ? (
+        <Vacio
+          titulo={cambios.length ? "No hay cambios con ese filtro" : "Todavía no hay cambios registrados"}
+          detalle="Desde ahora, cada vez que alguien cambie un email, usuario, clave o estado queda acá qué tenía antes y qué tiene ahora."
+          accion={null}
+        />
+      ) : (
+        <div className="panel overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                <th className="px-3 py-2.5 font-medium">Fecha</th>
+                <th className="px-3 py-2.5 font-medium">Casilla</th>
+                <th className="px-3 py-2.5 font-medium">Cambio</th>
+                <th className="px-3 py-2.5 font-medium">Antes → Después</th>
+                <th className="px-3 py-2.5 font-medium">Quién</th>
+                {canWrite && <th className="w-24 px-3 py-2.5" />}
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((h) => {
+                const Icono = h.campo === "secreto" ? KeyRound : h.campo === "vigente" ? CircleOff : h.campo === "_alta" ? Plus : Pencil;
+                const restaurable = canWrite && h.campo !== "_alta";
+                return (
+                  <tr key={h.id} className="border-b border-border/60 align-top last:border-0 hover:bg-muted/20">
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-muted-foreground">{fechaHora(h.created_at)}</td>
+                    <td className="px-3 py-2.5">
+                      <p className="font-medium">{h.contacto_nombre}</p>
+                      {h.contacto_email && <p className="text-xs text-muted-foreground">{h.contacto_email}</p>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5">
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium">
+                        <Icono className="size-3.5 text-muted-foreground" /> {ETIQUETA_CAMPO[h.campo] ?? h.campo}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {h.campo === "_alta" ? (
+                        <span className="text-xs text-muted-foreground">Se cargó la casilla {h.despues ? `«${h.despues}»` : ""}</span>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ValorCambio h={h} lado="antes" claves={claves} />
+                          <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                          <ValorCambio h={h} lado="despues" claves={claves} />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">{h.actor_nombre ?? "—"}</td>
+                    {canWrite && (
+                      <td className="px-3 py-2 text-right">
+                        {restaurable && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            disabled={restaurando === h.id}
+                            onClick={() => void restaurar(h)}
+                            title="Volver al valor que tenía antes de este cambio"
+                          >
+                            {restaurando === h.id ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Restaurar
+                          </Button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Las claves anteriores quedan cifradas; verlas con el ojito queda registrado en Auditoría. Restaurar también queda en este historial.
+      </p>
+    </div>
+  );
+}
+
+function ValorCambio({ h, lado, claves }: { h: CambioContacto; lado: "antes" | "despues"; claves: ReturnType<typeof useSecretos> }) {
+  const estilo = lado === "antes" ? "bg-rose-500/10 text-rose-700 line-through decoration-rose-500/40 dark:text-rose-300" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (h.cifrado) {
+    const tiene = lado === "antes" ? h.tiene_antes : h.tiene_despues;
+    if (!tiene) return <span className="text-xs italic text-muted-foreground">sin clave</span>;
+    return (
+      <SecretoOculto
+        id={`${h.id}:${lado}`}
+        tiene
+        ctl={claves}
+        compacto
+        fetcher={rpcRevelar("revelar_historial_contacto", { _id: h.id, _lado: lado })}
+      />
+    );
+  }
+  const v = valorLegible(h.campo, lado === "antes" ? h.antes : h.despues);
+  if (v === null) return <span className="text-xs italic text-muted-foreground">vacío</span>;
+  return <span className={cn("max-w-[280px] break-all rounded px-1.5 py-0.5 text-xs", estilo)}>{v}</span>;
 }
 
 /* ───────────── Piezas comunes ───────────── */

@@ -197,6 +197,48 @@ function prepareCredentialPayload(payload: Record<string, unknown>) {
   return next;
 }
 
+/** Campos de la agenda que quedan en el historial de cambios (Oficina → Agenda → Historial). */
+const CAMPOS_HISTORIAL_CONTACTO = ["nombre", "rubro", "email", "usuario", "secreto", "contacto", "telefono", "whatsapp", "web", "direccion", "cuit", "notas", "vigente", "activo"];
+
+const textoHistorial = (v: unknown) => (v === null || v === undefined || v === "" ? null : String(v));
+
+/** Guarda, campo por campo, qué valor tenía cada contacto antes y cuál tiene ahora. */
+async function registrarHistorialContactos(actorId: string, antes: Record<string, unknown>[], despues: Record<string, unknown>[]) {
+  try {
+    const actor = await one<{ full_name: string | null; email: string | null }>(`select full_name, email from profiles where id = $1`, [actorId]);
+    const actorNombre = actor?.full_name || actor?.email || null;
+    const previo = new Map(antes.map((r) => [String(r.id), r]));
+    for (const fila of despues) {
+      const viejo = previo.get(String(fila.id));
+      const cambios: { campo: string; antes: string | null; despues: string | null; cifrado: boolean }[] = [];
+      if (!viejo) {
+        cambios.push({ campo: "_alta", antes: null, despues: textoHistorial(fila.email ?? fila.nombre), cifrado: false });
+      } else {
+        for (const campo of CAMPOS_HISTORIAL_CONTACTO) {
+          if (campo === "secreto") {
+            // El cifrado cambia en cada guardado: se compara la clave real, se guarda cifrada.
+            if (decryptSecret(viejo.secreto as string | null) !== decryptSecret(fila.secreto as string | null)) {
+              cambios.push({ campo, antes: textoHistorial(viejo.secreto), despues: textoHistorial(fila.secreto), cifrado: true });
+            }
+            continue;
+          }
+          const a = textoHistorial(viejo[campo]);
+          const d = textoHistorial(fila[campo]);
+          if (a !== d) cambios.push({ campo, antes: a, despues: d, cifrado: false });
+        }
+      }
+      for (const c of cambios) {
+        await query(
+          `insert into oficina_contactos_historial (contacto_id, campo, antes, despues, cifrado, actor_id, actor_nombre) values ($1, $2, $3, $4, $5, $6, $7)`,
+          [fila.id, c.campo, c.antes, c.despues, c.cifrado, actorId, actorNombre],
+        );
+      }
+    }
+  } catch {
+    /* la migración del historial puede no estar aplicada todavía */
+  }
+}
+
 async function snapshotWikiDoc(sessionUserId: string, filters: Filter[] | undefined) {
   const values: unknown[] = [];
   const where = appendFilters(filters, values);
@@ -415,6 +457,11 @@ export const apiMutate = createServerFn({ method: "POST" })
       });
       if (assignments.length === 0) throw new Error("Sin datos para actualizar");
       let antes: Record<string, unknown>[] = [];
+      if (table === "oficina_contactos") {
+        const prevValues: unknown[] = [];
+        const prevWhere = appendFilters(data.filters, prevValues);
+        antes = (await query<Record<string, unknown>>(`select * from oficina_contactos${prevWhere}`, prevValues)).rows;
+      }
       if (table === "tareas") {
         const prevValues: unknown[] = [];
         const prevWhere = appendFilters(data.filters, prevValues);
@@ -422,6 +469,7 @@ export const apiMutate = createServerFn({ method: "POST" })
       }
       const result = await query<Record<string, unknown>>(`update ${table} set ${assignments.join(", ")}${where} returning *`, values);
       if (table === "tareas") await notificarCambios(table, "update", session.user.id, result.rows, antes);
+      if (table === "oficina_contactos") await registrarHistorialContactos(session.user.id, antes, result.rows);
       await writeAudit(session.user.id, table, "editar", result.rows, { campos: Object.keys(payload).filter((k) => k !== "secreto") });
       return { data: null, count: result.rowCount ?? 0, error: null };
     }
@@ -447,6 +495,7 @@ export const apiMutate = createServerFn({ method: "POST" })
     });
     const result = await query(`insert into ${table} (${cols.join(", ")}) values ${placeholders.join(", ")} returning *`, values);
     await writeAudit(session.user.id, table, "crear", result.rows);
+    if (table === "oficina_contactos") await registrarHistorialContactos(session.user.id, [], result.rows);
     if (table === "tareas" || table === "tarea_comentarios") await notificarCambios(table, "insert", session.user.id, result.rows);
     const out = sanitizeRows(table, result.rows);
     return { data: out.length === 1 ? out[0] : out, error: null };
@@ -490,6 +539,59 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "historial_contactos") {
+      // Historial de cambios de la agenda. Las claves viajan ocultas: se ven con el ojito.
+      if (!(await hasModulePermission(session.user.id, "oficina", "ver"))) throw new Error("Tu rol no tiene permiso en Oficina");
+      const tipo = String(data.args?._tipo ?? "empresa");
+      const contactoId = data.args?._contacto_id ? String(data.args._contacto_id) : null;
+      const result = await query(
+        `select h.id, h.contacto_id, h.campo, h.cifrado, h.actor_nombre, h.created_at,
+                case when h.cifrado then null else h.antes end as antes,
+                case when h.cifrado then null else h.despues end as despues,
+                coalesce(h.antes, '') <> '' as tiene_antes, coalesce(h.despues, '') <> '' as tiene_despues,
+                c.nombre as contacto_nombre, c.email as contacto_email
+           from oficina_contactos_historial h
+           join oficina_contactos c on c.id = h.contacto_id
+          where c.tipo = $1 and ($2::uuid is null or h.contacto_id = $2::uuid)
+          order by h.created_at desc
+          limit 1000`,
+        [tipo, contactoId],
+      );
+      return { data: result.rows, error: null };
+    }
+    if (data.name === "revelar_historial_contacto") {
+      // Una clave anterior (o nueva) del historial: queda en auditoría igual que el ojito de la agenda.
+      if (!(await hasModulePermission(session.user.id, "oficina", "ver"))) throw new Error("Tu rol no tiene permiso en Oficina");
+      const id = String(data.args?._id ?? "");
+      const lado = data.args?._lado === "antes" ? "antes" : "despues";
+      const h = await one<Record<string, unknown>>(`select * from oficina_contactos_historial where id = $1`, [id]);
+      if (!h) throw new Error("Registro inexistente");
+      if (!h.cifrado) throw new Error("Ese cambio no es de una clave");
+      const row = await one<Record<string, unknown>>(`select * from oficina_contactos where id = $1`, [h.contacto_id]);
+      await writeAudit(session.user.id, "oficina_contactos", "revelar", [row ?? { id: h.contacto_id }], { via: "historial", lado });
+      return { data: { id, secreto: decryptSecret(h[lado] as string | null) }, error: null };
+    }
+    if (data.name === "restaurar_historial_contacto") {
+      // Vuelve un campo al valor que tenía antes de ese cambio (el restaurar también queda en el historial).
+      if (!(await hasModulePermission(session.user.id, "oficina", "editar"))) throw new Error("Tu rol no tiene permiso para editar en Oficina");
+      const id = String(data.args?._id ?? "");
+      const h = await one<Record<string, unknown>>(`select * from oficina_contactos_historial where id = $1`, [id]);
+      if (!h) throw new Error("Registro inexistente");
+      const campo = String(h.campo);
+      if (!CAMPOS_HISTORIAL_CONTACTO.includes(campo)) throw new Error("Ese cambio no se puede deshacer");
+      const antes = (await query<Record<string, unknown>>(`select * from oficina_contactos where id = $1`, [h.contacto_id])).rows;
+      if (!antes.length) throw new Error("El contacto ya no existe");
+      let valor: unknown = h.antes;
+      if (campo === "vigente" || campo === "activo") valor = h.antes !== "false";
+      const extra = campo === "vigente" ? `, inactivo_desde = ${valor ? "null" : "now()"}` : "";
+      const result = await query<Record<string, unknown>>(
+        `update oficina_contactos set ${cleanIdentifier(campo)} = $1, updated_at = now()${extra} where id = $2 returning *`,
+        [valor, h.contacto_id],
+      );
+      await registrarHistorialContactos(session.user.id, antes, result.rows);
+      await writeAudit(session.user.id, "oficina_contactos", "editar", result.rows, { campos: [campo === "secreto" ? "clave" : campo], restaurado: true });
+      return { data: { ok: true }, error: null };
     }
     if (data.name === "editar_pedido_insumos") {
       // Corrige un pedido ya generado (mismo número): datos del pedido e ítems, todo junto.
