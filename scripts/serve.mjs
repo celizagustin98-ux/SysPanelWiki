@@ -254,7 +254,7 @@ async function getSession(token) {
          order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end
          limit 1
        ) ur on true
-      where s.token_hash = $1 and s.expires_at > now()`,
+      where s.token_hash = $1 and s.expires_at > now() and u.activo`,
     [hashToken(token)],
   );
   if (!session) return null;
@@ -439,7 +439,7 @@ async function handleAuth(req, res) {
         return true;
       }
       const row = await one(
-        `select u.id, u.email, u.password_hash, p.full_name, p.username
+        `select u.id, u.email, u.password_hash, u.activo, p.full_name, p.username
            from profiles p join app_users u on u.id = p.id
           where lower(p.username) = $1 or lower(u.email) = $1 limit 1`,
         [username],
@@ -453,7 +453,13 @@ async function handleAuth(req, res) {
         return true;
       }
       fallosLogin.delete(username);
+      if (row.activo === false) {
+        await auditarAcceso(row.id, row.full_name, "login_fallido", { usuario: username, ip, motivo: "suspendido" });
+        sendJson(res, 403, { error: "Tu cuenta está suspendida. Pedile a un administrador que la reactive." });
+        return true;
+      }
       await auditarAcceso(row.id, row.full_name, "login", { ip });
+      await pool.query(`update app_users set ultimo_acceso = now() where id = $1`, [row.id]).catch(() => {});
       const token = await createSession(row.id);
       sendJson(res, 200, { session: await getSession(token) });
       return true;

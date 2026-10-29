@@ -12,7 +12,7 @@ async function rolExiste(role: string) {
 
 async function auditarUsuario(
   actorId: string,
-  accion: "crear" | "editar" | "eliminar" | "asignar_rol",
+  accion: "crear" | "editar" | "eliminar" | "asignar_rol" | "suspender" | "reactivar" | "cerrar_sesiones",
   userId: string,
   descripcion: string,
   detalle: Record<string, unknown> = {},
@@ -94,6 +94,7 @@ export const eliminarUsuario = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
     if (data.userId === context.userId) throw new Error("No podés eliminar tu propio usuario");
+    await assertQuedaAdmin(data.userId);
     const target = await query<{ full_name: string; email: string; username: string | null }>(
       `select full_name, email, username from profiles where id = $1`,
       [data.userId],
@@ -112,15 +113,23 @@ export const eliminarUsuario = createServerFn({ method: "POST" })
 
 export const actualizarUsuario = createServerFn({ method: "POST" })
   .middleware([requireAppAuth])
-  .validator((data: { userId: string; fullName?: string; password?: string }) => {
-    if (!data?.userId) throw new Error("Usuario inválido");
-    const fullName = data.fullName?.trim();
-    const password = data.password?.trim();
-    if (fullName !== undefined && (fullName.length < 2 || fullName.length > 120))
-      throw new Error("Nombre inválido");
-    if (password) validarClave(password);
-    return { userId: data.userId, fullName, password };
-  })
+  .validator(
+    (data: { userId: string; fullName?: string; password?: string; email?: string; username?: string; cargo?: string | null }) => {
+      if (!data?.userId) throw new Error("Usuario inválido");
+      const fullName = data.fullName?.trim();
+      const password = data.password?.trim();
+      const email = data.email?.trim().toLowerCase();
+      const username = data.username?.trim().toLowerCase();
+      const cargo = data.cargo === undefined ? undefined : (data.cargo ?? "").trim().slice(0, 80) || null;
+      if (fullName !== undefined && (fullName.length < 2 || fullName.length > 120))
+        throw new Error("Nombre inválido");
+      if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Correo inválido");
+      if (username !== undefined && !/^[a-z0-9._-]{3,32}$/.test(username))
+        throw new Error("Usuario inválido: 3 a 32 caracteres (letras, números, . _ -)");
+      if (password) validarClave(password, username);
+      return { userId: data.userId, fullName, password, email, username, cargo };
+    },
+  )
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
 
@@ -136,6 +145,21 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
     if (data.fullName) {
       await query(`update profiles set full_name = $1 where id = $2`, [data.fullName, data.userId]);
     }
+    if (data.email) {
+      if ((await query(`select 1 from app_users where lower(email) = $1 and id <> $2`, [data.email, data.userId])).rowCount)
+        throw new Error("Ese correo ya lo usa otro usuario");
+      await query(`update app_users set email = $1, updated_at = now() where id = $2`, [data.email, data.userId]);
+      await query(`update profiles set email = $1 where id = $2`, [data.email, data.userId]);
+    }
+    if (data.username) {
+      if ((await query(`select 1 from profiles where lower(username) = $1 and id <> $2`, [data.username, data.userId])).rowCount)
+        throw new Error("Ese nombre de usuario ya existe");
+      await query(`update profiles set username = $1 where id = $2`, [data.username, data.userId]);
+    }
+    if (data.cargo !== undefined) {
+      await query(`update profiles set cargo = $1 where id = $2`, [data.cargo, data.userId]);
+    }
+    invalidateAuthCache(data.userId);
     const target = await query<{ full_name: string; email: string }>(
       `select full_name, email from profiles where id = $1`,
       [data.userId],
@@ -146,8 +170,143 @@ export const actualizarUsuario = createServerFn({ method: "POST" })
       data.userId,
       target.rows[0]?.full_name || target.rows[0]?.email || data.userId,
       {
-        campos: [...(data.fullName ? ["fullName"] : []), ...(data.password ? ["password"] : [])],
+        campos: [
+          ...(data.fullName ? ["fullName"] : []),
+          ...(data.email ? ["email"] : []),
+          ...(data.username ? ["username"] : []),
+          ...(data.cargo !== undefined ? ["cargo"] : []),
+          ...(data.password ? ["password"] : []),
+        ],
       },
     );
     return { ok: true };
+  });
+
+/** Debe quedar al menos un administrador activo. */
+async function assertQuedaAdmin(userId: string) {
+  const r = await query<{ es: boolean; otros: number }>(
+    `select exists(select 1 from user_roles where user_id = $1 and role = 'administrador') as es,
+            (select count(*)::int from user_roles ur join app_users u on u.id = ur.user_id
+              where ur.role = 'administrador' and u.activo and ur.user_id <> $1) as otros`,
+    [userId],
+  );
+  if (r.rows[0]?.es && !r.rows[0].otros) throw new Error("Debe quedar al menos un administrador activo");
+}
+
+export type UsuarioAdmin = {
+  id: string;
+  full_name: string;
+  email: string;
+  username: string | null;
+  avatar_url: string | null;
+  cargo: string | null;
+  role: string;
+  activo: boolean;
+  suspendido_at: string | null;
+  suspendido_motivo: string | null;
+  ultimo_acceso: string | null;
+  created_at: string;
+  sesiones: number;
+};
+
+/** Listado completo para Configuración → Usuarios. */
+export const usuariosListar = createServerFn({ method: "POST" })
+  .middleware([requireAppAuth])
+  .handler(async ({ context }): Promise<UsuarioAdmin[]> => {
+    await assertAdmin(context.userId);
+    const r = await query<UsuarioAdmin>(
+      `select p.id, p.full_name, coalesce(u.email, p.email) as email, p.username, p.avatar_url, p.cargo,
+              coalesce(ur.role::text, 'consulta') as role, u.activo, u.suspendido_at, u.suspendido_motivo,
+              u.ultimo_acceso, u.created_at,
+              (select count(*)::int from app_sessions s where s.user_id = u.id and s.expires_at > now()) as sesiones
+         from profiles p
+         join app_users u on u.id = p.id
+         left join lateral (
+           select role from user_roles where user_id = u.id
+           order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end limit 1
+         ) ur on true
+        order by p.full_name`,
+    );
+    return r.rows;
+  });
+
+/** Suspende o reactiva una cuenta. Al suspender se cierran todas sus sesiones. */
+export const usuarioEstado = createServerFn({ method: "POST" })
+  .middleware([requireAppAuth])
+  .validator((data: { userId: string; activo: boolean; motivo?: string }) => {
+    if (!data?.userId) throw new Error("Usuario inválido");
+    return { userId: data.userId, activo: !!data.activo, motivo: (data.motivo ?? "").trim().slice(0, 200) || null };
+  })
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    if (!data.activo) {
+      if (data.userId === context.userId) throw new Error("No podés suspender tu propia cuenta");
+      await assertQuedaAdmin(data.userId);
+    }
+    await query(
+      `update app_users set activo = $2, suspendido_at = case when $2 then null else now() end,
+              suspendido_motivo = case when $2 then null else $3::text end, updated_at = now()
+        where id = $1`,
+      [data.userId, data.activo, data.motivo],
+    );
+    if (!data.activo) await query(`delete from app_sessions where user_id = $1`, [data.userId]);
+    invalidateAuthCache(data.userId);
+    const t = await query<{ full_name: string; email: string }>(`select full_name, email from profiles where id = $1`, [data.userId]);
+    await auditarUsuario(
+      context.userId,
+      data.activo ? "reactivar" : "suspender",
+      data.userId,
+      t.rows[0]?.full_name || t.rows[0]?.email || data.userId,
+      data.motivo ? { motivo: data.motivo } : {},
+    );
+    return { ok: true };
+  });
+
+/** Cierra todas las sesiones abiertas de un usuario (tiene que volver a ingresar). */
+export const usuarioCerrarSesiones = createServerFn({ method: "POST" })
+  .middleware([requireAppAuth])
+  .validator((data: { userId: string }) => {
+    if (!data?.userId) throw new Error("Usuario inválido");
+    return { userId: data.userId };
+  })
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    if (data.userId === context.userId) throw new Error("Para cerrar tus sesiones usá Mi perfil");
+    const r = await query(`delete from app_sessions where user_id = $1`, [data.userId]);
+    invalidateAuthCache(data.userId);
+    const t = await query<{ full_name: string; email: string }>(`select full_name, email from profiles where id = $1`, [data.userId]);
+    await auditarUsuario(context.userId, "cerrar_sesiones", data.userId, t.rows[0]?.full_name || t.rows[0]?.email || data.userId, {
+      sesiones: r.rowCount ?? 0,
+    });
+    return { cerradas: r.rowCount ?? 0 };
+  });
+
+export type ActividadUsuario = {
+  id: string;
+  modulo: string;
+  accion: string;
+  entidad_desc: string | null;
+  actor_nombre: string | null;
+  propia: boolean;
+  created_at: string;
+};
+
+/** Últimos movimientos de un usuario: lo que hizo y lo que le hicieron a su cuenta. */
+export const usuarioActividad = createServerFn({ method: "POST" })
+  .middleware([requireAppAuth])
+  .validator((data: { userId: string }) => {
+    if (!data?.userId) throw new Error("Usuario inválido");
+    return { userId: data.userId };
+  })
+  .handler(async ({ data, context }): Promise<ActividadUsuario[]> => {
+    await assertAdmin(context.userId);
+    const r = await query<ActividadUsuario>(
+      `select id, modulo, accion, entidad_desc, actor_nombre, (actor_id = $1) as propia, created_at
+         from audit_log
+        where actor_id = $1 or (entidad_id = $1::text and modulo in ('usuarios', 'user_roles'))
+        order by created_at desc
+        limit 50`,
+      [data.userId],
+    );
+    return r.rows;
   });

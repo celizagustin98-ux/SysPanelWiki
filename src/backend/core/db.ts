@@ -155,7 +155,7 @@ export async function getSession(token: string | null | undefined): Promise<Auth
          order by case role when 'administrador' then 1 when 'tecnico' then 2 else 3 end
          limit 1
        ) ur on true
-      where s.token_hash = $1 and s.expires_at > now()`,
+      where s.token_hash = $1 and s.expires_at > now() and u.activo`,
     [tokenHash],
   );
   if (!session) return null;
