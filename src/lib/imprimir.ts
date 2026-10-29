@@ -22,6 +22,30 @@ async function documentoListo(doc: Document) {
 }
 
 /**
+ * El navegador imprime su propio encabezado y pie (fecha, título y la dirección del servidor con su IP)
+ * dentro del margen de la hoja. Se deja la hoja sin margen arriba y abajo, así no tiene dónde ponerlos,
+ * y el margen se recrea con una tabla cuyo encabezado y pie vacíos se repiten en cada página.
+ */
+function sinEncabezadoDelNavegador(doc: Document, html: string) {
+  const m = /@page\s*\{[^}]*margin\s*:\s*([\d.]+)mm/i.exec(html);
+  const margen = m ? Number(m[1]) : /@page/i.test(html) ? 0 : 12;
+  if (!margen || !doc.body) return;
+  const estilo = doc.createElement("style");
+  estilo.textContent =
+    `@page{margin:0 ${margen}mm !important}` +
+    `table.__hoja{width:100%;border-collapse:collapse;border:0;margin:0}` +
+    `table.__hoja>*>tr>td{padding:0!important;border:0!important;background:none!important}` +
+    `table.__hoja>thead>tr>td>div,table.__hoja>tfoot>tr>td>div{height:${margen}mm}`;
+  doc.head.appendChild(estilo);
+  const tabla = doc.createElement("table");
+  tabla.className = "__hoja";
+  tabla.innerHTML = "<thead><tr><td><div></div></td></tr></thead><tbody><tr><td></td></tr></tbody><tfoot><tr><td><div></div></td></tr></tfoot>";
+  const celda = tabla.querySelector("tbody td")!;
+  while (doc.body.firstChild) celda.appendChild(doc.body.firstChild);
+  doc.body.appendChild(tabla);
+}
+
+/**
  * Abre el diálogo de impresión con un documento HTML (desde ahí: "Guardar como PDF").
  * El marco tiene tamaño A4 real fuera de pantalla (con tamaño 0 algunos navegadores imprimen en blanco)
  * y se quita recién cuando termina la impresión, no a los pocos segundos.
@@ -45,6 +69,7 @@ export function imprimirHtml(html: string, titulo = "Documento") {
   doc.open();
   doc.write(conEstilo);
   doc.close();
+  sinEncabezadoDelNavegador(doc, html);
 
   let limpio = false;
   const quitar = () => {

@@ -1,6 +1,6 @@
 {
   "name": "syswiki-panel",
-  "version": "1.15.1",
+  "version": "1.15.2",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -43,6 +43,7 @@
     "fflate": "^0.8.3",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.575.0",
+    "pdfjs-dist": "^4.10.38",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",

@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { VisorPdf } from "@/components/VisorPdf";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -1306,7 +1307,7 @@ function DocViewer({
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : pdfSrc ? (
-            <iframe title={doc.title} src={pdfSrc} className="h-[min(calc(var(--av)*0.78),900px)] w-full border-0 bg-muted" />
+            <VisorPdf src={pdfSrc} className="h-[min(calc(var(--av)*0.78),900px)]" />
           ) : (
             <div className="flex h-[calc(var(--av)*0.50)] flex-col items-center justify-center gap-3 bg-grid text-center">
               <FileText className="size-8 text-muted-foreground" />
