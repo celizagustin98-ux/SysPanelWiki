@@ -39,7 +39,6 @@ function BootSkeleton() {
             <div className="h-2 w-16 rounded bg-white/5" />
           </div>
         </div>
-        <div className="h-9 rounded-lg bg-white/5" />
         <div className="space-y-2">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-8 rounded-md bg-white/[0.04]" style={{ opacity: 1 - i * 0.08 }} />

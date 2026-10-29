@@ -12,8 +12,8 @@ import {
   LogOut,
   UserRound,
   Moon,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Pin,
+  PinOff,
   Printer,
   ScanLine,
   Search,
@@ -82,6 +82,7 @@ const ROLE_LABEL: Record<string, string> = {
   consulta: "Consulta",
 };
 
+// "1" = menú desacoplado: queda como barra de íconos y se despliega encima al pasar el mouse.
 const COLLAPSE_KEY = "syswiki.sidebar.collapsed";
 
 const sinAcentos = (text: string) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "");
@@ -124,6 +125,8 @@ export function AppShell() {
       return false;
     }
   });
+  const [asomado, setAsomado] = useState(false);
+  const asomarTimer = useRef<number | undefined>(undefined);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [escaner, setEscaner] = useState(false);
   const contenidoRef = useRef<HTMLDivElement>(null);
@@ -153,6 +156,11 @@ export function AppShell() {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setCollapsed((v) => !v);
+        setAsomado(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -173,6 +181,16 @@ export function AppShell() {
 
   const online = status.data?.ok && status.data.database !== false;
 
+  // Desacoplado: se despliega sobre el contenido con una pequeña demora (evita abrirlo al cruzar con el mouse).
+  const mini = collapsed && !asomado;
+  const asomar = (v: boolean) => {
+    window.clearTimeout(asomarTimer.current);
+    if (!collapsed) return;
+    if (v) asomarTimer.current = window.setTimeout(() => setAsomado(true), 140);
+    else setAsomado(false);
+  };
+  useEffect(() => () => window.clearTimeout(asomarTimer.current), []);
+
   // Al cambiar de módulo el contenido vuelve arriba (el menú queda fijo).
   useEffect(() => {
     contenidoRef.current?.scrollTo({ top: 0 });
@@ -181,122 +199,117 @@ export function AppShell() {
   return (
     <TooltipProvider delayDuration={150}>
       <div className="flex h-[var(--av)] w-full max-w-[100vw] overflow-hidden bg-background">
-        <aside
+        {/* El hueco reserva el ancho del menú acoplado; desacoplado reserva solo la barra de íconos. */}
+        <div
           className={cn(
-            "hidden h-[var(--av)] shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:flex",
+            "relative hidden h-[var(--av)] shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:block",
             collapsed ? "w-[68px]" : "w-[248px]",
           )}
         >
-          <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", collapsed && "justify-center px-0")}>
-            {collapsed ? <BrandMark /> : <BrandLockup />}
-          </div>
-
-          <div className={cn("shrink-0 px-3", collapsed && "px-2.5")}>
-            <SidebarTooltip label="Buscar o ir a… (Ctrl K)" enabled={collapsed}>
-              <button
-                type="button"
-                onClick={() => setPaletteOpen(true)}
-                className={cn(
-                  "flex h-9 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-white/[0.03] px-2.5 text-[12.5px] text-sidebar-foreground/45 transition-colors hover:border-white/15 hover:text-sidebar-foreground/80",
-                  collapsed && "justify-center px-0",
-                )}
-              >
-                <Search className="size-4 shrink-0" />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left">Buscar o ir a…</span>
-                    <span className="kbd border-white/10 bg-white/5 text-sidebar-foreground/50">Ctrl K</span>
-                  </>
-                )}
-              </button>
-            </SidebarTooltip>
-          </div>
-
-          <nav
+          <aside
+            onMouseEnter={() => asomar(true)}
+            onMouseLeave={() => asomar(false)}
+            onFocus={() => collapsed && setAsomado(true)}
+            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setAsomado(false)}
             className={cn(
-              "mt-2.5 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-              collapsed && "px-2.5",
+              "absolute inset-y-0 left-0 z-40 flex h-[var(--av)] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              mini ? "w-[68px]" : "w-[248px]",
+              collapsed && asomado && "shadow-lg",
             )}
           >
-            {groups.map(({ group, items }) => (
-              <div key={group} className="flex flex-col gap-0.5">
-                <p
-                  className={cn(
-                    "mb-1 px-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-sidebar-foreground/30",
-                    collapsed && "sr-only",
-                  )}
-                >
-                  {GROUP_LABEL[group]}
-                </p>
-                {items.map((item) => {
-                  const active = pathname.startsWith(item.to);
-                  return (
-                    <SidebarTooltip key={item.to} label={item.label} enabled={collapsed}>
-                      <Link
-                        to={item.to}
-                        data-active={active}
-                        className={cn(
-                          "ops-nav-item",
-                          active
-                            ? "bg-sidebar-accent text-white"
-                            : "text-sidebar-foreground/55 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                          collapsed && "justify-center px-0",
-                        )}
-                      >
-                        <item.icon
-                          className={cn("size-[17px] shrink-0", active ? "text-sidebar-primary" : "text-current")}
-                        />
-                        <span className={cn("truncate", collapsed && "sr-only")}>{item.label}</span>
-                      </Link>
-                    </SidebarTooltip>
-                  );
-                })}
-              </div>
-            ))}
-          </nav>
+            <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", mini && "justify-center px-0")}>
+              {mini ? <BrandMark /> : <BrandLockup />}
+            </div>
 
-          <div className={cn("shrink-0 border-t border-sidebar-border p-2.5", collapsed && "px-2")}>
-            <div
-              className={cn("flex items-center gap-2.5 rounded-lg bg-white/[0.04] p-2", collapsed && "flex-col bg-transparent p-0")}
-              title={online ? `En línea${status.data?.version ? ` · ${status.data.version}` : ""}` : "Sin conexión con el servidor"}
-            >
-              <Link
-                to="/perfil"
-                title="Mi perfil"
-                aria-label="Mi perfil"
-                className="relative grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-sidebar-primary/35 to-sidebar-primary/10 font-mono text-[11px] font-semibold text-sidebar-primary ring-1 ring-sidebar-primary/25 transition hover:ring-sidebar-primary/60"
-              >
-                {profile?.avatar_url ? (
-                  <img src={profile.avatar_url} alt="" className="size-full rounded-md object-cover" />
-                ) : (
-                  initials
-                )}
-                <span
-                  className="led absolute -bottom-0.5 -right-0.5 ring-2 ring-sidebar"
-                  data-tone={status.isLoading ? undefined : online ? "ok" : "crit"}
-                  data-pulse={!!online}
-                />
-              </Link>
-              {!collapsed && (
-                <Link to="/perfil" className="min-w-0 flex-1 rounded-sm hover:[&>p:first-child]:text-white">
-                  <p className="truncate text-[13px] font-medium text-sidebar-foreground">{displayName}</p>
-                  <p className="truncate text-[11px] text-sidebar-foreground/45">
-                    {roles.find((r) => r.clave === role)?.nombre ?? ROLE_LABEL[role ?? ""] ?? "—"} · {status.isLoading ? "verificando…" : online ? "en línea" : "sin conexión"}
-                  </p>
-                </Link>
+            <nav
+              className={cn(
+                "mt-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                mini && "px-2.5",
               )}
-              <div className={cn("flex shrink-0 gap-0.5", collapsed && "flex-col items-center")}>
-                <SidebarIconButton label={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggle} icon={theme === "dark" ? <Sun /> : <Moon />} />
-                <SidebarIconButton
-                  label={collapsed ? "Expandir menú" : "Contraer menú"}
-                  onClick={() => setCollapsed((v) => !v)}
-                  icon={collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-                />
-                <SidebarIconButton label="Cerrar sesión" onClick={handleSignOut} icon={<LogOut />} className="hover:bg-red-500/10 hover:text-red-300" />
+            >
+              {groups.map(({ group, items }) => (
+                <div key={group} className="flex flex-col gap-0.5">
+                  <p
+                    className={cn(
+                      "mb-1 px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/40",
+                      mini && "sr-only",
+                    )}
+                  >
+                    {GROUP_LABEL[group]}
+                  </p>
+                  {items.map((item) => {
+                    const active = pathname.startsWith(item.to);
+                    return (
+                      <SidebarTooltip key={item.to} label={item.label} enabled={mini}>
+                        <Link
+                          to={item.to}
+                          data-active={active}
+                          className={cn(
+                            "ops-nav-item",
+                            active
+                              ? "bg-sidebar-accent text-white"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                            mini && "justify-center px-0",
+                          )}
+                        >
+                          <item.icon
+                            className={cn("size-[17px] shrink-0", active ? "text-sidebar-primary" : "text-current")}
+                          />
+                          <span className={cn("truncate", mini && "sr-only")}>{item.label}</span>
+                        </Link>
+                      </SidebarTooltip>
+                    );
+                  })}
+                </div>
+              ))}
+            </nav>
+
+            <div className={cn("shrink-0 border-t border-sidebar-border p-2.5", mini && "px-2")}>
+              <div
+                className={cn("flex items-center gap-2.5 rounded-lg bg-white/[0.04] p-2", mini && "flex-col bg-transparent p-0")}
+                title={online ? `En línea${status.data?.version ? ` · ${status.data.version}` : ""}` : "Sin conexión con el servidor"}
+              >
+                <Link
+                  to="/perfil"
+                  title="Mi perfil"
+                  aria-label="Mi perfil"
+                  className="relative grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-sidebar-primary/35 to-sidebar-primary/10 font-mono text-[11px] font-semibold text-sidebar-primary ring-1 ring-sidebar-primary/25 transition hover:ring-sidebar-primary/60"
+                >
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="" className="size-full rounded-md object-cover" />
+                  ) : (
+                    initials
+                  )}
+                  <span
+                    className="led absolute -bottom-0.5 -right-0.5 ring-2 ring-sidebar"
+                    data-tone={status.isLoading ? undefined : online ? "ok" : "crit"}
+                    data-pulse={!!online}
+                  />
+                </Link>
+                {!mini && (
+                  <Link to="/perfil" className="min-w-0 flex-1 rounded-sm hover:[&>p:first-child]:text-white">
+                    <p className="truncate text-[13px] font-medium text-sidebar-foreground">{displayName}</p>
+                    <p className="truncate text-[11px] text-sidebar-foreground/45">
+                      {roles.find((r) => r.clave === role)?.nombre ?? ROLE_LABEL[role ?? ""] ?? "—"} · {status.isLoading ? "verificando…" : online ? "en línea" : "sin conexión"}
+                    </p>
+                  </Link>
+                )}
+                <div className={cn("flex shrink-0 gap-0.5", mini && "flex-col items-center")}>
+                  <SidebarIconButton label={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggle} icon={theme === "dark" ? <Sun /> : <Moon />} />
+                  <SidebarIconButton
+                    label={collapsed ? "Acoplar menú (Ctrl B)" : "Desacoplar menú: se abre al pasar el mouse (Ctrl B)"}
+                    onClick={() => {
+                      setCollapsed((v) => !v);
+                      setAsomado(false);
+                    }}
+                    icon={collapsed ? <Pin /> : <PinOff />}
+                  />
+                  <SidebarIconButton label="Cerrar sesión" onClick={handleSignOut} icon={<LogOut />} className="hover:bg-red-500/10 hover:text-red-300" />
+                </div>
               </div>
             </div>
-          </div>
-        </aside>
+          </aside>
+        </div>
 
         <div ref={contenidoRef} id="contenido" className="flex h-[var(--av)] min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-clip">
           {/* Barra superior escritorio */}
