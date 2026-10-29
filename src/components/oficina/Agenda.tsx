@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { InputClave } from "@/components/InputClave";
-import { SecretoOculto, rpcRevelar, useClaveVer } from "@/components/ClaveVer";
+import { SecretoOculto, rpcRevelar, useSecretos } from "@/components/SecretoOculto";
 import { BotonCsv, exportarCsv } from "@/components/tabla/Tabla";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -416,7 +416,7 @@ function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boole
   const canWrite = puedeEscribir("oficina");
   const canDelete = can("oficina", "delete");
   const qc = useQueryClient();
-  const claves = useClaveVer();
+  const claves = useSecretos();
   const [q, setQ] = useState("");
   const [editando, setEditando] = useState<Contacto | "nuevo" | null>(null);
 
@@ -431,7 +431,6 @@ function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boole
 
   return (
     <div className="space-y-3">
-      {claves.dialogo}
       <Barra
         q={q}
         setQ={setQ}
@@ -460,7 +459,7 @@ function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boole
       ) : visibles.length === 0 ? (
         <Vacio
           titulo={lista.length ? "No hay emails con esa búsqueda" : "Todavía no hay emails cargados"}
-          detalle="Guardá las casillas de cada área (compras@, rrhh@, facturación@…) con su usuario y clave. La clave queda cifrada y se ve solo con la clave de visualización."
+          detalle="Guardá las casillas de cada área (compras@, rrhh@, facturación@…) con su usuario y clave. La clave queda cifrada y se ve con el ojito."
           accion={canWrite && !lista.length ? { texto: "Agregar el primero", onClick: () => setEditando("nuevo") } : null}
         />
       ) : (
@@ -615,7 +614,7 @@ function EmailForm({
           <DialogTitle className="flex items-center gap-2">
             <AtSign className="size-5 text-sky-500" /> {contacto ? "Editar email de la empresa" : "Nuevo email de la empresa"}
           </DialogTitle>
-          <DialogDescription>Casilla de un área. La clave se guarda cifrada y nunca se muestra sin la clave de visualización.</DialogDescription>
+          <DialogDescription>Casilla de un área. La clave se guarda cifrada y se ve con el ojito.</DialogDescription>
         </DialogHeader>
         <form onSubmit={guardar} className="space-y-4" autoComplete="off">
           <Grupo titulo="Casilla">
