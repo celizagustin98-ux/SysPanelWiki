@@ -21,6 +21,7 @@ import {
   verifyPassword,
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
+import { autorizarRevelado } from "@/backend/core/clave-ver";
 import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
 import { alertasArea, notificarCambios } from "@/backend/core/notificaciones";
 
@@ -343,8 +344,11 @@ function withJoinedModels(table: string, rows: any[]) {
   };
 }
 
+/** Tablas con un campo `secreto` cifrado: nunca viaja en claro, se revela con la clave de visualización. */
+const TABLAS_CON_SECRETO = new Set(["credenciales", "oficina_contactos"]);
+
 function sanitizeRows(table: string, rows: any[]) {
-  if (table !== "credenciales") return rows;
+  if (!TABLAS_CON_SECRETO.has(table)) return rows;
   return rows.map((row) => maskCredentialRow(row));
 }
 
@@ -404,7 +408,7 @@ export const apiMutate = createServerFn({ method: "POST" })
       let payload = { ...(data.values as Record<string, unknown>) };
       for (const campo of CAMPOS_AUTOR) delete payload[campo];
       delete payload.id;
-      if (table === "credenciales") payload = prepareCredentialPayload(payload);
+      if (TABLAS_CON_SECRETO.has(table)) payload = prepareCredentialPayload(payload);
       if (table === "wiki_docs") await snapshotWikiDoc(session.user.id, data.filters);
       const assignments = Object.keys(payload).map((key) => {
         values.push(payload[key]);
@@ -428,7 +432,7 @@ export const apiMutate = createServerFn({ method: "POST" })
     if (rows.length > 1000) throw new Error("Demasiados registros en una sola operación");
     // Quién hizo algo lo decide el servidor, no el navegador (evita suplantar a otro usuario).
     rows = rows.map((row) => forzarAutor(row, session.user.id));
-    if (table === "credenciales") rows = rows.map((row) => prepareCredentialPayload(row));
+    if (TABLAS_CON_SECRETO.has(table)) rows = rows.map((row) => prepareCredentialPayload(row));
     if (table === "tareas") {
       const prepared: Record<string, unknown>[] = [];
       for (const row of rows) prepared.push(await assignTicketNumero(row));
@@ -472,10 +476,23 @@ export const apiRpc = createServerFn({ method: "POST" })
       if (!id) throw new Error("Falta el id de credencial");
       const row = await one<Record<string, unknown>>(`select * from credenciales where id = $1`, [id]);
       if (!row) throw new Error("Credencial inexistente");
+      const permiso = await autorizarRevelado(session.user.id, data.args);
       const secreto = decryptSecret(row.secreto as string | null);
       try { await query(`update credenciales set last_revealed_at = now() where id = $1`, [id]); } catch { /* optional col */ }
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
-      return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto }, error: null };
+      return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto, permiso: permiso.token, expira: permiso.expira }, error: null };
+    }
+    if (data.name === "revelar_contacto") {
+      // Clave de un email de la empresa (Oficina → Agenda).
+      if (!(await hasModulePermission(session.user.id, "oficina", "ver"))) throw new Error("Tu rol no tiene permiso en Oficina");
+      const id = String(data.args?._id ?? "");
+      const row = await one<Record<string, unknown>>(`select * from oficina_contactos where id = $1`, [id]);
+      if (!row) throw new Error("Contacto inexistente");
+      const permiso = await autorizarRevelado(session.user.id, data.args);
+      const secreto = decryptSecret(row.secreto as string | null);
+      await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
+      await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
+      return { data: { id: row.id, secreto, permiso: permiso.token, expira: permiso.expira }, error: null };
     }
     if (data.name === "editar_pedido_insumos") {
       // Corrige un pedido ya generado (mismo número): datos del pedido e ítems, todo junto.
