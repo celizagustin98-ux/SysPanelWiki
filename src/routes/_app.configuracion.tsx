@@ -30,6 +30,7 @@ import { FeriadosConfig } from "@/components/configuracion/FeriadosConfig";
 import { ReporteMensual } from "@/components/configuracion/ReporteMensual";
 import { useMarca } from "@/lib/brand";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ClaveVerConfig } from "@/components/configuracion/ClaveVerConfig";
 import { QrConfig } from "@/components/configuracion/QrConfig";
 import { GuiaSistema } from "@/components/configuracion/GuiaSistema";
 import { api } from "@/lib/api/client";
@@ -298,6 +299,7 @@ function ConfiguracionPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios · {usuarios.length}</TabsTrigger>
           <TabsTrigger value="roles">Roles y permisos</TabsTrigger>
+          <TabsTrigger value="seguridad">Seguridad</TabsTrigger>
           <TabsTrigger value="feriados">Feriados</TabsTrigger>
           <TabsTrigger value="reportes">Reportes</TabsTrigger>
           <TabsTrigger value="datos">Datos</TabsTrigger>
@@ -350,6 +352,10 @@ function ConfiguracionPage() {
               </div>
             ))}
           </div>
+        </TabsContent>
+
+        <TabsContent value="seguridad" className="space-y-4">
+          <ClaveVerConfig esAdmin={isAdmin} />
         </TabsContent>
 
         <TabsContent value="usuarios" className="space-y-3">

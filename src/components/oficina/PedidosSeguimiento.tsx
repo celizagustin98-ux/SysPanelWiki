@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   History,
+  Lightbulb,
   Loader2,
   MessageSquarePlus,
   PackageCheck,
@@ -239,7 +240,7 @@ function BarraItems({ its, className }: { its: ItemPedido[]; className?: string 
   );
 }
 
-function usePedidos() {
+export function usePedidos() {
   return useQuery({
     queryKey: ["insumos", "historico"],
     queryFn: async () => {
@@ -588,14 +589,7 @@ export function PedidosHistorico() {
                   >
                     <FileText className="size-4" />
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => setAbierto(p.id)}
-                  >
-                    Seguimiento
-                  </Button>
+                  <BotonProximo pedido={p} onAbrir={() => setAbierto(p.id)} />
                 </div>
               </div>
             );
@@ -623,6 +617,26 @@ export function PedidosHistorico() {
         />
       )}
     </div>
+  );
+}
+
+/** Qué toca hacer con un pedido según su estado. */
+const PROXIMO: Record<string, { boton: string; ayuda: string; icono: typeof ThumbsUp }> = {
+  enviado: { boton: "Aprobar o rechazar", ayuda: "Compras tiene que aprobarlo o rechazarlo. Si ya compraron algo, marcalo directamente en los ítems.", icono: ThumbsUp },
+  aprobado: { boton: "Registrar compra", ayuda: "Marcá en cada ítem lo que se compró (todo o una parte) y a qué proveedor.", icono: ShoppingBag },
+  en_compra: { boton: "Seguir comprando", ayuda: "Hay ítems comprados en parte o sin comprar. Completá lo que falta o marcá «No se compra».", icono: ShoppingBag },
+  comprado: { boton: "Registrar llegada", ayuda: "Todo está comprado. Cuando llegue, marcá cada ítem como recibido.", icono: Truck },
+  recibido: { boton: "Ver detalle", ayuda: "Pedido completo: todo llegó. Queda en el historial.", icono: CheckCircle2 },
+  rechazado: { boton: "Ver detalle", ayuda: "Fue rechazado. Si hay que retomarlo, volvelo a «Enviado».", icono: XCircle },
+};
+
+function BotonProximo({ pedido, onAbrir }: { pedido: PedidoCompra; onAbrir: () => void }) {
+  const p = PROXIMO[pedido.estado] ?? PROXIMO.enviado;
+  const terminal = pedido.estado === "recibido" || pedido.estado === "rechazado";
+  return (
+    <Button size="sm" variant={terminal ? "ghost" : "default"} className="h-8 min-w-36" onClick={onAbrir}>
+      <p.icono className="size-4" /> {p.boton}
+    </Button>
   );
 }
 
@@ -749,6 +763,14 @@ function PedidoDetalle({
               })}
             </ol>
           )}
+
+          <p className="mt-3 flex items-start gap-2 rounded-lg bg-primary/8 px-3 py-2 text-[13px]">
+            <Lightbulb className="mt-0.5 size-4 shrink-0 text-primary" />
+            <span>
+              <span className="font-semibold">Próximo paso: </span>
+              {PROXIMO[pedido.estado]?.ayuda ?? "Revisá el pedido."}
+            </span>
+          </p>
 
           {canWrite && (
             <div className="mt-3 flex flex-wrap gap-2">

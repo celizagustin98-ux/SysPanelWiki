@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Eye, EyeOff, Loader2, Pencil, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ExternalLink, Pencil, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
+import { SecretoOculto, rpcRevelar, useClaveVer } from "@/components/ClaveVer";
 
 export const Route = createFileRoute("/_app/credenciales")({
   ssr: false,
@@ -56,8 +57,7 @@ function CredencialesPage() {
   const puedeEditar = can("credenciales", "edit");
   const puedeEliminar = can("credenciales", "delete");
   const qc = useQueryClient();
-  const [visible, setVisible] = useState<Record<string, string>>({});
-  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const claves = useClaveVer();
   const [q, setQ] = useState("");
   const [categoria, setCategoria] = useState("todas");
 
@@ -70,14 +70,6 @@ function CredencialesPage() {
       return data as Cred[];
     },
   });
-
-  // El secreto revelado se vuelve a ocultar solo a los 30 segundos.
-  useEffect(() => {
-    const ids = Object.keys(visible);
-    if (!ids.length) return;
-    const t = setTimeout(() => setVisible({}), 30_000);
-    return () => clearTimeout(t);
-  }, [visible]);
 
   const categorias = useMemo(() => {
     const m = new Map<string, number>();
@@ -104,19 +96,6 @@ function CredencialesPage() {
     acceso: (c) => c.ip || c.url,
     actualizado: (c) => c.updated_at,
   });
-
-  const revelar = async (id: string, via: "ver" | "copiar") => {
-    setLoadingId(id);
-    const { data: revealed, error } = await api.rpc("revelar_credencial", { _id: id, _via: via });
-    setLoadingId(null);
-    if (error) {
-      toast.error(error.message);
-      return null;
-    }
-    const secreto = (revealed as { secreto?: string } | null)?.secreto ?? "";
-    if (via === "ver") setVisible((v) => ({ ...v, [id]: secreto }));
-    return secreto;
-  };
 
   const copiar = async (texto: string, aviso: string) => {
     await navigator.clipboard.writeText(texto);
@@ -149,10 +128,11 @@ function CredencialesPage() {
 
   return (
     <div className="space-y-4">
+      {claves.dialogo}
       <PageHeader
         eyebrow="Accesos cifrados"
         title="Credenciales"
-        description="Secretos cifrados en reposo. Ver o copiar queda registrado en auditoría y se oculta a los 30 s."
+        description="Secretos cifrados en reposo. Ver o copiar pide la clave de visualización, queda registrado en auditoría y se oculta al minuto."
         action={
           puedeCrear ? (
             <CredDialog userId={user?.id} categorias={categorias.map(([c]) => c)} onDone={refrescar} />
@@ -212,13 +192,13 @@ function CredencialesPage() {
                     )}
                   </td>
                   <td className="px-3 py-2.5 font-mono text-xs">
-                    {visible[c.id] ? (
-                      <span className="rounded bg-warn/15 px-1.5 py-0.5 text-foreground">{visible[c.id]}</span>
-                    ) : c.has_secreto || c.secreto ? (
-                      <span className="tracking-widest text-muted-foreground">••••••••</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                    <SecretoOculto
+                      id={c.id}
+                      tiene={!!(c.has_secreto || c.secreto)}
+                      ctl={claves}
+                      compacto
+                      fetcher={rpcRevelar("revelar_credencial", { _id: c.id, _via: "ver" })}
+                    />
                   </td>
                   <td className="hidden px-3 py-2.5 text-xs lg:table-cell">
                     {c.ip && <span className="font-mono">{c.ip}</span>}
@@ -238,40 +218,6 @@ function CredencialesPage() {
                     {c.updated_at ? new Date(c.updated_at).toLocaleDateString("es-AR") : "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-8"
-                      aria-label={visible[c.id] ? "Ocultar" : "Ver secreto"}
-                      disabled={loadingId === c.id}
-                      onClick={async () => {
-                        if (visible[c.id]) {
-                          setVisible((v) => {
-                            const next = { ...v };
-                            delete next[c.id];
-                            return next;
-                          });
-                          return;
-                        }
-                        await revelar(c.id, "ver");
-                      }}
-                    >
-                      {loadingId === c.id ? <Loader2 className="size-4 animate-spin" /> : visible[c.id] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-8"
-                      aria-label="Copiar secreto"
-                      disabled={loadingId === c.id}
-                      onClick={async () => {
-                        const secreto = visible[c.id] ?? (await revelar(c.id, "copiar"));
-                        if (secreto == null) return;
-                        await copiar(secreto, "Secreto copiado (queda registrado en auditoría)");
-                      }}
-                    >
-                      <Copy className="size-4" />
-                    </Button>
                     {puedeEditar && <CredDialog userId={user?.id} existing={c} categorias={categorias.map(([x]) => x)} onDone={refrescar} />}
                     {puedeEliminar && (
                       <Button size="icon" variant="ghost" className="size-8" aria-label="Eliminar" onClick={() => void eliminar(c)}>

@@ -151,10 +151,12 @@ export const GUIA: SeccionGuia[] = [
     resumen: "Teléfonos internos, pedidos de compra con seguimiento por ítem y la agenda de proveedores y correos de la empresa.",
     pasos: [
       { titulo: "Teléfonos internos", detalle: "Buscá por nombre, sector o número. Clic en el interno lo copia. Se exporta a Excel." },
-      { titulo: "Lista actual", detalle: "Cargá lo que falta (cantidad, link de compra, precio estimado). 'Generar pedido a Compras' crea la solicitud numerada en PDF." },
+      { titulo: "Los 3 pasos", detalle: "Arriba se ve el camino: 1 · Armar la lista, 2 · Pedidos enviados, 3 · Lo que falta. Cada paso muestra cuántas cosas tiene pendientes." },
+      { titulo: "Armar la lista", detalle: "Completá qué hace falta, la cantidad (con + y −), el sector y el precio estimado; «Marcar urgente» lo destaca. Destildá los ítems que querés dejar para un pedido posterior y tocá «Generar pedido»: se numera y se abre el PDF." },
       { titulo: "Pedidos", detalle: "Cada pedido muestra una barra con cuántos ítems están pendientes, comprados en parte, comprados o recibidos. 'Seguimiento' abre el detalle: aprobar o rechazar, marcar cada ítem comprado o recibido (también cantidades parciales, como 3 de 5), cargar proveedor y precio real y dejar notas. El estado del pedido avanza solo: Enviado → Aprobado → Compra parcial → Comprado → Recibido, y todo queda en el historial." },
       { titulo: "Pendientes de compra", detalle: "Junta lo que falta comprar o recibir de todos los pedidos, con los urgentes primero. Un clic lo marca como comprado o recibido." },
-      { titulo: "Agenda", detalle: "Proveedores (rubro, contacto, email, teléfono, WhatsApp, web, CUIT) y los emails de cada área de la empresa. Tocá un email o teléfono para escribir o llamar, o copialo. Los favoritos quedan arriba y los proveedores aparecen al cargar una compra." },
+      { titulo: "Agenda · Proveedores", detalle: "Rubro, persona de contacto, email, teléfono, WhatsApp, web, dirección y CUIT. Tocá un email o teléfono para escribir o llamar, o copialo. Los favoritos quedan arriba y los proveedores aparecen al registrar una compra." },
+      { titulo: "Agenda · Emails de la empresa", detalle: "La casilla de cada área con su usuario y clave. La clave se guarda cifrada: para verla o copiarla se toca el ojito y se pide la clave de visualización; se ve 1 minuto y se oculta sola." },
     ],
   },
   {
@@ -164,7 +166,7 @@ export const GUIA: SeccionGuia[] = [
     resumen: "Bóveda cifrada de accesos a servidores, equipos y servicios. Cada vez que alguien ve o copia una clave queda registrado.",
     pasos: [
       { titulo: "Guardar una credencial", detalle: "'Nueva credencial': servicio, categoría, usuario, secreto, IP o URL y notas. El secreto se guarda cifrado." },
-      { titulo: "Ver o copiar", detalle: "El ojo muestra el secreto durante 30 segundos; el botón de copiar lo pasa al portapapeles." },
+      { titulo: "Ver o copiar", detalle: "El ojito y el botón de copiar piden la clave de visualización (Configuración → Seguridad). El secreto se ve 1 minuto con cuenta regresiva y se oculta solo; en ese minuto no se vuelve a pedir la clave. Todo queda en Auditoría." },
       { titulo: "Filtrar", detalle: "Por categoría o con el buscador; las columnas se ordenan con un clic en el título." },
     ],
     consejos: ["La clave de cifrado del servidor (.env) es imprescindible: guardá una copia en un lugar seguro."],
@@ -188,6 +190,7 @@ export const GUIA: SeccionGuia[] = [
       { titulo: "General", detalle: "Versión instalada, cantidad de usuarios por rol y ajustes del QR." },
       { titulo: "Usuarios", detalle: "Alta, edición y baja de usuarios; asignación de rol." },
       { titulo: "Roles y permisos", detalle: "Creá roles propios (por ejemplo 'Soporte N1') y marcá qué pueden ver, crear, editar o eliminar en cada módulo. El servidor aplica estos permisos." },
+      { titulo: "Seguridad", detalle: "Clave de visualización: la que se pide para ver o copiar claves guardadas (Credenciales y emails de la Agenda). La define o cambia un administrador confirmando con su propia contraseña. 5 intentos fallidos bloquean 5 minutos." },
       { titulo: "Feriados", detalle: "Feriados nacionales y propios que usa la liquidación de guardias." },
       { titulo: "Reportes", detalle: "Reporte mensual del área en PDF." },
       { titulo: "Datos", detalle: "Tamaño de la base y depuración de información vieja (auditoría antigua, notificaciones leídas, versiones viejas, sesiones vencidas)." },
