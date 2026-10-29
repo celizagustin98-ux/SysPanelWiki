@@ -12,8 +12,7 @@ import {
   LogOut,
   UserRound,
   Moon,
-  Pin,
-  PinOff,
+  ChevronLeft,
   Printer,
   ScanLine,
   Search,
@@ -82,7 +81,7 @@ const ROLE_LABEL: Record<string, string> = {
   consulta: "Consulta",
 };
 
-// "1" = menú desacoplado: queda como barra de íconos y se despliega encima al pasar el mouse.
+// "1" = menú contraído: solo íconos.
 const COLLAPSE_KEY = "syswiki.sidebar.collapsed";
 
 const sinAcentos = (text: string) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "");
@@ -125,8 +124,6 @@ export function AppShell() {
       return false;
     }
   });
-  const [asomado, setAsomado] = useState(false);
-  const asomarTimer = useRef<number | undefined>(undefined);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [escaner, setEscaner] = useState(false);
   const contenidoRef = useRef<HTMLDivElement>(null);
@@ -159,7 +156,6 @@ export function AppShell() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
         e.preventDefault();
         setCollapsed((v) => !v);
-        setAsomado(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -181,15 +177,7 @@ export function AppShell() {
 
   const online = status.data?.ok && status.data.database !== false;
 
-  // Desacoplado: se despliega sobre el contenido con una pequeña demora (evita abrirlo al cruzar con el mouse).
-  const mini = collapsed && !asomado;
-  const asomar = (v: boolean) => {
-    window.clearTimeout(asomarTimer.current);
-    if (!collapsed) return;
-    if (v) asomarTimer.current = window.setTimeout(() => setAsomado(true), 140);
-    else setAsomado(false);
-  };
-  useEffect(() => () => window.clearTimeout(asomarTimer.current), []);
+  const mini = collapsed;
 
   // Al cambiar de módulo el contenido vuelve arriba (el menú queda fijo).
   useEffect(() => {
@@ -199,22 +187,21 @@ export function AppShell() {
   return (
     <TooltipProvider delayDuration={150}>
       <div className="flex h-[var(--av)] w-full max-w-[100vw] overflow-hidden bg-background">
-        {/* El hueco reserva el ancho del menú acoplado; desacoplado reserva solo la barra de íconos. */}
-        <div
-          className={cn(
-            "relative hidden h-[var(--av)] shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:block",
-            collapsed ? "w-[68px]" : "w-[248px]",
-          )}
-        >
+        {/* El botón redondo del borde contrae o expande el menú (Ctrl B). */}
+        <div className="group/menu relative hidden h-[var(--av)] shrink-0 md:block">
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
+            title={collapsed ? "Expandir menú (Ctrl B)" : "Contraer menú (Ctrl B)"}
+            className="absolute -right-3 top-[17px] z-50 grid size-6 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:border-primary/50 hover:text-primary"
+          >
+            <ChevronLeft className={cn("size-3.5 transition-transform duration-300", collapsed && "rotate-180")} />
+          </button>
           <aside
-            onMouseEnter={() => asomar(true)}
-            onMouseLeave={() => asomar(false)}
-            onFocus={() => collapsed && setAsomado(true)}
-            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setAsomado(false)}
             className={cn(
-              "absolute inset-y-0 left-0 z-40 flex h-[var(--av)] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              "flex h-[var(--av)] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
               mini ? "w-[68px]" : "w-[248px]",
-              collapsed && asomado && "shadow-lg",
             )}
           >
             <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", mini && "justify-center px-0")}>
@@ -296,14 +283,6 @@ export function AppShell() {
                 )}
                 <div className={cn("flex shrink-0 gap-0.5", mini && "flex-col items-center")}>
                   <SidebarIconButton label={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggle} icon={theme === "dark" ? <Sun /> : <Moon />} />
-                  <SidebarIconButton
-                    label={collapsed ? "Acoplar menú (Ctrl B)" : "Desacoplar menú: se abre al pasar el mouse (Ctrl B)"}
-                    onClick={() => {
-                      setCollapsed((v) => !v);
-                      setAsomado(false);
-                    }}
-                    icon={collapsed ? <Pin /> : <PinOff />}
-                  />
                   <SidebarIconButton label="Cerrar sesión" onClick={handleSignOut} icon={<LogOut />} className="hover:bg-red-500/10 hover:text-red-300" />
                 </div>
               </div>
