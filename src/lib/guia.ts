@@ -157,6 +157,8 @@ export const GUIA: SeccionGuia[] = [
       { titulo: "Pendientes de compra", detalle: "Junta lo que falta comprar o recibir de todos los pedidos, con los urgentes primero. Un clic lo marca como comprado o recibido." },
       { titulo: "Agenda · Proveedores", detalle: "Rubro, persona de contacto, email, teléfono, WhatsApp, web, dirección y CUIT. Tocá un email o teléfono para escribir o llamar, o copialo. Los favoritos quedan arriba y los proveedores aparecen al registrar una compra." },
       { titulo: "Agenda · Emails de la empresa", detalle: "La casilla de cada área con su usuario y clave. La clave se guarda cifrada: para verla se toca el ojito (y se vuelve a tocar para ocultarla); también se puede copiar." },
+      { titulo: "Agenda · Correos inactivos", detalle: "Con el control de Estado una casilla pasa de Activo a Inactivo: sale de la lista principal y queda en la solapa Correos inactivos, con todos sus datos. Se reactiva con el mismo control." },
+      { titulo: "Agenda · Historial de cambios", detalle: "Cada cambio de email, usuario, clave, estado u otro dato queda registrado: qué tenía antes, qué tiene ahora, quién y cuándo. Las claves anteriores se ven con el ojito. Si algo se cambió por error, Restaurar lo vuelve al valor anterior." },
     ],
   },
   {
