@@ -22,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
-import { SecretoOculto, rpcRevelar, useClaveVer } from "@/components/ClaveVer";
+import { SecretoOculto, rpcRevelar, useSecretos } from "@/components/SecretoOculto";
 
 export const Route = createFileRoute("/_app/credenciales")({
   ssr: false,
@@ -57,7 +57,7 @@ function CredencialesPage() {
   const puedeEditar = can("credenciales", "edit");
   const puedeEliminar = can("credenciales", "delete");
   const qc = useQueryClient();
-  const claves = useClaveVer();
+  const claves = useSecretos();
   const [q, setQ] = useState("");
   const [categoria, setCategoria] = useState("todas");
 
@@ -128,11 +128,10 @@ function CredencialesPage() {
 
   return (
     <div className="space-y-4">
-      {claves.dialogo}
       <PageHeader
         eyebrow="Accesos cifrados"
         title="Credenciales"
-        description="Secretos cifrados en reposo. Ver o copiar pide la clave de visualización, queda registrado en auditoría y se oculta al minuto."
+        description="Secretos cifrados en reposo. Ver o copiar queda registrado en auditoría."
         action={
           puedeCrear ? (
             <CredDialog userId={user?.id} categorias={categorias.map(([c]) => c)} onDone={refrescar} />

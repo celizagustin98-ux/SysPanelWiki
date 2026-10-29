@@ -21,7 +21,6 @@ import {
   verifyPassword,
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
-import { autorizarRevelado } from "@/backend/core/clave-ver";
 import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
 import { alertasArea, notificarCambios } from "@/backend/core/notificaciones";
 
@@ -344,7 +343,7 @@ function withJoinedModels(table: string, rows: any[]) {
   };
 }
 
-/** Tablas con un campo `secreto` cifrado: nunca viaja en claro, se revela con la clave de visualización. */
+/** Tablas con un campo `secreto` cifrado: nunca viaja en claro, se revela con el ojito (queda en auditoría). */
 const TABLAS_CON_SECRETO = new Set(["credenciales", "oficina_contactos"]);
 
 function sanitizeRows(table: string, rows: any[]) {
@@ -476,11 +475,10 @@ export const apiRpc = createServerFn({ method: "POST" })
       if (!id) throw new Error("Falta el id de credencial");
       const row = await one<Record<string, unknown>>(`select * from credenciales where id = $1`, [id]);
       if (!row) throw new Error("Credencial inexistente");
-      const permiso = await autorizarRevelado(session.user.id, data.args);
       const secreto = decryptSecret(row.secreto as string | null);
       try { await query(`update credenciales set last_revealed_at = now() where id = $1`, [id]); } catch { /* optional col */ }
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
-      return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto, permiso: permiso.token, expira: permiso.expira }, error: null };
+      return { data: { id: row.id, servicio: row.servicio, usuario: row.usuario, secreto }, error: null };
     }
     if (data.name === "revelar_contacto") {
       // Clave de un email de la empresa (Oficina → Agenda).
@@ -488,11 +486,10 @@ export const apiRpc = createServerFn({ method: "POST" })
       const id = String(data.args?._id ?? "");
       const row = await one<Record<string, unknown>>(`select * from oficina_contactos where id = $1`, [id]);
       if (!row) throw new Error("Contacto inexistente");
-      const permiso = await autorizarRevelado(session.user.id, data.args);
       const secreto = decryptSecret(row.secreto as string | null);
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
-      return { data: { id: row.id, secreto, permiso: permiso.token, expira: permiso.expira }, error: null };
+      return { data: { id: row.id, secreto }, error: null };
     }
     if (data.name === "editar_pedido_insumos") {
       // Corrige un pedido ya generado (mismo número): datos del pedido e ítems, todo junto.
