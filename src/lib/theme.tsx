@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
 
 type Theme = "dark" | "light";
 const Ctx = createContext<{ theme: Theme; toggle: () => void }>({
@@ -22,13 +21,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [theme]);
 
-  // Cambio de tema con fundido suave cuando el navegador soporta View Transitions.
+  // Cambio instantáneo: la clase se aplica ya mismo y se apagan las transiciones de color
+  // por un cuadro, así toda la pantalla cambia junta (sin fundidos ni pantallazos a medias).
   const toggle = () => {
-    const next = () => flushSync(() => setTheme((t) => (t === "dark" ? "light" : "dark")));
-    const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
-    if (doc.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      doc.startViewTransition(next);
-    } else next();
+    const raiz = document.documentElement;
+    const siguiente: Theme = raiz.classList.contains("dark") ? "light" : "dark";
+    const sinTransiciones = document.createElement("style");
+    sinTransiciones.textContent = "*,*::before,*::after{transition:none!important}";
+    document.head.appendChild(sinTransiciones);
+    raiz.classList.toggle("dark", siguiente === "dark");
+    void window.getComputedStyle(document.body).backgroundColor;
+    window.setTimeout(() => sinTransiciones.remove(), 30);
+    setTheme(siguiente);
   };
 
   return (
