@@ -82,12 +82,15 @@ const ACCIONES = [
   { key: "editar", label: "Editar" },
   { key: "eliminar", label: "Eliminar" },
   { key: "asignar_rol", label: "Asignar rol" },
+  { key: "suspender", label: "Suspender cuenta" },
+  { key: "reactivar", label: "Reactivar cuenta" },
+  { key: "cerrar_sesiones", label: "Cerrar sesiones" },
 ];
 
 const TODOS = "__todos__";
 
 function accionVariant(accion: string): "default" | "secondary" | "destructive" | "outline" {
-  if (accion === "eliminar" || accion === "quitar_rol") return "destructive";
+  if (accion === "eliminar" || accion === "quitar_rol" || accion === "suspender") return "destructive";
   if (accion === "editar") return "default";
   return "secondary";
 }

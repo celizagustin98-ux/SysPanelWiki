@@ -113,6 +113,8 @@ function parseTags(text: string) {
   return [...new Set(text.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 12);
 }
 
+const porNombre = new Intl.Collator("es", { numeric: true, sensitivity: "base" });
+
 function InstructivosPage() {
   const { user, puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("instructivos");
@@ -142,7 +144,7 @@ function InstructivosPage() {
     }
   }, [view]);
 
-  const { data: carpetas = [], isLoading: loadingFolders } = useQuery({
+  const { data: carpetasRaw = [], isLoading: loadingFolders } = useQuery({
     queryKey: ["wiki_folders"],
     queryFn: async () => {
       const { data, error } = await api.from("wiki_folders").select("id, name, parent_id, created_at").order("name");
@@ -151,7 +153,10 @@ function InstructivosPage() {
     },
   });
 
-  const { data: docs = [], isLoading: loadingDocs } = useQuery({
+  // Orden alfabético real (sin distinguir mayúsculas ni acentos, "Carpeta 2" antes que "Carpeta 10").
+  const carpetas = useMemo(() => [...carpetasRaw].sort((a, b) => porNombre.compare(a.name, b.name)), [carpetasRaw]);
+
+  const { data: docsRaw = [], isLoading: loadingDocs } = useQuery({
     queryKey: ["wiki_docs"],
     queryFn: async () => {
       const { data, error } = await api
@@ -162,6 +167,7 @@ function InstructivosPage() {
       return data as Doc[];
     },
   });
+  const docs = useMemo(() => [...docsRaw].sort((a, b) => porNombre.compare(a.title, b.title)), [docsRaw]);
 
   const { data: adjuntos = [] } = useQuery({
     queryKey: ["wiki_attachments"],
@@ -238,6 +244,8 @@ function InstructivosPage() {
   }, [term, docs, contentMatches, pdfByDoc]);
 
   const subfolders = childrenOf(currentFolderId);
+  // Los instructivos se cargan dentro de una carpeta: el botón aparece al entrar en ella.
+  const puedeCargar = canWrite && !!currentFolderId && !searchResults;
   const files = searchResults ?? docsIn(currentFolderId);
 
   const goFolder = (id: string | null) =>
@@ -267,7 +275,7 @@ function InstructivosPage() {
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (!canWrite) return;
+    if (!puedeCargar) return;
     pickFiles(e.dataTransfer.files);
   };
 
@@ -313,7 +321,7 @@ function InstructivosPage() {
     <div
       className="relative"
       onDragOver={(e) => {
-        if (!canWrite || !e.dataTransfer.types.includes("Files")) return;
+        if (!puedeCargar || !e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setDragging(true);
       }}
@@ -324,15 +332,12 @@ function InstructivosPage() {
     >
       <PageHeader
         title="Instructivos"
-        description="Procedimientos del área organizados en carpetas. Arrastrá PDFs para subirlos."
+        description="Procedimientos del área organizados en carpetas. Entrá a una carpeta para cargar instructivos."
         action={
           canWrite ? (
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setFolderDialog({ mode: "create" })}>
                 <FolderPlus /> Nueva carpeta
-              </Button>
-              <Button onClick={() => fileInput.current?.click()}>
-                <Upload /> Subir PDF
               </Button>
               <input
                 ref={fileInput}
@@ -447,22 +452,27 @@ function InstructivosPage() {
               </p>
             </div>
             {currentFolderId && !searchResults && canWrite && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <MoreVertical /> Carpeta
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setFolderDialog({ mode: "rename", folder: breadcrumb.at(-1)! })}>
-                    <Pencil /> Renombrar
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-destructive" onClick={() => setFolderToDelete(breadcrumb.at(-1)!)}>
-                    <Trash2 /> Eliminar carpeta
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Button size="sm" onClick={() => fileInput.current?.click()}>
+                  <Upload /> Cargar instructivo
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <MoreVertical /> Carpeta
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setFolderDialog({ mode: "rename", folder: breadcrumb.at(-1)! })}>
+                      <Pencil /> Renombrar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-destructive" onClick={() => setFolderToDelete(breadcrumb.at(-1)!)}>
+                      <Trash2 /> Eliminar carpeta
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             )}
           </div>
 
@@ -492,7 +502,13 @@ function InstructivosPage() {
               )}
 
               {files.length === 0 && (searchResults || subfolders.length === 0) ? (
-                <DropHint canWrite={canWrite} searching={!!searchResults} onPick={() => fileInput.current?.click()} />
+                <DropHint
+                  canWrite={puedeCargar}
+                  enInicio={!currentFolderId && canWrite}
+                  searching={!!searchResults}
+                  onPick={() => fileInput.current?.click()}
+                  onNuevaCarpeta={() => setFolderDialog({ mode: "create" })}
+                />
               ) : view === "grid" ? (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 stagger">
                   {files.map((d) => (
@@ -519,7 +535,7 @@ function InstructivosPage() {
         </section>
       </div>
 
-      {dragging && canWrite && (
+      {dragging && puedeCargar && (
         <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-background/70 backdrop-blur-sm">
           <div className="rounded-2xl border-2 border-dashed border-primary bg-card px-10 py-8 text-center shadow-lg rise-in">
             <Upload className="mx-auto size-8 text-primary" />
@@ -863,7 +879,19 @@ function FileTable({
   );
 }
 
-function DropHint({ canWrite, searching, onPick }: { canWrite: boolean; searching: boolean; onPick: () => void }) {
+function DropHint({
+  canWrite,
+  enInicio,
+  searching,
+  onPick,
+  onNuevaCarpeta,
+}: {
+  canWrite: boolean;
+  enInicio: boolean;
+  searching: boolean;
+  onPick: () => void;
+  onNuevaCarpeta: () => void;
+}) {
   if (searching) {
     return (
       <div className="empty-state panel bg-grid">
@@ -871,6 +899,21 @@ function DropHint({ canWrite, searching, onPick }: { canWrite: boolean; searchin
         <p className="text-sm font-semibold">Sin resultados</p>
         <p className="mt-1 text-[13px] text-muted-foreground">Probá con otra palabra, una etiqueta o el nombre del archivo.</p>
       </div>
+    );
+  }
+  if (enInicio) {
+    return (
+      <button
+        type="button"
+        onClick={onNuevaCarpeta}
+        className="flex w-full flex-col items-center rounded-xl border-2 border-dashed border-border bg-grid px-6 py-12 text-center transition-colors hover:border-primary/50"
+      >
+        <div className="grid size-12 place-items-center rounded-xl bg-primary/10 text-primary">
+          <FolderPlus className="size-5" />
+        </div>
+        <p className="mt-3 text-sm font-semibold">Todavía no hay carpetas</p>
+        <p className="mt-1 max-w-sm text-[13px] text-muted-foreground">Creá una carpeta y entrá en ella para cargar los instructivos.</p>
+      </button>
     );
   }
   return (
