@@ -116,7 +116,41 @@ rm -rf dist.anterior
 paso "Aplicando migraciones"
 como_dueno env DATABASE_URL="$DATABASE_URL" DATABASE_SSL="${DATABASE_SSL:-false}" node scripts/init-db.mjs
 
-# ── 5. Reinicio
+# ── 5. Clave de cifrado de las credenciales
+# Sin SECRETS_ENCRYPTION_KEY las claves se cifran con una clave que sale de DATABASE_URL:
+# se genera una propia, se guarda en el archivo de entorno del servicio y se recifra lo existente.
+paso "Clave de cifrado"
+clave_actual="${SECRETS_ENCRYPTION_KEY:-}"
+# Una clave de 16 a 31 caracteres ya se usa para cifrar: nunca se reemplaza (se perderían las credenciales).
+if (( ${#clave_actual} < 16 )); then
+  archivo_env=""
+  if [[ -n "$SERVICIO" ]]; then
+    archivo_env="$(systemctl show -p EnvironmentFiles --value "$SERVICIO" 2>/dev/null | grep -o '/[^ ]*' | head -n1 || true)"
+  fi
+  [[ -n "$archivo_env" ]] || archivo_env="$APP_DIR/.env"
+  nueva_clave="$(openssl rand -base64 48 | tr -d '\n')"
+  touch "$archivo_env"
+  if grep -q '^SECRETS_ENCRYPTION_KEY=' "$archivo_env"; then
+    sed -i "s#^SECRETS_ENCRYPTION_KEY=.*#SECRETS_ENCRYPTION_KEY=$nueva_clave#" "$archivo_env"
+  else
+    printf '\nSECRETS_ENCRYPTION_KEY=%s\n' "$nueva_clave" >> "$archivo_env"
+  fi
+  chmod 600 "$archivo_env"
+  mkdir -p "$BACKUP_DIR"
+  copia="$BACKUP_DIR/clave-cifrado-$(date +%Y%m%d-%H%M%S).txt"
+  ( umask 077; printf 'SECRETS_ENCRYPTION_KEY=%s\n' "$nueva_clave" > "$copia" )
+  export SECRETS_ENCRYPTION_KEY="$nueva_clave"
+  verde "  Clave nueva guardada en $archivo_env"
+  amarillo "  IMPORTANTE: guardá una copia de $copia fuera del servidor. Sin esa clave no se pueden leer las credenciales."
+elif (( ${#clave_actual} < 32 )); then
+  amarillo "  La clave configurada es corta (${#clave_actual} caracteres). Sigue funcionando; no se cambia para no perder las credenciales."
+else
+  echo "  Ya configurada."
+fi
+como_dueno env DATABASE_URL="$DATABASE_URL" DATABASE_SSL="${DATABASE_SSL:-false}" SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" \
+  node scripts/recifrar-secretos.mjs || amarillo "  No se pudieron recifrar los secretos (siguen legibles con la clave anterior)."
+
+# ── 6. Reinicio
 if [[ -n "$SERVICIO" ]]; then
   paso "Reiniciando $SERVICIO"
   systemctl restart "$SERVICIO"

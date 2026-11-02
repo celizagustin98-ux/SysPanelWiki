@@ -9,6 +9,7 @@ import {
   History,
   Info,
   KeyRound,
+  ShieldAlert,
   ShieldCheck,
   UserCheck,
   Users,
@@ -98,6 +99,7 @@ type SystemInfo = {
   buildTime: string | null;
   environment: string;
   httpsEnabled: boolean;
+  cifradoPropio?: boolean;
   ultimaRevision: string | null;
   ultimaActualizacion: string | null;
   ultimaActualizacionFuente: "commit" | "variable" | "build" | null;
@@ -284,6 +286,20 @@ function General({ onIr }: { onIr: (k: SeccionKey) => void }) {
           </div>
         </CardContent>
       </Card>
+
+      {systemInfo && systemInfo.cifradoPropio === false && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-crit/40 bg-crit/10 px-4 py-3 text-sm">
+          <ShieldAlert className="mt-0.5 size-5 shrink-0 text-crit" />
+          <div>
+            <p className="font-semibold text-crit">Falta la clave de cifrado propia</p>
+            <p className="mt-0.5 text-muted-foreground">
+              Las credenciales se están cifrando con una clave provisoria. Corré la actualización en el servidor
+              (<code className="font-mono text-xs">sudo bash /opt/nodara/scripts/actualizar.sh</code>): genera la clave, la guarda y vuelve a
+              cifrar todo. Después guardá la copia de la clave fuera del servidor.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Atajo
