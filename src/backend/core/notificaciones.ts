@@ -161,6 +161,9 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
   );
   if (clavesViejas?.n) alertas.push({ id: "claves-viejas", tipo: "clave", tono: "info", titulo: `${clavesViejas.n} clave${clavesViejas.n === 1 ? "" : "s"} de la agenda sin cambiar hace más de 6 meses`, cuerpo: "Revisalas en Oficina → Agenda → Emails de la empresa.", link: "/oficina" });
 
+  const revisar = await seguro(() => one<{ n: number }>(`select count(*)::int n from wiki_docs where review_by is not null and review_by <= current_date`));
+  if (revisar?.n) alertas.push({ id: "instructivos-revisar", tipo: "doc", tono: "warn", titulo: `${revisar.n} instructivo${revisar.n === 1 ? "" : "s"} para revisar`, cuerpo: "Llegó la fecha de revisión: confirmá que siguen vigentes.", link: "/instructivos" });
+
   const instructivos = await seguro(() => one<{ n: number }>(`select count(*)::int n from wiki_docs d where not exists (select 1 from wiki_attachments a where a.doc_id = d.id)`));
   if (instructivos?.n) alertas.push({ id: "instructivos", tipo: "doc", tono: "info", titulo: `${instructivos.n} instructivo${instructivos.n === 1 ? "" : "s"} sin PDF`, cuerpo: "Cargá el documento para que se pueda consultar.", link: "/instructivos" });
 

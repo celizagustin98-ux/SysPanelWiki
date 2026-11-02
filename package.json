@@ -1,6 +1,6 @@
 {
   "name": "syswiki-panel",
-  "version": "1.16.12",
+  "version": "1.16.13",
   "private": true,
   "sideEffects": false,
   "type": "module",

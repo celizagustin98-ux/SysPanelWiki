@@ -609,6 +609,36 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
     }
+    if (data.name === "instructivos_sin_texto") {
+      // PDFs cuyo texto todavía no se extrajo (o cambió el archivo): para buscar dentro de ellos.
+      if (!(await hasModulePermission(session.user.id, "instructivos", "editar"))) throw new Error("Tu rol no tiene permiso para editar Instructivos");
+      const r = await query(
+        `select d.id as doc_id, a.id as adjunto_id
+           from wiki_docs d join wiki_attachments a on a.doc_id = d.id
+          where d.texto_pdf_de is distinct from a.id
+          order by d.updated_at desc limit 500`,
+      ).catch(() => ({ rows: [] }));
+      return { data: r.rows, error: null };
+    }
+    if (data.name === "guardar_texto_instructivo") {
+      // Sin revisión ni auditoría: es un índice de búsqueda, no un cambio del documento.
+      if (!(await hasModulePermission(session.user.id, "instructivos", "editar"))) throw new Error("Tu rol no tiene permiso para editar Instructivos");
+      const texto = String(data.args?._texto ?? "").slice(0, 300_000);
+      await query(`update wiki_docs set texto_pdf = $2, texto_pdf_de = $3 where id = $1`, [String(data.args?._id ?? ""), texto, String(data.args?._adjunto ?? "") || null]);
+      return { data: { ok: true }, error: null };
+    }
+    if (data.name === "programar_revision_instructivo") {
+      // Próxima revisión dentro de N meses (0 = sin revisión periódica).
+      if (!(await hasModulePermission(session.user.id, "instructivos", "editar"))) throw new Error("Tu rol no tiene permiso para editar Instructivos");
+      const meses = Math.min(Math.max(Math.floor(Number(data.args?._meses) || 0), 0), 36);
+      const r = await query<Record<string, unknown>>(
+        `update wiki_docs set review_by = case when $2 > 0 then current_date + make_interval(months => $2) else null end
+          where id = $1 returning id, title, review_by`,
+        [String(data.args?._id ?? ""), meses],
+      );
+      await writeAudit(session.user.id, "wiki_docs", "editar", r.rows, { campos: ["revisión"], meses });
+      return { data: r.rows[0] ?? null, error: null };
+    }
     if (data.name === "antiguedad_claves_contactos") {
       if (!(await hasModulePermission(session.user.id, "oficina", "ver"))) throw new Error("Tu rol no tiene permiso en Oficina");
       try {
@@ -1091,7 +1121,12 @@ export const apiRpc = createServerFn({ method: "POST" })
       const term = String(data.args?._q ?? "").trim();
       if (!term) return { data: [], error: null };
       const like = `%${term.replace(/[%_]/g, "\\$&")}%`;
-      const result = await query(`select id, folder_id, title, tags, views, updated_at from wiki_docs where title ilike $1 or content ilike $1 or array_to_string(tags, ' ') ilike $1 order by updated_at desc limit 50`, [like]);
+      const result = await query(
+        `select id, folder_id, title, tags, views, updated_at from wiki_docs
+          where title ilike $1 or content ilike $1 or coalesce(texto_pdf, '') ilike $1 or array_to_string(tags, ' ') ilike $1
+          order by updated_at desc limit 50`,
+        [like],
+      ).catch(() => query(`select id, folder_id, title, tags, views, updated_at from wiki_docs where title ilike $1 or content ilike $1 or array_to_string(tags, ' ') ilike $1 order by updated_at desc limit 50`, [like]));
       return { data: result.rows, error: null };
     }
     if (data.name === "set_user_role") {
