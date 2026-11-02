@@ -87,3 +87,30 @@ describe("cifrado de credenciales", () => {
     expect((fila as { has_secreto?: boolean }).has_secreto).toBe(true);
   });
 });
+
+describe("generador de contraseñas", async () => {
+  const { claveDebil, generarClave } = await import("@/lib/generar-clave");
+
+  it("genera claves largas con mayúsculas, minúsculas, números y símbolos", () => {
+    for (let i = 0; i < 50; i++) {
+      const c = generarClave();
+      expect(c).toHaveLength(20);
+      expect(c).toMatch(/[A-Z]/);
+      expect(c).toMatch(/[a-z]/);
+      expect(c).toMatch(/\d/);
+      expect(c).toMatch(/[^A-Za-z\d]/);
+      expect(c).not.toMatch(/[0O1lI]/);
+      expect(claveDebil(c)).toBe(false);
+    }
+  });
+
+  it("no repite claves", () => {
+    expect(new Set(Array.from({ length: 200 }, () => generarClave())).size).toBe(200);
+  });
+
+  it("marca como débiles las claves cortas o simples", () => {
+    expect(claveDebil("admin123")).toBe(true);
+    expect(claveDebil("solamenteletras")).toBe(true);
+    expect(claveDebil("Router-Central-2026")).toBe(false);
+  });
+});

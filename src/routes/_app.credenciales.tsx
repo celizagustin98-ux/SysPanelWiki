@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { ExternalLink, Pencil, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ExternalLink, Lock, Pencil, Plus, Search, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,24 @@ import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/compone
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { SecretoOculto, rpcRevelar, useSecretos } from "@/components/SecretoOculto";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { generarClave } from "@/lib/generar-clave";
+import { useRoles } from "@/lib/roles";
+import { cn } from "@/lib/utils";
+
+/** Días sin cambiar la clave a partir de los cuales se avisa. */
+const DIAS_CLAVE_VIEJA = 365;
+
+type Salud = { id: string; repetida: number; dias: number; debil: boolean };
 
 export const Route = createFileRoute("/_app/credenciales")({
   ssr: false,
@@ -48,6 +66,7 @@ type Cred = {
   url: string | null;
   notas: string | null;
   updated_at?: string | null;
+  roles_permitidos?: string[] | null;
 };
 
 function CredencialesPage() {
@@ -60,6 +79,10 @@ function CredencialesPage() {
   const claves = useSecretos();
   const [q, setQ] = useState("");
   const [categoria, setCategoria] = useState("todas");
+  const [problema, setProblema] = useState<"todos" | "repetidas" | "debiles" | "viejas">("todos");
+  const [aEliminar, setAEliminar] = useState<Cred | null>(null);
+  const { data: roles = [] } = useRoles();
+  const nombreRol = (clave: string) => roles.find((r) => r.clave === clave)?.nombre ?? clave;
 
   const { data = [], isError, isLoading } = useQuery({
     queryKey: ["credenciales"],
@@ -70,6 +93,22 @@ function CredencialesPage() {
       return data as Cred[];
     },
   });
+
+  const { data: salud = [] } = useQuery({
+    queryKey: ["credenciales", "salud"],
+    enabled: puedeVer,
+    queryFn: async () => {
+      const { data, error } = await api.rpc("salud_credenciales");
+      if (error) throw error;
+      return (data ?? []) as Salud[];
+    },
+  });
+  const saludDe = useMemo(() => new Map(salud.map((x) => [x.id, x])), [salud]);
+  const conteo = {
+    repetidas: salud.filter((x) => x.repetida > 0).length,
+    debiles: salud.filter((x) => x.debil).length,
+    viejas: salud.filter((x) => x.dias >= DIAS_CLAVE_VIEJA).length,
+  };
 
   const categorias = useMemo(() => {
     const m = new Map<string, number>();
@@ -82,12 +121,16 @@ function CredencialesPage() {
     return data.filter(
       (c) =>
         (categoria === "todas" || c.categoria === categoria) &&
+        (problema === "todos" ||
+          (problema === "repetidas" && (saludDe.get(c.id)?.repetida ?? 0) > 0) ||
+          (problema === "debiles" && !!saludDe.get(c.id)?.debil) ||
+          (problema === "viejas" && (saludDe.get(c.id)?.dias ?? 0) >= DIAS_CLAVE_VIEJA)) &&
         (!term ||
           [c.servicio, c.categoria, c.usuario, c.ip, c.url, c.notas]
             .filter(Boolean)
             .some((v) => String(v).toLowerCase().includes(term))),
     );
-  }, [data, q, categoria]);
+  }, [data, q, categoria, problema, saludDe]);
 
   const { ordenadas, orden, alternar } = useOrden(filtradas, {
     servicio: (c) => c.servicio,
@@ -103,7 +146,7 @@ function CredencialesPage() {
   };
 
   const eliminar = async (c: Cred) => {
-    if (!window.confirm(`¿Eliminar la credencial de "${c.servicio}"?`)) return;
+    setAEliminar(null);
     const { error } = await api.from("credenciales").delete().eq("id", c.id);
     if (error) return toast.error(error.message);
     toast.success("Credencial eliminada");
@@ -151,6 +194,39 @@ function CredencialesPage() {
         />
       </div>
 
+      {(conteo.repetidas > 0 || conteo.debiles > 0 || conteo.viejas > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/35 bg-warn/8 px-3 py-2 text-sm">
+          <ShieldCheck className="size-4 text-warn" />
+          <span className="font-medium">Revisá estas claves:</span>
+          {(
+            [
+              ["repetidas", `${conteo.repetidas} repetida${conteo.repetidas === 1 ? "" : "s"}`, conteo.repetidas],
+              ["debiles", `${conteo.debiles} débil${conteo.debiles === 1 ? "" : "es"}`, conteo.debiles],
+              ["viejas", `${conteo.viejas} sin cambiar hace más de un año`, conteo.viejas],
+            ] as const
+          )
+            .filter(([, , n]) => n > 0)
+            .map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setProblema(problema === k ? "todos" : k)}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  problema === k ? "border-warn bg-warn/20" : "border-warn/40 hover:bg-warn/15",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          {problema !== "todos" && (
+            <button type="button" className="ml-auto text-xs text-muted-foreground hover:text-foreground" onClick={() => setProblema("todos")}>
+              Ver todas
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -175,8 +251,16 @@ function CredencialesPage() {
               {ordenadas.map((c) => (
                 <tr key={c.id} className="group border-b border-border/60 last:border-0 hover:bg-muted/20">
                   <td className="py-2.5 pl-4 pr-3">
-                    <p className="font-medium">{c.servicio}</p>
+                    <p className="flex items-center gap-1.5 font-medium">
+                      {c.servicio}
+                      {!!c.roles_permitidos?.length && (
+                        <span title={`Solo la ven: ${c.roles_permitidos.map(nombreRol).join(", ")} (y administradores)`}>
+                          <Lock className="size-3.5 text-muted-foreground" />
+                        </span>
+                      )}
+                    </p>
                     {c.notas && <p className="max-w-[260px] truncate text-[11px] text-muted-foreground" title={c.notas}>{c.notas}</p>}
+                    <AvisosClave s={saludDe.get(c.id)} />
                   </td>
                   <td className="hidden px-3 py-2.5 md:table-cell">
                     <Badge variant="secondary" className="capitalize">{c.categoria}</Badge>
@@ -219,7 +303,7 @@ function CredencialesPage() {
                   <td className="whitespace-nowrap px-3 py-2.5 text-right">
                     {puedeEditar && <CredDialog userId={user?.id} existing={c} categorias={categorias.map(([x]) => x)} onDone={refrescar} />}
                     {puedeEliminar && (
-                      <Button size="icon" variant="ghost" className="size-8" aria-label="Eliminar" onClick={() => void eliminar(c)}>
+                      <Button size="icon" variant="ghost" className="size-8" aria-label="Eliminar" onClick={() => setAEliminar(c)}>
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
                     )}
@@ -238,8 +322,34 @@ function CredencialesPage() {
         </div>
         <PieTabla mostrando={ordenadas.length} total={data.length} />
       </div>
+
+      <AlertDialog open={!!aEliminar} onOpenChange={(o) => !o && setAEliminar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar la credencial de "{aEliminar?.servicio}"</AlertDialogTitle>
+            <AlertDialogDescription>La clave se borra de la bóveda y no se puede recuperar. Queda registrado en Auditoría.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => aEliminar && void eliminar(aEliminar)}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
+}
+
+/** Repetida, débil o sin cambiar hace mucho: avisos debajo del nombre del servicio. */
+function AvisosClave({ s }: { s?: Salud }) {
+  if (!s) return null;
+  const avisos: string[] = [];
+  if (s.repetida > 0) avisos.push(`Repetida en ${s.repetida} más`);
+  if (s.debil) avisos.push("Débil");
+  if (s.dias >= DIAS_CLAVE_VIEJA) avisos.push(`Sin cambiar hace ${s.dias >= 730 ? `${Math.floor(s.dias / 365)} años` : `${Math.floor(s.dias / 30)} meses`}`);
+  if (!avisos.length) return null;
+  return <p className="mt-0.5 text-[10.5px] font-medium text-warn">{avisos.join(" · ")}</p>;
 }
 
 function CredDialog({
@@ -255,8 +365,27 @@ function CredDialog({
 }) {
   const [open, setOpen] = useState(false);
   const isEdit = !!existing;
+  const claveRef = useRef<HTMLInputElement>(null);
+  const { data: roles = [] } = useRoles();
+  const [permitidos, setPermitidos] = useState<string[]>(existing?.roles_permitidos ?? []);
+  const generar = async () => {
+    const c = generarClave();
+    if (claveRef.current) claveRef.current.value = c;
+    try {
+      await navigator.clipboard.writeText(c);
+      toast.success("Clave generada y copiada: pegala también en el equipo o servicio");
+    } catch {
+      toast.success("Clave generada");
+    }
+  };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setPermitidos(existing?.roles_permitidos ?? []);
+      }}
+    >
       <DialogTrigger asChild>
         {isEdit ? (
           <Button size="icon" variant="ghost" className="size-8" aria-label="Editar">
@@ -285,6 +414,7 @@ function CredDialog({
               ip: String(fd.get("ip") || ""),
               url: String(fd.get("url") || ""),
               notas: String(fd.get("notas") || ""),
+              roles_permitidos: permitidos.length ? permitidos : null,
               created_by: userId ?? null,
             };
             if (isEdit) {
@@ -320,8 +450,13 @@ function CredDialog({
               <Input name="usuario" defaultValue={existing?.usuario ?? ""} />
             </div>
             <div className="space-y-1.5">
-              <Label>Secreto{isEdit ? " (vacío = no cambiar)" : ""}</Label>
-              <InputClave name="secreto" required={!isEdit} autoComplete="new-password" />
+              <div className="flex items-center justify-between">
+                <Label>Secreto{isEdit ? " (vacío = no cambiar)" : ""}</Label>
+                <button type="button" onClick={() => void generar()} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                  <Wand2 className="size-3" /> Generar
+                </button>
+              </div>
+              <InputClave ref={claveRef} name="secreto" required={!isEdit} autoComplete="new-password" />
             </div>
             <div className="space-y-1.5">
               <Label>IP</Label>
@@ -335,6 +470,32 @@ function CredDialog({
           <div className="space-y-1.5">
             <Label>Notas</Label>
             <Textarea name="notas" defaultValue={existing?.notas ?? ""} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Quién la ve</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {roles
+                .filter((r) => r.clave !== "administrador")
+                .map((r) => {
+                  const sel = permitidos.includes(r.clave);
+                  return (
+                    <button
+                      key={r.clave}
+                      type="button"
+                      onClick={() => setPermitidos((p) => (sel ? p.filter((x) => x !== r.clave) : [...p, r.clave]))}
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                        sel ? "border-primary/50 bg-primary/12 text-primary" : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {r.nombre}
+                    </button>
+                  );
+                })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {permitidos.length ? "Solo estos roles (y los administradores) la ven, la revelan o la editan." : "Sin elegir: la ven todos los roles con acceso a Credenciales."}
+            </p>
           </div>
           <DialogFooter>
             <Button type="submit">{isEdit ? "Guardar cambios" : "Guardar"}</Button>
