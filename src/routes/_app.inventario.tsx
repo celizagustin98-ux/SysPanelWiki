@@ -1001,6 +1001,8 @@ function InventarioPage() {
   const [propiedad, setPropiedad] = useState("todos");
   const [estado, setEstado] = useState("todos");
   const [control, setControl] = useState("todos");
+  // Garantía: por vencer (próximos 90 días), vencida o sin dato.
+  const [garantia, setGarantia] = useState("todos");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(25);
@@ -1079,6 +1081,12 @@ function InventarioPage() {
           (control === "sin_control" && days === null) ||
           (control === "vencido_90" && (days === null || days > 90)) ||
           (control === "vencido_180" && (days === null || days > 180));
+        const diasGarantia = diasHasta(item.garantia_hasta);
+        const garantiaMatch =
+          garantia === "todos" ||
+          (garantia === "por_vencer" && diasGarantia != null && diasGarantia >= 0 && diasGarantia <= 90) ||
+          (garantia === "vencida" && diasGarantia != null && diasGarantia < 0) ||
+          (garantia === "sin_dato" && diasGarantia == null);
         return (
           searchable.toLowerCase().includes(deferredQ.toLowerCase()) &&
           (planta === "todos" || item.planta === planta) &&
@@ -1087,10 +1095,11 @@ function InventarioPage() {
           (tipo === "todos" || (item.tipo ?? item.modelo) === tipo) &&
           (propiedad === "todos" || item.propiedad === propiedad) &&
           (estado === "todos" || estadoLabel(item.estado) === estado) &&
-          controlMatch
+          controlMatch &&
+          garantiaMatch
         );
       }),
-    [data, deferredQ, planta, sector, rubro, tipo, propiedad, estado, control],
+    [data, deferredQ, planta, sector, rubro, tipo, propiedad, estado, control, garantia],
   );
 
   const { ordenadas: rowsOrdenadas, orden, alternar } = useOrden(rows, {
@@ -1153,7 +1162,7 @@ function InventarioPage() {
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [data]);
-  const filtrosExtra = [planta, tipo, propiedad, control].filter((v) => v !== "todos").length;
+  const filtrosExtra = [planta, tipo, propiedad, control, garantia].filter((v) => v !== "todos").length;
   const hayFiltros = filtrosExtra > 0 || [rubro, sector, estado].some((v) => v !== "todos") || !!q;
   const limpiarFiltros = () => {
     setQ("");
@@ -1164,6 +1173,7 @@ function InventarioPage() {
     setPropiedad("todos");
     setEstado("todos");
     setControl("todos");
+    setGarantia("todos");
     setPage(1);
   };
   const contarEstado = (v: string) => rows.filter((r) => estadoInfo(r.estado).value === v).length;
@@ -1192,7 +1202,7 @@ function InventarioPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [deferredQ, planta, sector, rubro, tipo, propiedad, estado, control]);
+  }, [deferredQ, planta, sector, rubro, tipo, propiedad, estado, control, garantia]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -1270,7 +1280,7 @@ function InventarioPage() {
           { label: "Activos", value: data.length, hint: `${enUso} en uso · ${enDeposito} en depósito`, tone: "neutral" as const, filtro: "todos" },
           { label: "En reparación", value: enReparacion, hint: "servicio técnico", tone: enReparacion ? ("warn" as const) : ("ok" as const), filtro: "En reparación" },
           { label: "Fuera de servicio", value: fueraServicio, hint: "sin funcionar", tone: fueraServicio ? ("crit" as const) : ("ok" as const), filtro: "Fuera de servicio" },
-          { label: "Garantía por vencer", value: garantiaPorVencer, hint: "próximos 90 días", tone: garantiaPorVencer ? ("warn" as const) : ("neutral" as const), filtro: null },
+          { label: "Garantía por vencer", value: garantiaPorVencer, hint: "próximos 90 días", tone: garantiaPorVencer ? ("warn" as const) : ("neutral" as const), filtro: "garantia" },
           { label: "Control vencido", value: control180, hint: `${sinControl} sin controlar`, tone: control180 ? ("crit" as const) : ("ok" as const), filtro: "control" },
         ].map((k) => (
           <button
@@ -1279,12 +1289,15 @@ function InventarioPage() {
             disabled={!k.filtro}
             onClick={() => {
               if (k.filtro === "control") setControl(control === "vencido_180" ? "todos" : "vencido_180");
+              else if (k.filtro === "garantia") setGarantia(garantia === "por_vencer" ? "todos" : "por_vencer");
               else if (k.filtro) setEstado(estado === k.filtro || k.filtro === "todos" ? "todos" : k.filtro);
               setPage(1);
             }}
             className={cn(
               "text-left transition-transform disabled:cursor-default enabled:hover:-translate-y-0.5",
-              ((k.filtro === "control" && control === "vencido_180") || (k.filtro && k.filtro !== "todos" && estado === k.filtro)) &&
+              ((k.filtro === "control" && control === "vencido_180") ||
+                (k.filtro === "garantia" && garantia === "por_vencer") ||
+                (k.filtro && k.filtro !== "todos" && k.filtro !== "garantia" && estado === k.filtro)) &&
                 "rounded-xl ring-2 ring-primary",
             )}
           >
@@ -1357,6 +1370,17 @@ function InventarioPage() {
                       <SelectItem value="sin_control">Nunca controlados</SelectItem>
                       <SelectItem value="vencido_90">Más de 90 días</SelectItem>
                       <SelectItem value="vencido_180">Más de 180 días</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={garantia} onValueChange={(value) => { setGarantia(value); setPage(1); }}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Garantía" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todas las garantías</SelectItem>
+                      <SelectItem value="por_vencer">Vence en 90 días</SelectItem>
+                      <SelectItem value="vencida">Garantía vencida</SelectItem>
+                      <SelectItem value="sin_dato">Sin fecha de garantía</SelectItem>
                     </SelectContent>
                   </Select>
                 </PopoverContent>
