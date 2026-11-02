@@ -1,4 +1,4 @@
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   BarChart3,
@@ -23,6 +23,7 @@ import { QrConfig } from "@/components/configuracion/QrConfig";
 import { GuiaSistema } from "@/components/configuracion/GuiaSistema";
 import { RolesPermisos } from "@/components/configuracion/RolesPermisos";
 import { MantenimientoDatos } from "@/components/configuracion/MantenimientoDatos";
+import { Auditoria } from "@/components/configuracion/Auditoria";
 import { UsuariosAdmin, useUsuariosAdmin } from "@/components/configuracion/UsuariosAdmin";
 import { useMarca } from "@/lib/brand";
 import { api } from "@/lib/api/client";
@@ -30,7 +31,7 @@ import { useAuth } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
-type SeccionKey = "general" | "usuarios" | "roles" | "feriados" | "reportes" | "datos" | "guia";
+type SeccionKey = "general" | "usuarios" | "roles" | "auditoria" | "feriados" | "reportes" | "datos" | "guia";
 
 const SECCIONES: {
   grupo: string;
@@ -58,6 +59,7 @@ const SECCIONES: {
         hint: "Qué puede hacer cada rol",
         icon: ShieldCheck,
       },
+      { key: "auditoria", label: "Auditoría", hint: "Quién cambió qué y cuándo", icon: History },
     ],
   },
   {
@@ -81,7 +83,7 @@ export const Route = createFileRoute("/_app/configuracion")({
       { title: "Configuración · Nodara" },
       {
         name: "description",
-        content: "Usuarios, roles, permisos, estado del sistema y auditoría.",
+        content: "Usuarios, roles, permisos, auditoría y estado del sistema.",
       },
     ],
   }),
@@ -122,14 +124,18 @@ function formatVersion(value?: string | null) {
 }
 
 function ConfiguracionPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, can } = useAuth();
   const navigate = useNavigate();
-  const { seccion = "general" } = Route.useSearch();
+  const verAuditoria = can("auditoria", "view");
+  const { seccion: pedida = "general" } = Route.useSearch();
+  const seccion: SeccionKey = isAdmin ? pedida : "auditoria";
+  const grupos = isAdmin ? SECCIONES : SECCIONES.map((g) => ({ ...g, items: g.items.filter((x) => x.key === "auditoria") })).filter((g) => g.items.length);
+  const visibles = grupos.flatMap((g) => g.items);
   const actual = TODAS.find((x) => x.key === seccion)!;
   const ir = (key: SeccionKey) =>
     navigate({ to: "/configuracion", search: { seccion: key === "general" ? undefined : key } });
 
-  if (!isAdmin) {
+  if (!isAdmin && !verAuditoria) {
     return (
       <div>
         <PageHeader title="Configuración" description="Sección exclusiva de administradores." />
@@ -147,13 +153,13 @@ function ConfiguracionPage() {
     <div className="space-y-4">
       <PageHeader
         title="Configuración"
-        description="Accesos, calendario, reportes y estado del sistema."
+        description="Accesos, auditoría, calendario, reportes y estado del sistema."
       />
 
       <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
         {/* Navegación: columna lateral en pantallas anchas, fila de botones en el resto. */}
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 xl:hidden">
-          {TODAS.map((it) => {
+          {visibles.map((it) => {
             const Icono = it.icon;
             return (
               <button
@@ -176,7 +182,7 @@ function ConfiguracionPage() {
           className="hidden h-fit space-y-4 xl:sticky xl:top-4 xl:block"
           aria-label="Secciones de configuración"
         >
-          {SECCIONES.map((g) => (
+          {grupos.map((g) => (
             <div key={g.grupo}>
               <p className="eyebrow px-2.5 pb-1.5">{g.grupo}</p>
               <div className="space-y-0.5">
@@ -203,15 +209,6 @@ function ConfiguracionPage() {
               </div>
             </div>
           ))}
-          <div className="border-t border-border pt-3">
-            <Link
-              to="/auditoria"
-              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <History className="size-4" /> Auditoría
-              <ChevronRight className="ml-auto size-3.5" />
-            </Link>
-          </div>
         </nav>
 
         <section className="min-w-0 space-y-4">
@@ -225,6 +222,7 @@ function ConfiguracionPage() {
           {seccion === "general" && <General onIr={ir} />}
           {seccion === "usuarios" && <UsuariosAdmin />}
           {seccion === "roles" && <RolesPermisos />}
+          {seccion === "auditoria" && <Auditoria />}
           {seccion === "feriados" && <FeriadosConfig canEdit={isAdmin} />}
           {seccion === "reportes" && <ReporteMensual />}
           {seccion === "datos" && <MantenimientoDatos />}
