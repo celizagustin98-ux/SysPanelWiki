@@ -9,7 +9,10 @@ import {
   storageUpload,
 } from "@/backend/api/data.functions";
 
+// Antes el token se guardaba acá (legible por cualquier script). Ahora vive en una cookie HttpOnly
+// y en el navegador queda solo una marca de que hay sesión.
 const TOKEN_KEY = "syswiki.session";
+const MARCA_KEY = "nodara.sesion";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
 type Order = { column: string; ascending?: boolean };
@@ -25,10 +28,25 @@ function token() {
 
 export const getToken = token;
 
-function setToken(value: string | null) {
+/** True si hay (o hubo) una sesión abierta en este navegador; la validez la confirma el servidor. */
+export function haySesion() {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(MARCA_KEY) === "1" || !!localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return false;
+  }
+}
+
+function marcarSesion(activa: boolean) {
   if (typeof localStorage === "undefined") return;
-  if (value) localStorage.setItem(TOKEN_KEY, value);
-  else localStorage.removeItem(TOKEN_KEY);
+  try {
+    if (activa) localStorage.setItem(MARCA_KEY, "1");
+    else localStorage.removeItem(MARCA_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* sin almacenamiento */
+  }
 }
 
 function responseError(error: unknown) {
@@ -206,21 +224,25 @@ async function fileToBase64(file: File) {
 export const api = {
   auth: {
     async getSession() {
-      if (!token()) return { data: { session: null }, error: null };
-      return postAuth<{ session: any }>("session", { token: token() });
+      if (!haySesion()) return { data: { session: null }, error: null };
+      // Un token viejo guardado en el navegador se manda una vez para pasarlo a la cookie.
+      const result = await postAuth<{ session: any }>("session", { token: token() ?? undefined });
+      if (!result.error) marcarSesion(!!result.data.session);
+      return result;
     },
     async setSession(tokens: { access_token: string }) {
-      setToken(tokens.access_token);
-      return postAuth<{ session: any }>("session", { token: tokens.access_token });
+      const result = await postAuth<{ session: any }>("session", { token: tokens.access_token });
+      if (!result.error) marcarSesion(!!result.data.session);
+      return result;
     },
     async signInWithPassword(input: { username: string; password: string }) {
       const result = await postAuth<{ session: any }>("signin", input);
-      if (!result.error) setToken(result.data.session?.token ?? null);
+      if (!result.error) marcarSesion(!!result.data.session);
       return result;
     },
     async signUp(input: { fullName: string; username: string; email: string; password: string }) {
       const result = await postAuth<{ session: any }>("signup", input);
-      if (!result.error) setToken(result.data.session?.token ?? null);
+      if (!result.error) marcarSesion(!!result.data.session);
       return result;
     },
     async resetPasswordForEmail(email: string) {
@@ -248,10 +270,9 @@ export const api = {
     },
     async signOut() {
       const currentToken = token();
-      setToken(null);
-      if (!currentToken) return { data: { ok: true }, error: null };
-
-      const result = await postAuth("signout", { token: currentToken });
+      marcarSesion(false);
+      // El servidor borra la sesión y la cookie.
+      const result = await postAuth("signout", { token: currentToken ?? undefined });
       if (result.error) {
         console.warn("No se pudo cerrar la sesion en el servidor", result.error);
       }

@@ -1077,7 +1077,7 @@ export const authUpdatePassword = createServerFn({ method: "POST" })
     validarClave(data.password ?? "", session.profile.username);
     await query(`update app_users set password_hash = $1 where id = $2`, [await hashPassword(data.password), session.user.id]);
     // Cierra las demás sesiones abiertas de este usuario.
-    await query(`delete from app_sessions where user_id = $1 and token_hash <> encode(sha256(convert_to($2, 'utf8')), 'hex')`, [session.user.id, data.token ?? ""]);
+    await query(`delete from app_sessions where user_id = $1 and token_hash <> encode(sha256(convert_to($2, 'utf8')), 'hex')`, [session.user.id, session.token]);
     invalidateAuthCache(session.user.id);
     return { ok: true };
   });
