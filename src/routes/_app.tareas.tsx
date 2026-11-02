@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, PenLine, Search } from "lucide-react";
+import { BarChart3, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, PenLine, Search, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ import {
 import { ReopenDialog } from "@/components/tickets/ReopenDialog";
 import { TicketDetail } from "@/components/tickets/TicketDetail";
 import { NuevoTicket } from "@/components/tickets/NuevoTicket";
+import { SLA_HORAS, calcularSla } from "@/components/tickets/sla";
 
 export const Route = createFileRoute("/_app/tareas")({
   ssr: false,
@@ -47,7 +48,7 @@ export const Route = createFileRoute("/_app/tareas")({
   component: TicketsPage,
 });
 
-type Vista = "activos" | "historial";
+type Vista = "metricas" | "activos" | "historial";
 
 const PRIO_BADGE: Record<string, string> = {
   critica: "bg-crit/12 text-crit",
@@ -204,7 +205,15 @@ function TicketsPage() {
         !pendiente.includes(t) &&
         !resueltos.includes(t),
     );
+    const fueraSla = list.filter((t) => calcularSla(t)?.tono === "crit");
     return [
+      {
+        key: "sla",
+        title: "Fuera de SLA",
+        hint: "Pasaron el plazo para tomarlos o resolverlos según su prioridad.",
+        dot: "bg-crit",
+        items: fueraSla,
+      },
       {
         key: "sin",
         title: "Sin asignar",
@@ -291,7 +300,10 @@ function TicketsPage() {
 
   const patchTicket = async (id: string, values: Record<string, unknown>, msg?: string) => {
     const { error } = await api.from("tareas").update(values).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     if (msg) toast.success(msg);
     refetch();
   };
@@ -357,6 +369,7 @@ function TicketsPage() {
         }
       />
 
+      {vista !== "metricas" && (
       <div className="mb-3 grid gap-2.5 sm:grid-cols-3 stagger">
         <KpiCard
           icon={<ClipboardList className="size-4" />}
@@ -386,6 +399,7 @@ function TicketsPage() {
           hint={vista === "activos" ? "Los que cargaste vos y siguen activos" : "Los que cargaste vos, cerrados este mes"}
         />
       </div>
+      )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
       <div className="inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
@@ -430,7 +444,19 @@ function TicketsPage() {
             {counts.historial}
           </span>
         </button>
+        <button
+          type="button"
+          onClick={() => setVista("metricas")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition",
+            vista === "metricas" ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <BarChart3 className="size-3.5" />
+          Métricas
+        </button>
       </div>
+        {vista !== "metricas" && (
         <div role="group" aria-label="Qué tickets ver" className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-xs">
           {ALCANCES.map((a) => (
             <button
@@ -456,6 +482,7 @@ function TicketsPage() {
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {vista === "activos" && (
@@ -483,7 +510,7 @@ function TicketsPage() {
               ))}
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              {[{ key: "todos", title: "Todos", dot: "bg-foreground/40", items: list }, ...groups.filter((g) => g.key !== "otros" || g.items.length)].map((g) => (
+              {[{ key: "todos", title: "Todos", dot: "bg-foreground/40", items: list }, ...groups.filter((g) => (g.key !== "otros" && g.key !== "sla") || g.items.length)].map((g) => (
                 <button
                   key={g.key}
                   type="button"
@@ -555,6 +582,8 @@ function TicketsPage() {
           )}
         </>
       )}
+
+      {vista === "metricas" && <MetricasTecnicos nombre={nombre} />}
 
       {vista === "historial" && (
         <HistorialMes
@@ -654,14 +683,17 @@ function TicketTable({
             </p>
           </button>
 
-          <span
-            className={cn(
-              "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              PRIO_BADGE[t.prioridad] ?? PRIO_BADGE.media,
-            )}
-          >
-            {PRIO_LABEL[t.prioridad] ?? t.prioridad}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span
+              className={cn(
+                "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                PRIO_BADGE[t.prioridad] ?? PRIO_BADGE.media,
+              )}
+            >
+              {PRIO_LABEL[t.prioridad] ?? t.prioridad}
+            </span>
+            <SlaChip t={t} />
+          </div>
 
           <div className="min-w-0">
             {canWrite ? (
@@ -733,6 +765,149 @@ function TicketTable({
         </div>
       ))}
     </div>
+  );
+}
+
+/** Plazo del SLA: verde con tiempo de sobra, ámbar en el último cuarto, rojo vencido. */
+function SlaChip({ t }: { t: TicketT }) {
+  const sla = calcularSla(t);
+  if (!sla) return null;
+  return (
+    <span
+      title={`SLA ${PRIO_LABEL[t.prioridad] ?? t.prioridad}: ${SLA_HORAS[t.prioridad]?.respuesta ?? 8} h para tomarlo y ${SLA_HORAS[t.prioridad]?.resolucion ?? 72} h para resolverlo`}
+      className={cn(
+        "inline-flex w-fit items-center gap-1 text-[10.5px] font-medium leading-tight",
+        sla.tono === "crit" ? "text-crit" : sla.tono === "warn" ? "text-warn" : "text-muted-foreground",
+      )}
+    >
+      <Timer className="size-3 shrink-0" />
+      {sla.texto}
+    </span>
+  );
+}
+
+type MetricaTecnico = {
+  id: string;
+  resueltos?: number;
+  horas_mediana?: number | null;
+  horas_promedio?: number | null;
+  en_sla?: number;
+  abiertos?: number;
+  vencidos?: number;
+};
+
+function horasLegibles(h?: number | null) {
+  if (h == null) return "—";
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+  if (h < 48) return `${h.toLocaleString("es-AR", { maximumFractionDigits: 1 })} h`;
+  return `${Math.round(h / 24)} d`;
+}
+
+/** Métricas por técnico: resueltos, tiempo de resolución, cumplimiento del SLA y carga actual. */
+function MetricasTecnicos({ nombre }: { nombre: (id: string | null) => string }) {
+  const [dias, setDias] = useState(30);
+  const { data: filas = [], isLoading } = useQuery({
+    queryKey: ["tareas", "metricas", dias],
+    queryFn: async () => {
+      const { data, error } = await api.rpc("metricas_tickets", { _dias: dias });
+      if (error) throw error;
+      return (data ?? []) as MetricaTecnico[];
+    },
+  });
+  const ordenadas = [...filas].sort((a, b) => (b.resueltos ?? 0) - (a.resueltos ?? 0) || (b.abiertos ?? 0) - (a.abiertos ?? 0));
+  const tot = ordenadas.reduce(
+    (s, f) => ({ resueltos: s.resueltos + (f.resueltos ?? 0), enSla: s.enSla + (f.en_sla ?? 0), abiertos: s.abiertos + (f.abiertos ?? 0), vencidos: s.vencidos + (f.vencidos ?? 0) }),
+    { resueltos: 0, enSla: 0, abiertos: 0, vencidos: 0 },
+  );
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
+
+  return (
+    <section className="space-y-4 rise-in">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-lg border border-border bg-card p-1 shadow-xs">
+          {[
+            [7, "7 días"],
+            [30, "30 días"],
+            [90, "90 días"],
+            [365, "12 meses"],
+          ].map(([d, label]) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDias(Number(d))}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-[13px] font-medium transition",
+                dias === d ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          SLA de resolución: urgente {SLA_HORAS.critica.resolucion} h · alta {SLA_HORAS.alta.resolucion} h · media {SLA_HORAS.media.resolucion} h · baja{" "}
+          {SLA_HORAS.baja.resolucion / 24} días
+        </p>
+      </div>
+
+      <div className="grid gap-2.5 sm:grid-cols-4">
+        <StatTile label="Resueltos" value={tot.resueltos} />
+        <StatTile label="Dentro del SLA" value={pct(tot.enSla, tot.resueltos)} />
+        <StatTile label="Abiertos ahora" value={tot.abiertos} />
+        <StatTile label="Vencidos ahora" value={tot.vencidos} />
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl bg-card shadow-[var(--shadow-panel)]">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead className="border-b border-border/50 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2 text-left">Técnico</th>
+              <th className="px-3 py-2 text-right">Resueltos</th>
+              <th className="px-3 py-2 text-right">Tiempo típico</th>
+              <th className="px-3 py-2 text-right">Promedio</th>
+              <th className="px-3 py-2 text-right">En SLA</th>
+              <th className="px-3 py-2 text-right">Abiertos</th>
+              <th className="px-4 py-2 text-right">Vencidos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={7} className="p-4">
+                  <div className="skeleton h-10" />
+                </td>
+              </tr>
+            )}
+            {!isLoading && ordenadas.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  No hay tickets con responsable en este rango.
+                </td>
+              </tr>
+            )}
+            {ordenadas.map((f) => {
+              const enSla = f.resueltos ? Math.round(((f.en_sla ?? 0) / f.resueltos) * 100) : null;
+              return (
+                <tr key={f.id} className="border-t border-border/40">
+                  <td className="px-4 py-2.5 font-medium">{nombre(f.id)}</td>
+                  <td className="num px-3 py-2.5 text-right">{f.resueltos ?? 0}</td>
+                  <td className="num px-3 py-2.5 text-right">{horasLegibles(f.horas_mediana)}</td>
+                  <td className="num px-3 py-2.5 text-right text-muted-foreground">{horasLegibles(f.horas_promedio)}</td>
+                  <td className={cn("num px-3 py-2.5 text-right font-semibold", enSla == null ? "text-muted-foreground" : enSla >= 80 ? "text-ok" : enSla >= 60 ? "text-warn" : "text-crit")}>
+                    {enSla == null ? "—" : `${enSla}%`}
+                  </td>
+                  <td className="num px-3 py-2.5 text-right">{f.abiertos ?? 0}</td>
+                  <td className={cn("num px-4 py-2.5 text-right", f.vencidos ? "font-semibold text-crit" : "text-muted-foreground")}>{f.vencidos ?? 0}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        "Tiempo típico" es la mediana: la mitad de los tickets se resolvió en menos tiempo. Se cuenta desde que se creó el ticket hasta que se marcó resuelto.
+      </p>
+    </section>
   );
 }
 

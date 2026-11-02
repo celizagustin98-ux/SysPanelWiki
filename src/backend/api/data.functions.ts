@@ -75,6 +75,7 @@ const TABLES = new Set([
   "tarea_instructivos",
   "tarea_subtareas",
   "tareas",
+  "ticket_plantillas",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -112,6 +113,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   role_permissions: { modulo: "roles", fields: ["role", "modulo"] },
   roles: { modulo: "roles", fields: ["nombre", "clave"] },
   tareas: { modulo: "tareas", fields: ["numero", "titulo", "estado", "prioridad"] },
+  ticket_plantillas: { modulo: "tareas", fields: ["nombre"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -362,6 +364,7 @@ const MODULO_DE_TABLA: Record<string, string> = {
   toner_pedidos: "toners",
   toner_pedido_items: "toners",
   tareas: "tareas",
+  ticket_plantillas: "tareas",
   tarea_subtareas: "tareas",
   tarea_comentarios: "tareas",
   tarea_instructivos: "tareas",
@@ -605,6 +608,35 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "metricas_tickets") {
+      // Por técnico: resueltos en el rango, tiempo de resolución, % dentro del SLA y carga actual.
+      if (!(await hasModulePermission(session.user.id, "tareas", "ver"))) throw new Error("Tu rol no tiene permiso en Tickets");
+      const dias = Math.min(Math.max(Number(data.args?._dias) || 30, 1), 730);
+      const sla = `(case prioridad when 'critica' then 4 when 'alta' then 24 when 'media' then 72 else 168 end) * interval '1 hour'`;
+      const resueltos = await query(
+        `with base as (
+           select asignado_a, prioridad, created_at, coalesce(resuelto_en, cerrado_en) as fin
+             from tareas
+            where asignado_a is not null and estado in ('resuelto', 'cerrado') and coalesce(resuelto_en, cerrado_en) >= now() - $1 * interval '1 day'
+         )
+         select asignado_a as id, count(*)::int as resueltos,
+                round((percentile_cont(0.5) within group (order by extract(epoch from (fin - created_at)) / 3600))::numeric, 1)::float as horas_mediana,
+                round(avg(extract(epoch from (fin - created_at)) / 3600)::numeric, 1)::float as horas_promedio,
+                count(*) filter (where fin <= created_at + ${sla})::int as en_sla
+           from base group by asignado_a`,
+        [dias],
+      );
+      const abiertos = await query(
+        `select asignado_a as id, count(*)::int as abiertos,
+                count(*) filter (where estado <> 'esperando' and created_at + ${sla} < now())::int as vencidos
+           from tareas where asignado_a is not null and estado not in ('resuelto', 'cerrado', 'cancelado')
+          group by asignado_a`,
+      );
+      const porId = new Map<string, Record<string, unknown>>();
+      for (const r of resueltos.rows as Record<string, unknown>[]) porId.set(String(r.id), { ...r });
+      for (const r of abiertos.rows as Record<string, unknown>[]) porId.set(String(r.id), { ...(porId.get(String(r.id)) ?? { id: r.id }), ...r });
+      return { data: [...porId.values()], error: null };
     }
     if (data.name === "periodos_guardias_cerrados") {
       if (!(await hasModulePermission(session.user.id, "guardias", "ver"))) throw new Error("Tu rol no tiene permiso en Guardias");

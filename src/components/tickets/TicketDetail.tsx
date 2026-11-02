@@ -44,6 +44,7 @@ import {
   FLUJO,
   PRIORIDAD_STYLE,
   PRIORIDADES,
+  prioLabel,
   TIPOS,
   type Ticket,
   estadoLabel,
@@ -372,7 +373,7 @@ export function TicketDetail({
               <PropField label="Prioridad">
                 <Select value={ticket.prioridad} disabled={!canWrite} onValueChange={(v) => patch({ prioridad: v })}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>{PRIORIDADES.map((p) => <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>)}</SelectContent>
+                  <SelectContent>{PRIORIDADES.map((p) => <SelectItem key={p} value={p}>{prioLabel(p)}</SelectItem>)}</SelectContent>
                 </Select>
               </PropField>
               <PropField label="Tipo">
