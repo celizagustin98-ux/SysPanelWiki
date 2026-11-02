@@ -129,7 +129,7 @@ export const GUIA: SeccionGuia[] = [
       { titulo: "Cargar guardias", detalle: "Elegí el operario y los días en el calendario." },
       { titulo: "Vacaciones", detalle: "Se registran por operario y se ven en el resumen del período." },
       { titulo: "Horario semanal", detalle: "En 'Horarios y horas extras', el lápiz de cada empleado carga el desde – hasta de cada día (admite horario cortado) y suma el total de la semana." },
-      { titulo: "Horas extras", detalle: "'Cargar horas extras': empleado, fecha, desde – hasta y motivo. Sábados, domingos y feriados se marcan al 100%; el resto al 50%." },
+      { titulo: "Horas extras", detalle: "'Cargar horas extras': empleado, fecha, desde – hasta y motivo. Las horas se calculan solas y suman al total del período." },
       { titulo: "Liquidación", detalle: "Guardias normales y feriadas más las horas extras de cada empleado. 'Exportar PDF' genera un solo documento con todo." },
     ],
     consejos: ["Los feriados se administran en Configuración → Feriados y la liquidación los toma automáticamente."],

@@ -234,7 +234,7 @@ export function GuardiasPage() {
 
   const { data: extras = [] } = useHorasExtras(period.desde, period.hasta);
   const resumenExtras = useMemo(() => resumirExtras(extras, operarios), [extras, operarios]);
-  const totExtras = resumenExtras.reduce((s, r) => ({ h50: s.h50 + r.h50, h100: s.h100 + r.h100 }), { h50: 0, h100: 0 });
+  const totExtras = resumenExtras.reduce((s, r) => ({ horas: s.horas + r.total, cargas: s.cargas + r.cantidad }), { horas: 0, cargas: 0 });
 
   const vacacionesResumen = useMemo(() => {
     return operarios
@@ -354,13 +354,12 @@ export function GuardiasPage() {
       extras: {
         filas: resumenExtras
           .filter((r) => r.total > 0)
-          .map((r) => ({ code: r.operario.code, nombre: r.operario.nombre, h50: r.h50, h100: r.h100, total: r.total })),
+          .map((r) => ({ code: r.operario.code, nombre: r.operario.nombre, cantidad: r.cantidad, total: r.total })),
         detalle: extras.map((e) => ({
           fecha: e.fecha.split("-").reverse().join("/"),
           nombre: e.operador_nombre,
           horario: `${hhmm(e.desde)} – ${hhmm(e.hasta)}`,
           horas: e.horas,
-          tipo: e.tipo,
           motivo: e.motivo ?? "",
         })),
       },
@@ -749,9 +748,8 @@ export function GuardiasPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Empleado</TableHead>
-                  <TableHead className="text-right">Al 50%</TableHead>
-                  <TableHead className="text-right">Al 100%</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Cargas</TableHead>
+                  <TableHead className="text-right">Total horas</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -763,16 +761,14 @@ export function GuardiasPage() {
                       </span>
                       {r.operario.nombre}
                     </TableCell>
-                    <TableCell className="num text-right font-medium">{formatHoras(r.h50)}</TableCell>
-                    <TableCell className="num text-right font-medium text-crit">{formatHoras(r.h100)}</TableCell>
-                    <TableCell className="num text-right text-muted-foreground">{formatHoras(r.total)}</TableCell>
+                    <TableCell className="num text-right text-muted-foreground">{r.cantidad}</TableCell>
+                    <TableCell className="num text-right font-medium">{formatHoras(r.total)}</TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="bg-muted/40 font-semibold">
                   <TableCell>Totales</TableCell>
-                  <TableCell className="num text-right">{formatHoras(totExtras.h50)}</TableCell>
-                  <TableCell className="num text-right text-crit">{formatHoras(totExtras.h100)}</TableCell>
-                  <TableCell className="num text-right">{formatHoras(totExtras.h50 + totExtras.h100)}</TableCell>
+                  <TableCell className="num text-right">{totExtras.cargas}</TableCell>
+                  <TableCell className="num text-right">{formatHoras(totExtras.horas)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
