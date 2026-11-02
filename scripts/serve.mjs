@@ -635,6 +635,8 @@ async function handleSystem(req, res) {
       buildTime,
       environment: process.env.NODE_ENV || "production",
       httpsEnabled: esHttps(req),
+      // false = las credenciales se cifran con la clave provisoria derivada de DATABASE_URL.
+      cifradoPropio: (process.env.SECRETS_ENCRYPTION_KEY?.trim().length ?? 0) >= 16,
       ultimaRevision: settings?.ultima_revision ?? null,
       ultimaActualizacion: commitDate ?? process.env.APP_UPDATED_AT ?? buildTime,
       ultimaActualizacionFuente: commitDate ? "commit" : process.env.APP_UPDATED_AT ? "variable" : "build",
