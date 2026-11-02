@@ -98,6 +98,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   guardia_operarios: { modulo: "guardias", fields: ["nombre", "code"] },
   guardia_horarios: { modulo: "guardias", fields: ["operario_id", "dia", "desde", "hasta"] },
   guardia_horas_extras: { modulo: "guardias", fields: ["operador_nombre", "fecha", "horas", "tipo"] },
+  guardia_periodos_cerrados: { modulo: "guardias", fields: ["desde", "hasta"] },
   guardias: { modulo: "guardias", fields: ["operador_nombre", "desde", "hasta"] },
   inventario: { modulo: "inventario", fields: ["planta", "sector", "descripcion", "numero_serie"] },
   inventario_controles: { modulo: "inventario", fields: ["fecha_control", "estado", "observacion"] },
@@ -185,6 +186,64 @@ async function writeAudit(
     `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle) values ${tuples.join(", ")}`,
     values,
   );
+}
+
+/** Fecha (yyyy-mm-dd) de un valor de fecha u hora local de la base. */
+function soloFecha(v: unknown) {
+  if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
+  const t = String(v ?? "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null;
+}
+
+/**
+ * Guardias y horas extras de un período cerrado no se pueden cargar, editar ni borrar.
+ * Se revisan las fechas de lo que ya existe (update/delete) y de lo que llega (insert/update).
+ */
+async function assertPeriodoAbierto(table: string, action: MutateInput["action"], filters: Filter[] | undefined, valores: MutateInput["values"]) {
+  if (table !== "guardias" && table !== "guardia_horas_extras") return;
+  const rangos: { desde: string; hasta: string }[] = [];
+  const agregar = (fila: Record<string, unknown> | undefined) => {
+    if (!fila) return;
+    if (table === "guardia_horas_extras") {
+      const f = soloFecha(fila.fecha);
+      if (f) rangos.push({ desde: f, hasta: f });
+    } else {
+      // Una guardia de 20 a 8 cuenta por las noches que cubre: desde la que empieza hasta la anterior a la mañana en que termina.
+      const d = soloFecha(fila.desde);
+      const h = soloFecha(fila.hasta);
+      if (!d) return;
+      let ultima = d;
+      if (h && h > d) {
+        const [y, m, dd] = h.split("-").map(Number);
+        ultima = soloFecha(new Date(y, m - 1, dd - 1)) ?? d;
+      }
+      rangos.push({ desde: d, hasta: ultima < d ? d : ultima });
+    }
+  };
+  if (action !== "insert" && filters?.length) {
+    const vals: unknown[] = [];
+    const where = appendFilters(filters, vals);
+    const cols = table === "guardias" ? "desde, hasta" : "fecha";
+    for (const fila of (await query<Record<string, unknown>>(`select ${cols} from ${table}${where}`, vals)).rows) agregar(fila);
+  }
+  if (action !== "delete" && valores) for (const fila of Array.isArray(valores) ? valores : [valores]) agregar(fila as Record<string, unknown>);
+  if (!rangos.length) return;
+  let cerrado: { desde: string; hasta: string } | null = null;
+  try {
+    for (const r of rangos) {
+      cerrado = await one<{ desde: string; hasta: string }>(
+        `select desde::text, hasta::text from guardia_periodos_cerrados where desde <= $2::date and hasta >= $1::date limit 1`,
+        [r.desde, r.hasta],
+      );
+      if (cerrado) break;
+    }
+  } catch {
+    return; // la migración de períodos cerrados todavía no se aplicó
+  }
+  if (cerrado) {
+    const f = (x: string) => x.split("-").reverse().join("/");
+    throw new Error(`El período ${f(cerrado.desde)} → ${f(cerrado.hasta)} está cerrado. Un administrador lo tiene que reabrir para hacer cambios.`);
+  }
 }
 
 /** Columnas que identifican a quien hace la acción: siempre las completa el servidor. */
@@ -431,6 +490,7 @@ export const apiMutate = createServerFn({ method: "POST" })
     if ((data.action === "update" || data.action === "delete") && !data.filters?.length) {
       throw new Error("Operación bloqueada: falta indicar qué registros modificar");
     }
+    await assertPeriodoAbierto(table, data.action, data.filters, data.values);
     if (table === "role_permissions" || table === "roles") invalidatePermissionCache();
     if (table === "user_roles" || table === "profiles") invalidateAuthCache();
     const values: unknown[] = [];
@@ -545,6 +605,47 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "periodos_guardias_cerrados") {
+      if (!(await hasModulePermission(session.user.id, "guardias", "ver"))) throw new Error("Tu rol no tiene permiso en Guardias");
+      try {
+        const r = await query(`select desde::text, hasta::text, cerrado_por_nombre, cerrado_at from guardia_periodos_cerrados order by desde desc limit 120`);
+        return { data: r.rows, error: null };
+      } catch {
+        return { data: [], error: null };
+      }
+    }
+    if (data.name === "cerrar_periodo_guardias") {
+      // Cierra la liquidación: desde acá nadie puede cambiar guardias ni horas extras de esas fechas.
+      if (!(await hasModulePermission(session.user.id, "guardias", "editar"))) throw new Error("Tu rol no tiene permiso para editar Guardias");
+      const desde = soloFecha(data.args?._desde);
+      const hasta = soloFecha(data.args?._hasta);
+      if (!desde || !hasta || hasta < desde) throw new Error("Período inválido");
+      const actor = await one<{ full_name: string | null; email: string | null }>(`select full_name, email from profiles where id = $1`, [session.user.id]);
+      const nombre = actor?.full_name || actor?.email || "Usuario";
+      const r = await query<Record<string, unknown>>(
+        `insert into guardia_periodos_cerrados (desde, hasta, cerrado_por, cerrado_por_nombre, resumen)
+         values ($1, $2, $3, $4, $5::jsonb)
+         on conflict (desde) do nothing
+         returning desde::text as id, desde::text, hasta::text`,
+        [desde, hasta, session.user.id, nombre, JSON.stringify(data.args?._resumen ?? null)],
+      );
+      if (!r.rows.length) throw new Error("Ese período ya estaba cerrado");
+      await writeAudit(session.user.id, "guardia_periodos_cerrados", "crear", r.rows, { entidad_desc: `Cierre ${desde} → ${hasta}`, cierre: true });
+      return { data: { ok: true }, error: null };
+    }
+    if (data.name === "reabrir_periodo_guardias") {
+      // Solo un administrador reabre (queda en auditoría con quién y cuándo).
+      await assertAdmin(session.user.id);
+      const desde = soloFecha(data.args?._desde);
+      if (!desde) throw new Error("Período inválido");
+      const r = await query<Record<string, unknown>>(
+        `delete from guardia_periodos_cerrados where desde = $1 returning desde::text as id, desde::text, hasta::text, cerrado_por_nombre`,
+        [desde],
+      );
+      if (!r.rows.length) throw new Error("Ese período no estaba cerrado");
+      await writeAudit(session.user.id, "guardia_periodos_cerrados", "eliminar", r.rows, { reapertura: true });
+      return { data: { ok: true }, error: null };
     }
     if (data.name === "historial_contactos") {
       // Historial de cambios de la agenda. Las claves viajan ocultas: se ven con el ojito.

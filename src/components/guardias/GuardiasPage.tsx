@@ -16,12 +16,24 @@ import {
   ClipboardList,
   Clock,
   FileDown,
+  Lock,
+  LockOpen,
   Palmtree,
   Timer,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,8 +94,8 @@ function asText(v: unknown, fallback = "") {
 }
 
 export function GuardiasPage() {
-  const { puedeEscribir } = useAuth();
-  const canWrite = puedeEscribir("guardias");
+  const { puedeEscribir, isAdmin } = useAuth();
+  const puedeEditarModulo = puedeEscribir("guardias");
   const qc = useQueryClient();
   const [period, setPeriod] = useState(() => getPeriodContaining(new Date()));
   const { data: feriadosDb } = useFeriados();
@@ -92,6 +104,17 @@ export function GuardiasPage() {
   const [tab, setTab] = useState<"planilla" | "horarios" | "liquidacion">("planilla");
   const [pdfTitulo, setPdfTitulo] = useState("Liquidación de guardias y horas extras");
   const [busy, setBusy] = useState(false);
+
+  const { data: cerrados = [] } = useQuery({
+    queryKey: ["guardia_periodos_cerrados"],
+    queryFn: async () => {
+      const { data } = await api.rpc("periodos_guardias_cerrados");
+      return (data ?? []) as { desde: string; hasta: string; cerrado_por_nombre: string | null; cerrado_at: string }[];
+    },
+  });
+  const cierre = cerrados.find((c) => c.desde === ymd(period.desde)) ?? null;
+  const canWrite = puedeEditarModulo && !cierre;
+  const [confirmarCierre, setConfirmarCierre] = useState<null | "cerrar" | "reabrir">(null);
 
   const days = useMemo(
     () => eachDayOfInterval({ start: period.desde, end: period.hasta }),
@@ -338,12 +361,40 @@ export function GuardiasPage() {
     }
   }
 
+  async function cambiarCierre(accion: "cerrar" | "reabrir") {
+    setBusy(true);
+    try {
+      const { error } =
+        accion === "cerrar"
+          ? await api.rpc("cerrar_periodo_guardias", {
+              _desde: ymd(period.desde),
+              _hasta: ymd(period.hasta),
+              _resumen: {
+                guardias: liquidacion.map((r) => ({ code: r.code, nombre: r.nombre, normales: r.normales, feriados: r.feriados, total: r.total })),
+                horas_extras: resumenExtras.filter((r) => r.total > 0).map((r) => ({ nombre: r.operario.nombre, cargas: r.cantidad, horas: r.total })),
+              },
+            })
+          : await api.rpc("reabrir_periodo_guardias", { _desde: ymd(period.desde) });
+      if (error) throw error;
+      toast.success(accion === "cerrar" ? "Período cerrado" : "Período reabierto");
+      await qc.invalidateQueries({ queryKey: ["guardia_periodos_cerrados"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo completar");
+    } finally {
+      setBusy(false);
+      setConfirmarCierre(null);
+    }
+  }
+
   function exportPdf() {
     abrirPdfLiquidacion({
       periodoLabel: periodLabel(period.desde, period.hasta),
       desde: format(period.desde, "dd/MM/yyyy"),
       hasta: format(period.hasta, "dd/MM/yyyy"),
       titulo: pdfTitulo,
+      cierre: cierre
+        ? `Período cerrado el ${new Date(cierre.cerrado_at).toLocaleDateString("es-AR")}${cierre.cerrado_por_nombre ? ` por ${cierre.cerrado_por_nombre}` : ""}`
+        : undefined,
       filas: liquidacion.map((r) => ({
         code: r.code,
         nombre: r.nombre,
@@ -426,9 +477,19 @@ export function GuardiasPage() {
         ))}
       </div>
 
+      {cierre && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ok/35 bg-ok/8 px-3 py-2 text-sm">
+          <Lock className="size-4 text-ok" />
+          <span>
+            <strong>Período cerrado.</strong> Las guardias y horas extras de {periodLabel(period.desde, period.hasta)} quedan como se liquidaron.
+            {isAdmin ? " Para corregir algo, reabrilo desde Liquidación." : " Para corregir algo, pedile a un administrador que lo reabra."}
+          </span>
+        </div>
+      )}
+
       {tab === "horarios" && (
         <div className="space-y-4">
-          <HorarioSemanal operarios={operarios} canWrite={canWrite} />
+          <HorarioSemanal operarios={operarios} canWrite={puedeEditarModulo} />
           <HorasExtras operarios={operarios} desde={period.desde} hasta={period.hasta} periodo={periodLabel(period.desde, period.hasta)} canWrite={canWrite} />
         </div>
       )}
@@ -686,9 +747,30 @@ export function GuardiasPage() {
             {format(period.desde, "dd/MM/yyyy")} → {format(period.hasta, "dd/MM/yyyy")} · guardias y horas extras en un solo documento
           </p>
         </div>
-        <Button type="button" onClick={() => setPdfOpen(true)}>
-          <FileDown className="size-4" /> Exportar PDF
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {cierre ? (
+            <>
+              <Badge variant="ok" className="gap-1">
+                <Lock className="size-3" /> Cerrado el {new Date(cierre.cerrado_at).toLocaleDateString("es-AR")}
+                {cierre.cerrado_por_nombre ? ` por ${cierre.cerrado_por_nombre}` : ""}
+              </Badge>
+              {isAdmin && (
+                <Button type="button" variant="outline" onClick={() => setConfirmarCierre("reabrir")} disabled={busy}>
+                  <LockOpen className="size-4" /> Reabrir
+                </Button>
+              )}
+            </>
+          ) : (
+            puedeEditarModulo && (
+              <Button type="button" variant="outline" onClick={() => setConfirmarCierre("cerrar")} disabled={busy}>
+                <Lock className="size-4" /> Cerrar período
+              </Button>
+            )
+          )}
+          <Button type="button" onClick={() => setPdfOpen(true)}>
+            <FileDown className="size-4" /> Exportar PDF
+          </Button>
+        </div>
       </div>
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <Card className="panel">
@@ -780,6 +862,25 @@ export function GuardiasPage() {
       </div>
       </div>
       )}
+
+      <AlertDialog open={!!confirmarCierre} onOpenChange={(o) => !o && setConfirmarCierre(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmarCierre === "reabrir" ? "Reabrir el período" : "Cerrar el período"} {periodLabel(period.desde, period.hasta)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmarCierre === "reabrir"
+                ? "Se van a poder volver a cargar, editar y borrar guardias y horas extras de este período. La reapertura queda registrada en Auditoría."
+                : `Después de cerrarlo nadie va a poder cambiar las guardias ni las horas extras del ${format(period.desde, "dd/MM")} al ${format(period.hasta, "dd/MM/yyyy")}. Solo un administrador lo puede reabrir.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void cambiarCierre(confirmarCierre!)}>
+              {confirmarCierre === "reabrir" ? "Reabrir" : "Cerrar período"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
         <DialogContent className="sm:max-w-md">

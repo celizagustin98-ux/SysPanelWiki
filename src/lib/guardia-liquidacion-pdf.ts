@@ -20,6 +20,8 @@ export type LiqPdfInput = {
   hasta: string;
   generada?: Date;
   titulo?: string;
+  /** "Período cerrado el … por …": aparece en el encabezado. */
+  cierre?: string;
   notas?: string;
   pie?: string;
   filas: LiqRow[];
@@ -154,6 +156,7 @@ function buildHtml(input: LiqPdfInput) {
     "h2{margin:26px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--acento,#0d9488);break-after:avoid}" +
     "h3{margin:18px 0 6px;font-size:12px;color:#334155;break-after:avoid}" +
     ".vacio{font-size:12px;color:#64748b}" +
+    ".cerrado{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:999px;background:#ecfdf5;color:#047857;font-weight:600;font-size:11px}" +
     "table.detalle td{padding:7px 10px;font-size:12px}" +
     "table.detalle th{padding:8px 10px}" +
     "td.nowrap{white-space:nowrap}" +
@@ -180,6 +183,7 @@ function buildHtml(input: LiqPdfInput) {
     esc(input.hasta) +
     "<br/>Generado " +
     esc(generada) +
+    (input.cierre ? '<br/><span class="cerrado">' + esc(input.cierre) + "</span>" : "") +
     "</div></div>" +
     (input.extras ? '<div class="box cuatro">' : '<div class="box">') +
     "<div><label>Total normales</label><span>" +
