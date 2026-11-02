@@ -23,10 +23,15 @@ jobs:
       - name: Build de producción
         run: npm run build
 
+      # Pruebas de la lógica: liquidación, horas, permisos, contraseñas y cifrado.
+      - name: Pruebas
+        run: npm test
+
       - name: Sintaxis del servidor y scripts
         run: |
           node --check scripts/serve.mjs
           node --check scripts/init-db.mjs
+          node --check scripts/recifrar-secretos.mjs
           bash -n scripts/actualizar.sh deploy/instalar.sh deploy/reinstalar.sh deploy/https.sh deploy/proxmox/crear-lxc.sh deploy/docker/entrypoint.sh
 
       # Informativo hasta resolver los errores de tipado preexistentes.
