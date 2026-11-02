@@ -151,6 +151,16 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
   const garantias = await seguro(() => one<{ n: number }>(`select count(*)::int n from inventario where garantia_hasta between current_date and current_date + 30 and estado <> 'baja'`));
   if (garantias?.n) alertas.push({ id: "garantias", tipo: "activo", tono: "info", titulo: `${garantias.n} garantía${garantias.n === 1 ? "" : "s"} vence${garantias.n === 1 ? "" : "n"} este mes`, cuerpo: "Equipos con garantía en los próximos 30 días.", link: "/inventario" });
 
+  const clavesViejas = await seguro(() =>
+    one<{ n: number }>(
+      `select count(*)::int n from oficina_contactos c
+        where coalesce(c.secreto, '') <> '' and coalesce(c.vigente, true) and coalesce(c.activo, true)
+          and coalesce((select max(h.created_at) from oficina_contactos_historial h where h.contacto_id = c.id and h.campo = 'secreto'), c.created_at)
+              < now() - interval '6 months'`,
+    ),
+  );
+  if (clavesViejas?.n) alertas.push({ id: "claves-viejas", tipo: "clave", tono: "info", titulo: `${clavesViejas.n} clave${clavesViejas.n === 1 ? "" : "s"} de la agenda sin cambiar hace más de 6 meses`, cuerpo: "Revisalas en Oficina → Agenda → Emails de la empresa.", link: "/oficina" });
+
   const instructivos = await seguro(() => one<{ n: number }>(`select count(*)::int n from wiki_docs d where not exists (select 1 from wiki_attachments a where a.doc_id = d.id)`));
   if (instructivos?.n) alertas.push({ id: "instructivos", tipo: "doc", tono: "info", titulo: `${instructivos.n} instructivo${instructivos.n === 1 ? "" : "s"} sin PDF`, cuerpo: "Cargá el documento para que se pueda consultar.", link: "/instructivos" });
 

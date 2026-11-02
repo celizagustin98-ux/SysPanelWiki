@@ -460,6 +460,19 @@ function ProveedorForm({
 
 type VistaEmails = "activos" | "inactivos" | "historial";
 
+/** "Clave de hace 8 meses": aparece cuando la clave lleva más de 6 meses sin cambiarse. */
+function AntiguedadClave({ desde }: { desde?: string }) {
+  if (!desde) return null;
+  const meses = Math.floor((Date.now() - new Date(desde).getTime()) / (30.44 * 24 * 3600 * 1000));
+  if (meses < 6) return null;
+  const texto = meses >= 24 ? `${Math.floor(meses / 12)} años` : `${meses} meses`;
+  return (
+    <span className="mt-0.5 block text-[10.5px] font-medium text-warn" title={`Última vez que se cambió: ${new Date(desde).toLocaleDateString("es-AR")}`}>
+      Sin cambiar hace {texto}
+    </span>
+  );
+}
+
 function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boolean }) {
   const { profile, puedeEscribir, can } = useAuth();
   const canWrite = puedeEscribir("oficina");
@@ -468,6 +481,14 @@ function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boole
   const claves = useSecretos();
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<VistaEmails>("activos");
+  // Desde cuándo está la clave actual de cada casilla (para avisar las que llevan más de 6 meses).
+  const { data: antiguedad } = useQuery({
+    queryKey: ["oficina_contactos_claves"],
+    queryFn: async () => {
+      const { data } = await api.rpc("antiguedad_claves_contactos");
+      return new Map(((data ?? []) as { id: string; clave_desde: string }[]).map((r) => [r.id, r.clave_desde]));
+    },
+  });
   const [historialDe, setHistorialDe] = useState<string | null>(null);
   const [editando, setEditando] = useState<Contacto | "nuevo" | null>(null);
 
@@ -621,6 +642,7 @@ function EmailsEmpresa({ lista, cargando }: { lista: Contacto[]; cargando: boole
                           compacto
                           fetcher={rpcRevelar("revelar_contacto", { _id: c.id, _via: "ver" })}
                         />
+                        <AntiguedadClave desde={c.has_secreto ? antiguedad?.get(c.id) : undefined} />
                       </td>
                       <td className="hidden max-w-[260px] px-3 py-2 text-xs text-muted-foreground lg:table-cell">
                         <p className="truncate">{c.contacto || "—"}</p>
