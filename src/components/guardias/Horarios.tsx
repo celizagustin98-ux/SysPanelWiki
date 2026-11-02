@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Clock, Copy, Loader2, Pencil, Plus, Timer, Trash2 } from "lucide-react";
@@ -464,15 +464,8 @@ function EditarExtra({ extra, operarios, fechaInicial, onClose }: { extra: HoraE
   const [fecha, setFecha] = useState(extra?.fecha ?? fechaInicial);
   const [desde, setDesde] = useState(hhmm(extra?.desde) || "16:00");
   const [hasta, setHasta] = useState(hhmm(extra?.hasta) || "18:00");
-  const [tipo, setTipo] = useState<"50" | "100">(extra?.tipo ?? tipoExtraSugerido(extra?.fecha ?? fechaInicial));
-  const [tipoManual, setTipoManual] = useState(!!extra);
   const [motivo, setMotivo] = useState(extra?.motivo ?? "");
   const horas = horasEntre(desde, hasta);
-
-  // El tipo se sugiere solo según la fecha, hasta que el usuario lo elija a mano.
-  useEffect(() => {
-    if (!tipoManual && fecha) setTipo(tipoExtraSugerido(fecha));
-  }, [fecha, tipoManual]);
 
   const guardar = async () => {
     const op = operarios.find((o) => o.id === opId);
@@ -487,7 +480,8 @@ function EditarExtra({ extra, operarios, fechaInicial, onClose }: { extra: HoraE
       desde,
       hasta,
       horas,
-      tipo,
+      // Sábado, domingo o feriado = 100%; día hábil = 50% (sale de la fecha).
+      tipo: tipoExtraSugerido(fecha),
       motivo: motivo.trim() || null,
     };
     const { error } = extra
@@ -536,31 +530,10 @@ function EditarExtra({ extra, operarios, fechaInicial, onClose }: { extra: HoraE
               <Input type="time" value={hasta} onChange={(e) => setHasta(e.target.value)} />
             </div>
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm">
-            <span>
-              Total: <strong className="num">{formatHoras(horas)}</strong>
-              {hasta && desde && hasta <= desde && <span className="text-xs text-muted-foreground"> · termina al día siguiente</span>}
-            </span>
-            <div className="flex gap-1">
-              {(["50", "100"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => {
-                    setTipo(t);
-                    setTipoManual(true);
-                  }}
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs font-semibold",
-                    tipo === t ? (t === "100" ? "border-crit/40 bg-crit/12 text-crit" : "border-info/40 bg-info/12 text-info") : "border-border text-muted-foreground",
-                  )}
-                >
-                  Al {t}%
-                </button>
-              ))}
-            </div>
+          <div className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+            Total: <strong className="num">{formatHoras(horas)}</strong>
+            {hasta && desde && hasta <= desde && <span className="text-xs text-muted-foreground"> · termina al día siguiente</span>}
           </div>
-          <p className="-mt-1 text-[11px] text-muted-foreground">Sábados, domingos y feriados se marcan solos al 100%; podés cambiarlo.</p>
           <div className="space-y-1.5">
             <Label>Motivo</Label>
             <Textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} placeholder="Ej.: migración del servidor, cobertura de compañero…" />

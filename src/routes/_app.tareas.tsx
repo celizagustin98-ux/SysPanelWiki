@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Search } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, PenLine, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,11 +65,10 @@ const ESTADO_BADGE: Record<string, string> = Object.fromEntries(
   Object.entries(ESTADO_COLOR).map(([k, c]) => [k, cn("ring-1 ring-inset", c.chip)]),
 );
 
-/** Qué tickets se ven: todos o solo los propios. */
-type Alcance = "todos" | "mis" | "asignados" | "creados";
+/** Qué tickets se ven: todos, los que tengo asignados o los que abrí yo. */
+type Alcance = "todos" | "asignados" | "creados";
 const ALCANCES: { key: Alcance; label: string; hint: string }[] = [
   { key: "todos", label: "Todos", hint: "Todos los tickets del área" },
-  { key: "mis", label: "Mis tickets", hint: "Asignados a mí o creados por mí" },
   { key: "asignados", label: "Asignados a mí", hint: "Los que tengo que resolver" },
   { key: "creados", label: "Creados por mí", hint: "Las solicitudes que abrí" },
 ];
@@ -163,7 +162,6 @@ function TicketsPage() {
   const esMio = (t: TicketT) => {
     if (alcance === "asignados") return t.asignado_a === user?.id;
     if (alcance === "creados") return t.solicitante_id === user?.id;
-    if (alcance === "mis") return t.asignado_a === user?.id || t.solicitante_id === user?.id;
     return true;
   };
 
@@ -262,19 +260,17 @@ function TicketsPage() {
   const enPagina = visibles.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA);
 
   const counts = useMemo(() => {
-    const mios = openTickets.filter((t) => t.asignado_a === user?.id).length;
-    const creados = openTickets.filter((t) => t.solicitante_id === user?.id).length;
-    const seguimiento = openTickets.filter(
-      (t) => t.asignado_a === user?.id || t.solicitante_id === user?.id,
-    ).length;
+    // Los filtros cuentan sobre lo que se está mirando: activos o el mes del historial.
+    const base = vista === "activos" ? openTickets : historyTickets;
     return {
-      mios,
-      creados,
-      seguimiento,
+      todos: base.length,
+      asignados: base.filter((t) => t.asignado_a === user?.id).length,
+      creados: base.filter((t) => t.solicitante_id === user?.id).length,
       total: openTickets.length,
       historial: historyTickets.length,
     };
-  }, [openTickets, historyTickets, user?.id]);
+  }, [openTickets, historyTickets, vista, user?.id]);
+  const alcanceActual = ALCANCES.find((a) => a.key === alcance)!;
 
   // Si viene por link (ej. desde un activo) y no está en las listas cargadas, se busca suelto.
   const { data: ticketSuelto } = useQuery({
@@ -364,31 +360,31 @@ function TicketsPage() {
 
       <div className="mb-3 grid gap-2.5 sm:grid-cols-3 stagger">
         <KpiCard
-          icon={<CheckCircle2 className="size-4" />}
-          tone="info"
-          value={counts.mios}
-          title="Pendientes para mí"
-          activo={alcance === "asignados"}
-          onClick={() => setAlcance(alcance === "asignados" ? "todos" : "asignados")}
-          hint="Asignados que todavía requieren una acción"
+          icon={<ClipboardList className="size-4" />}
+          tone="ok"
+          value={counts.todos}
+          title="Todos"
+          activo={alcance === "todos"}
+          onClick={() => setAlcance("todos")}
+          hint={vista === "activos" ? "Todos los tickets activos del área" : "Todos los cerrados del mes"}
         />
         <KpiCard
-          icon={<ClipboardList className="size-4" />}
+          icon={<CheckCircle2 className="size-4" />}
+          tone="info"
+          value={counts.asignados}
+          title="Asignados a mí"
+          activo={alcance === "asignados"}
+          onClick={() => setAlcance("asignados")}
+          hint={vista === "activos" ? "Los que tenés que resolver vos" : "Los que resolviste vos este mes"}
+        />
+        <KpiCard
+          icon={<PenLine className="size-4" />}
           tone="warn"
           value={counts.creados}
           title="Creados por mí"
           activo={alcance === "creados"}
-          onClick={() => setAlcance(alcance === "creados" ? "todos" : "creados")}
-          hint="Solicitudes que abriste y siguen activas"
-        />
-        <KpiCard
-          icon={<Bell className="size-4" />}
-          tone="ok"
-          value={counts.seguimiento}
-          title="Seguimiento"
-          activo={alcance === "mis"}
-          onClick={() => setAlcance(alcance === "mis" ? "todos" : "mis")}
-          hint="Cambios recientes en tickets que seguís"
+          onClick={() => setAlcance("creados")}
+          hint={vista === "activos" ? "Las solicitudes que abriste y siguen activas" : "Las solicitudes que abriste, cerradas este mes"}
         />
       </div>
 
@@ -436,23 +432,17 @@ function TicketsPage() {
           </span>
         </button>
       </div>
-        <div role="group" aria-label="Qué tickets ver" className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-xs">
-          {ALCANCES.map((a) => (
-            <button
-              key={a.key}
-              type="button"
-              title={a.hint}
-              aria-pressed={alcance === a.key}
-              onClick={() => setAlcance(a.key)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-[13px] font-medium transition",
-                alcance === a.key ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
+        {alcance !== "todos" && (
+          <button
+            type="button"
+            onClick={() => setAlcance("todos")}
+            title="Volver a ver todos los tickets"
+            className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 py-1 pl-3 pr-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+          >
+            Viendo: {alcanceActual.label.toLowerCase()}
+            <X className="size-3.5" />
+          </button>
+        )}
       </div>
 
       {vista === "activos" && (
@@ -510,7 +500,13 @@ function TicketsPage() {
 
           {!isLoading && visibles.length === 0 && (
             <div className="panel px-6 py-10 text-center text-sm text-muted-foreground">
-              {list.length ? "No hay tickets en este grupo." : "Nada en la bandeja activa."}
+              {list.length
+                ? "No hay tickets en este grupo."
+                : alcance === "asignados"
+                  ? "No tenés tickets activos asignados."
+                  : alcance === "creados"
+                    ? "No tenés solicitudes activas creadas por vos."
+                    : "Nada en la bandeja activa."}
             </div>
           )}
 
@@ -750,7 +746,7 @@ function KpiCard({
       type="button"
       onClick={onClick}
       aria-pressed={activo}
-      title={activo ? "Volver a ver todos los tickets" : "Filtrar la lista"}
+      title={activo ? "Filtro aplicado" : "Filtrar la lista"}
       className={cn("kpi-cell text-left transition hover:ring-1 hover:ring-primary/30", activo && "ring-2 ring-primary")}
     >
       <div className="flex items-center justify-between">
