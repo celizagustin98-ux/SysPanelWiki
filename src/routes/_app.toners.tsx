@@ -50,6 +50,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConsumoToners } from "@/components/toners/ConsumoToners";
 import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
@@ -366,7 +367,12 @@ function TonersPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="codigos">Códigos</TabsTrigger>
+          <TabsTrigger value="consumo">Consumo</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="consumo" className="mt-4">
+          <ConsumoToners canWrite={!!canWrite} userId={user?.id} userName={profile?.full_name} onPedido={() => setTab("pedidos")} />
+        </TabsContent>
 
         <TabsContent value="deposito" className="mt-4">
           <Card className="panel overflow-hidden">

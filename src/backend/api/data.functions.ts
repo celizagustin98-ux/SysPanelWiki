@@ -609,6 +609,43 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
     }
+    if (data.name === "consumo_toners") {
+      // Consumo por modelo y por sector en los últimos N días (los usos/reposiciones descuentan stock).
+      if (!(await hasModulePermission(session.user.id, "toners", "ver"))) throw new Error("Tu rol no tiene permiso en Tóners");
+      const dias = Math.min(Math.max(Number(data.args?._dias) || 90, 7), 730);
+      const usos = `('uso', 'consumo', 'salida', 'reposicion')`;
+      const modelos = await query(
+        `select m.id, m.nombre, m.marca, m.stock, m.stock_minimo,
+                coalesce((select sum(mv.cantidad) from toner_movimientos mv
+                           where mv.modelo_id = m.id and mv.tipo in ${usos} and mv.created_at >= now() - $1 * interval '1 day'), 0)::int as usados,
+                coalesce((select sum(greatest(i.cantidad - coalesce(i.cantidad_recibida, 0), 0)) from toner_pedido_items i
+                           join toner_pedidos p on p.id = i.pedido_id
+                          where i.modelo_id = m.id and p.estado in ('borrador', 'enviado')), 0)::int as en_camino
+           from toner_modelos m
+          order by m.nombre`,
+        [dias],
+      );
+      const sectores = await query(
+        `with u as (
+           select coalesce(nullif(trim(sector), ''), 'Sin sector') as sector, modelo_id, cantidad
+             from toner_movimientos
+            where tipo in ${usos} and created_at >= now() - $1 * interval '1 day'
+         ),
+         s as (select sector, sum(cantidad)::int as usados from u group by sector),
+         t as (
+           select distinct on (u.sector) u.sector, m.nombre
+             from u join toner_modelos m on m.id = u.modelo_id
+            group by u.sector, m.nombre
+            order by u.sector, sum(u.cantidad) desc
+         )
+         select s.sector, s.usados, t.nombre as modelo_top
+           from s left join t on t.sector = s.sector
+          order by s.usados desc
+          limit 15`,
+        [dias],
+      );
+      return { data: { modelos: modelos.rows, sectores: sectores.rows }, error: null };
+    }
     if (data.name === "metricas_tickets") {
       // Por técnico: resueltos en el rango, tiempo de resolución, % dentro del SLA y carga actual.
       if (!(await hasModulePermission(session.user.id, "tareas", "ver"))) throw new Error("Tu rol no tiene permiso en Tickets");
