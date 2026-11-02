@@ -44,7 +44,7 @@ const MODULOS = [
   { icon: Ticket, label: "Tickets" },
   { icon: Boxes, label: "Inventario" },
   { icon: Printer, label: "Tóners" },
-  { icon: CalendarClock, label: "Guardias" },
+  { icon: CalendarClock, label: "Guardias / Horarios" },
   { icon: BookOpen, label: "Instructivos" },
   { icon: KeyRound, label: "Credenciales" },
 ];

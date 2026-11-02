@@ -61,8 +61,8 @@ export const MODULOS_PERMISO: { key: string; label: string; hint: string; icon: 
   { key: "toners", label: "Tóners", hint: "Stock, movimientos, códigos y pedidos", icon: Printer },
   {
     key: "guardias",
-    label: "Guardias",
-    hint: "Turnos, operarios y liquidación",
+    label: "Guardias / Horarios",
+    hint: "Turnos, horarios, horas extras y liquidación",
     icon: CalendarClock,
   },
   {
