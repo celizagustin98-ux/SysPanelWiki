@@ -8,6 +8,7 @@ import {
   deleteSession,
   getSession,
   hashPassword,
+  getUserRole,
   hasModulePermission,
   invalidateAuthCache,
   invalidatePermissionCache,
@@ -188,6 +189,27 @@ async function writeAudit(
     `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle) values ${tuples.join(", ")}`,
     values,
   );
+}
+
+/**
+ * Credenciales limitadas a ciertos roles: el resto no las ve, no las revela ni las edita.
+ * Vacío = todos los roles con permiso en Credenciales. El administrador ve todas.
+ */
+async function filtroRolCredenciales(userId: string, where: string, values: unknown[]) {
+  const rol = await getUserRole(userId);
+  if (rol === "administrador") return where;
+  values.push(rol ?? "");
+  const cond = `(roles_permitidos is null or cardinality(roles_permitidos) = 0 or $${values.length} = any(roles_permitidos))`;
+  return where ? `${where} and ${cond}` : ` where ${cond}`;
+}
+
+async function assertCredencialAccesible(userId: string, filas: Record<string, unknown>[]) {
+  const rol = await getUserRole(userId);
+  if (rol === "administrador") return;
+  for (const f of filas) {
+    const roles = Array.isArray(f.roles_permitidos) ? (f.roles_permitidos as string[]) : [];
+    if (roles.length && !roles.includes(String(rol))) throw new Error("Esta credencial está limitada a otros roles");
+  }
 }
 
 /** Fecha (yyyy-mm-dd) de un valor de fecha u hora local de la base. */
@@ -468,7 +490,8 @@ export const apiSelect = createServerFn({ method: "POST" })
     const table = tableName(data.table);
     await assertReadAccess(session.user.id, table, data.filters);
     const values: unknown[] = [];
-    const where = appendFilters(data.filters, values);
+    let where = appendFilters(data.filters, values);
+    if (table === "credenciales") where = await filtroRolCredenciales(session.user.id, where, values);
     if (data.count === "exact" && data.head) {
       const result = await query<{ count: string }>(`select count(*)::text as count from ${table}${where}`, values);
       return { data: null, count: Number(result.rows[0]?.count ?? 0), error: null };
@@ -494,6 +517,14 @@ export const apiMutate = createServerFn({ method: "POST" })
       throw new Error("Operación bloqueada: falta indicar qué registros modificar");
     }
     await assertPeriodoAbierto(table, data.action, data.filters, data.values);
+    if (table === "credenciales" && data.action !== "insert") {
+      const vals: unknown[] = [];
+      const w = appendFilters(data.filters, vals);
+      await assertCredencialAccesible(session.user.id, (await query<Record<string, unknown>>(`select roles_permitidos from credenciales${w}`, vals)).rows);
+    }
+    if (table === "credenciales" && data.action === "update" && data.values && !Array.isArray(data.values) && "secreto" in (data.values as Record<string, unknown>)) {
+      (data.values as Record<string, unknown>).last_rotated_at = new Date().toISOString();
+    }
     if (table === "role_permissions" || table === "roles") invalidatePermissionCache();
     if (table === "user_roles" || table === "profiles") invalidateAuthCache();
     const values: unknown[] = [];
@@ -593,6 +624,7 @@ export const apiRpc = createServerFn({ method: "POST" })
       if (!id) throw new Error("Falta el id de credencial");
       const row = await one<Record<string, unknown>>(`select * from credenciales where id = $1`, [id]);
       if (!row) throw new Error("Credencial inexistente");
+      await assertCredencialAccesible(session.user.id, [row]);
       const secreto = decryptSecret(row.secreto as string | null);
       try { await query(`update credenciales set last_revealed_at = now() where id = $1`, [id]); } catch { /* optional col */ }
       await writeAudit(session.user.id, "credenciales", "revelar", [row], { via: String(data.args?._via ?? "ui") });
@@ -608,6 +640,33 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "salud_credenciales") {
+      if (!(await hasModulePermission(session.user.id, "credenciales", "ver"))) throw new Error("Tu rol no tiene permiso para ver credenciales");
+      const vals: unknown[] = [];
+      const where = await filtroRolCredenciales(session.user.id, "", vals);
+      const filas = (await query<Record<string, unknown>>(`select id, secreto, coalesce(last_rotated_at, updated_at, created_at) as desde from credenciales${where}`, vals)).rows;
+      const claves = new Map<string, string[]>();
+      const salida: { id: string; repetida: number; dias: number; debil: boolean }[] = [];
+      for (const f of filas) {
+        let plano = "";
+        try {
+          plano = decryptSecret(f.secreto as string | null);
+        } catch {
+          plano = "";
+        }
+        if (plano) claves.set(plano, [...(claves.get(plano) ?? []), String(f.id)]);
+        const tipos = [/[a-z]/, /[A-Z]/, /\d/, /[^a-zA-Z\d]/].filter((r) => r.test(plano)).length;
+        salida.push({
+          id: String(f.id),
+          repetida: 0,
+          dias: f.desde ? Math.floor((Date.now() - new Date(String(f.desde)).getTime()) / 86_400_000) : 0,
+          debil: !!plano && (plano.length < 10 || tipos < 3),
+        });
+      }
+      const porId = new Map(salida.map((x) => [x.id, x]));
+      for (const ids of claves.values()) if (ids.length > 1) for (const id of ids) porId.get(id)!.repetida = ids.length - 1;
+      return { data: salida, error: null };
     }
     if (data.name === "instructivos_sin_texto") {
       // PDFs cuyo texto todavía no se extrajo (o cambió el archivo): para buscar dentro de ellos.
