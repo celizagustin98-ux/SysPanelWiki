@@ -35,7 +35,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
 import { abrirPdfLiquidacion } from "@/lib/guardia-liquidacion-pdf";
 import { useAuth } from "@/lib/auth";
@@ -66,7 +65,6 @@ import {
 import { OperariosDialog } from "@/components/guardias/dialogs";
 import { HorarioSemanal, HorasExtras, useHorasExtras } from "@/components/guardias/Horarios";
 import { useFeriados } from "@/lib/feriados";
-import { useMarca } from "@/lib/brand";
 
 function asText(v: unknown, fallback = "") {
   if (v == null) return fallback;
@@ -84,7 +82,6 @@ function asText(v: unknown, fallback = "") {
 }
 
 export function GuardiasPage() {
-  const marca = useMarca();
   const { puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("guardias");
   const qc = useQueryClient();
@@ -94,11 +91,6 @@ export function GuardiasPage() {
   const [pdfOpen, setPdfOpen] = useState(false);
   const [tab, setTab] = useState<"planilla" | "horarios" | "liquidacion">("planilla");
   const [pdfTitulo, setPdfTitulo] = useState("Liquidación de guardias y horas extras");
-  const [pdfNotas, setPdfNotas] = useState(
-    "Feriado = sábado, domingo o feriado nacional. Cada noche cuenta 20:00–08:00. Las vacaciones (V) no suman. Horas extras: al 50% en días hábiles y al 100% en sábados, domingos y feriados.",
-  );
-  const [pdfExtras, setPdfExtras] = useState(true);
-  const [pdfPie, setPdfPie] = useState("");
   const [busy, setBusy] = useState(false);
 
   const days = useMemo(
@@ -352,8 +344,6 @@ export function GuardiasPage() {
       desde: format(period.desde, "dd/MM/yyyy"),
       hasta: format(period.hasta, "dd/MM/yyyy"),
       titulo: pdfTitulo,
-      notas: pdfNotas,
-      pie: pdfPie,
       filas: liquidacion.map((r) => ({
         code: r.code,
         nombre: r.nombre,
@@ -361,21 +351,19 @@ export function GuardiasPage() {
         feriados: r.feriados,
         total: r.total,
       })),
-      extras: pdfExtras
-        ? {
-            filas: resumenExtras
-              .filter((r) => r.total > 0)
-              .map((r) => ({ code: r.operario.code, nombre: r.operario.nombre, h50: r.h50, h100: r.h100, total: r.total })),
-            detalle: extras.map((e) => ({
-              fecha: e.fecha.split("-").reverse().join("/"),
-              nombre: e.operador_nombre,
-              horario: `${hhmm(e.desde)} – ${hhmm(e.hasta)}`,
-              horas: e.horas,
-              tipo: e.tipo,
-              motivo: e.motivo ?? "",
-            })),
-          }
-        : undefined,
+      extras: {
+        filas: resumenExtras
+          .filter((r) => r.total > 0)
+          .map((r) => ({ code: r.operario.code, nombre: r.operario.nombre, h50: r.h50, h100: r.h100, total: r.total })),
+        detalle: extras.map((e) => ({
+          fecha: e.fecha.split("-").reverse().join("/"),
+          nombre: e.operador_nombre,
+          horario: `${hhmm(e.desde)} – ${hhmm(e.hasta)}`,
+          horas: e.horas,
+          tipo: e.tipo,
+          motivo: e.motivo ?? "",
+        })),
+      },
     });
     setPdfOpen(false);
   }
@@ -691,24 +679,25 @@ export function GuardiasPage() {
       )}
 
       {tab === "liquidacion" && (
+      <div className="space-y-3">
+      <div className="panel flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold">Liquidación {periodLabel(period.desde, period.hasta)}</p>
+          <p className="text-xs text-muted-foreground">
+            {format(period.desde, "dd/MM/yyyy")} → {format(period.hasta, "dd/MM/yyyy")} · guardias y horas extras en un solo documento
+          </p>
+        </div>
+        <Button type="button" onClick={() => setPdfOpen(true)}>
+          <FileDown className="size-4" /> Exportar PDF
+        </Button>
+      </div>
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <Card className="panel">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <ClipboardList className="size-4 text-primary" />
-                Guardias del período
-              </CardTitle>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={() => setPdfOpen(true)}
-              >
-                <FileDown className="size-3.5" /> Exportar PDF
-              </Button>
-            </div>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ClipboardList className="size-4 text-primary" />
+              Guardias del período
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
@@ -793,6 +782,7 @@ export function GuardiasPage() {
           </CardContent>
         </Card>
       </div>
+      </div>
       )}
 
       <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
@@ -805,25 +795,6 @@ export function GuardiasPage() {
               <Label>Título del documento</Label>
               <Input value={pdfTitulo} onChange={(e) => setPdfTitulo(e.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Texto / criterio</Label>
-              <Textarea value={pdfNotas} onChange={(e) => setPdfNotas(e.target.value)} rows={3} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Pie de página</Label>
-              <Input value={pdfPie} placeholder={`${marca.pie} · Documento de liquidación interna`} onChange={(e) => setPdfPie(e.target.value)} />
-            </div>
-            <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
-              <input type="checkbox" className="mt-0.5 size-4 accent-[var(--primary)]" checked={pdfExtras} onChange={(e) => setPdfExtras(e.target.checked)} />
-              <span>
-                Incluir horas extras
-                <span className="block text-xs text-muted-foreground">
-                  {extras.length
-                    ? `${extras.length} registro${extras.length === 1 ? "" : "s"} · ${formatHoras(totExtras.h50 + totExtras.h100)} en el período (resumen por empleado y detalle).`
-                    : "No hay horas extras cargadas en este período."}
-                </span>
-              </span>
-            </label>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setPdfOpen(false)}>

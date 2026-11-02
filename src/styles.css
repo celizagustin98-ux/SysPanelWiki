@@ -166,6 +166,14 @@
     box-sizing: border-box;
   }
 
+  /* Controles nativos (calendario de fecha, reloj, scroll) con los colores del tema. */
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
