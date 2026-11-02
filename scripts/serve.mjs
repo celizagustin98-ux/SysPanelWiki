@@ -274,9 +274,38 @@ async function getSession(token) {
   };
 }
 
+// La sesión viaja en una cookie HttpOnly: el JavaScript de la página no la puede leer (un XSS no roba la sesión).
+const COOKIE_SESION = "nodara_sesion";
+const DURACION_SESION_SEG = 30 * 24 * 60 * 60;
+
+function cookieToken(req) {
+  for (const parte of String(req.headers.cookie || "").split(";")) {
+    const [nombre, ...valor] = parte.trim().split("=");
+    if (nombre === COOKIE_SESION) return decodeURIComponent(valor.join("="));
+  }
+  return "";
+}
+
+function ponerCookieSesion(req, res, token) {
+  const seguro = esHttps(req) || req.socket?.encrypted ? "; Secure" : "";
+  const valor = token
+    ? `${COOKIE_SESION}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${DURACION_SESION_SEG}${seguro}`
+    : `${COOKIE_SESION}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${seguro}`;
+  const previas = res.getHeader("set-cookie");
+  res.setHeader("set-cookie", [...(Array.isArray(previas) ? previas : previas ? [String(previas)] : []), valor]);
+}
+
+/** La sesión pública no incluye el token: queda solo en la cookie. */
+function sesionPublica(session) {
+  if (!session) return null;
+  const { token: _token, ...resto } = session;
+  return resto;
+}
+
 function bearerToken(req) {
   const auth = req.headers.authorization;
-  return auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  const bearer = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+  return bearer || cookieToken(req);
 }
 
 async function requireRequestSession(req) {
@@ -415,13 +444,20 @@ async function handleAuth(req, res) {
     }
     const body = await readJson(req);
     if (action === "session") {
-      sendJson(res, 200, { session: await getSession(body.token || "") });
+      // body.token: sesiones guardadas antes de usar cookie (se pasan a la cookie una sola vez).
+      const token = body.token || cookieToken(req);
+      const session = await getSession(token || "");
+      if (session && body.token) ponerCookieSesion(req, res, body.token);
+      if (!session && cookieToken(req)) ponerCookieSesion(req, res, null);
+      sendJson(res, 200, { session: sesionPublica(session) });
       return true;
     }
     if (action === "signout") {
-      if (body.token) {
-        await pool.query(`delete from app_sessions where token_hash = $1`, [hashToken(body.token)]);
+      const token = body.token || cookieToken(req);
+      if (token) {
+        await pool.query(`delete from app_sessions where token_hash = $1`, [hashToken(token)]);
       }
+      ponerCookieSesion(req, res, null);
       sendJson(res, 200, { ok: true });
       return true;
     }
@@ -462,7 +498,8 @@ async function handleAuth(req, res) {
       await auditarAcceso(row.id, row.full_name, "login", { ip });
       await pool.query(`update app_users set ultimo_acceso = now() where id = $1`, [row.id]).catch(() => {});
       const token = await createSession(row.id);
-      sendJson(res, 200, { session: await getSession(token) });
+      ponerCookieSesion(req, res, token);
+      sendJson(res, 200, { session: sesionPublica(await getSession(token)) });
       return true;
     }
     if (action === "signup") {
@@ -520,7 +557,8 @@ async function handleAuth(req, res) {
       }
       await auditarAcceso(userId, fullName, "crear", { alta: "registro", ip: clientIp(req) });
       const token = await createSession(userId);
-      sendJson(res, 200, { session: await getSession(token) });
+      ponerCookieSesion(req, res, token);
+      sendJson(res, 200, { session: sesionPublica(await getSession(token)) });
       return true;
     }
     sendJson(res, 404, { error: "Ruta de autenticación inexistente" });

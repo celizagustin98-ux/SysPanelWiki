@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, getToken } from "@/lib/api/client";
+import { api, haySesion } from "@/lib/api/client";
 import { olvidarQrDesbloqueo } from "@/lib/qr";
 
 /** Clave del rol: administrador, tecnico, consulta o uno creado en Configuración. */
@@ -137,7 +137,7 @@ function writeCache(key: string, value: unknown) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Si hay una sesión guardada se pinta al instante y se valida en segundo plano.
   const [session, setSessionState] = useState<Session | null>(() =>
-    getToken() ? readCache<Session>(SESSION_CACHE_KEY) : null,
+    haySesion() ? readCache<Session>(SESSION_CACHE_KEY) : null,
   );
   const [perms, setPerms] = useState<PermRow[]>(() => readCache<PermRow[]>(PERMS_CACHE_KEY) ?? []);
   const [loading, setLoading] = useState(() => !session);
@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const validate = useCallback(async () => {
     setError(null);
-    if (!getToken()) {
+    if (!haySesion()) {
       setSession(null);
       setLoading(false);
       return;
@@ -225,7 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
         });
         if (error) return { error: traducirError(error.message) };
-        if (!data.session?.token) return { error: "Usuario o contraseña incorrectos" };
+        if (!data.session?.user) return { error: "Usuario o contraseña incorrectos" };
         setSession(data.session);
         void loadPerms();
         return { error: null };
@@ -242,7 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
         });
         if (error) return { error: traducirError(error.message) };
-        if (data.session?.token) {
+        if (data.session?.user) {
           setSession(data.session);
           void loadPerms();
         }

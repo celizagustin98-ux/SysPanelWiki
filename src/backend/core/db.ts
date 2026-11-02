@@ -4,6 +4,7 @@ import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "no
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
+import { getRequest } from "@tanstack/react-start/server";
 
 const { Pool, types } = pg;
 
@@ -177,8 +178,22 @@ export async function getSession(token: string | null | undefined): Promise<Auth
   return result;
 }
 
+/** Token de la cookie HttpOnly de la petición en curso (las server functions viajan con ella). */
+function tokenDeCookie() {
+  try {
+    const cookie = getRequest()?.headers.get("cookie") ?? "";
+    for (const parte of cookie.split(";")) {
+      const [nombre, ...valor] = parte.trim().split("=");
+      if (nombre === "nodara_sesion") return decodeURIComponent(valor.join("="));
+    }
+  } catch {
+    /* fuera de una petición */
+  }
+  return null;
+}
+
 export async function requireSession(token: string | null | undefined) {
-  const session = await getSession(token);
+  const session = await getSession(token || tokenDeCookie());
   if (!session) throw new Error("Sesión inválida o vencida");
   return session;
 }
