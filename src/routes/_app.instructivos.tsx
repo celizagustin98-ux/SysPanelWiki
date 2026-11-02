@@ -37,6 +37,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { VisorPdf } from "@/components/VisorPdf";
+import { extraerTextoPdf } from "@/lib/texto-pdf";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -77,6 +78,7 @@ type Doc = {
   descripcion: string | null;
   tags: string[];
   views: number;
+  review_by?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -94,7 +96,9 @@ const VIEW_KEY = "syswiki.instructivos.view";
 
 function formatDate(iso?: string | null) {
   if (!iso) return "—";
-  const d = new Date(iso);
+  // Una fecha sola (2027-05-02) se lee como día local: new Date() la tomaría en UTC y mostraría el día anterior.
+  const soloFecha = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const d = soloFecha ? new Date(Number(soloFecha[1]), Number(soloFecha[2]) - 1, Number(soloFecha[3])) : new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }
@@ -162,7 +166,7 @@ function InstructivosPage() {
     queryFn: async () => {
       const { data, error } = await api
         .from("wiki_docs")
-        .select("id, folder_id, title, descripcion, tags, views, created_at, updated_at")
+        .select("id, folder_id, title, descripcion, tags, views, review_by, created_at, updated_at")
         .order("title");
       if (error) throw error;
       return data as Doc[];
@@ -477,6 +481,10 @@ function InstructivosPage() {
             )}
           </div>
 
+          {!loading && !searchResults && !currentFolderId && (
+            <MasConsultados docs={docs} onOpen={openDoc} canWrite={canWrite} onIndexado={refreshAll} />
+          )}
+
           {loading ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {Array.from({ length: 8 }).map((_, i) => (
@@ -764,6 +772,108 @@ function FolderCard({
   );
 }
 
+/** Inicio: los instructivos más abiertos, los que toca revisar y el indexado del texto de los PDF. */
+function MasConsultados({ docs, onOpen, canWrite, onIndexado }: { docs: Doc[]; onOpen: (d: Doc) => void; canWrite: boolean; onIndexado: () => Promise<void> }) {
+  const top = useMemo(() => [...docs].filter((d) => d.views > 0).sort((a, b) => b.views - a.views).slice(0, 6), [docs]);
+  const aRevisar = useMemo(() => docs.filter(porRevisar), [docs]);
+  const { data: pendientes = [], refetch } = useQuery({
+    queryKey: ["instructivos_sin_texto"],
+    enabled: canWrite,
+    queryFn: async () => {
+      const { data } = await api.rpc("instructivos_sin_texto");
+      return (data ?? []) as { doc_id: string; adjunto_id: string }[];
+    },
+  });
+  const [progreso, setProgreso] = useState<{ hechos: number; total: number } | null>(null);
+
+  const indexarTodos = async () => {
+    const lista = pendientes;
+    setProgreso({ hechos: 0, total: lista.length });
+    for (let i = 0; i < lista.length; i++) {
+      try {
+        const url = await api.instructivos.pdfBlobUrl(lista[i].adjunto_id);
+        const blob = await (await fetch(url)).blob();
+        URL.revokeObjectURL(url);
+        await indexarPdf(lista[i].doc_id, lista[i].adjunto_id, blob);
+      } catch {
+        /* sigue con el próximo */
+      }
+      setProgreso({ hechos: i + 1, total: lista.length });
+    }
+    setProgreso(null);
+    toast.success("Listo: ya se puede buscar dentro de los PDF");
+    await refetch();
+    await onIndexado();
+  };
+
+  if (!top.length && !aRevisar.length && !(canWrite && pendientes.length)) return null;
+  return (
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      {top.length > 0 && (
+        <div className="panel p-3.5">
+          <p className="eyebrow mb-2 flex items-center gap-1.5">
+            <Eye className="size-3.5" /> Más consultados
+          </p>
+          <ol className="grid gap-1 sm:grid-cols-2">
+            {top.map((d, i) => (
+              <li key={d.id}>
+                <button type="button" onClick={() => onOpen(d)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-muted">
+                  <span className="num w-4 text-xs text-muted-foreground">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{d.title}</span>
+                  <span className="num shrink-0 text-xs text-muted-foreground">{d.views}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <div className="space-y-3">
+        {aRevisar.length > 0 && (
+          <div className="panel border-crit/30 p-3.5">
+            <p className="eyebrow mb-2 text-crit">Para revisar ({aRevisar.length})</p>
+            <ul className="space-y-1">
+              {aRevisar.slice(0, 5).map((d) => (
+                <li key={d.id}>
+                  <button type="button" onClick={() => onOpen(d)} className="w-full truncate rounded-md px-2 py-1 text-left text-[13px] hover:bg-muted">
+                    {d.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {canWrite && pendientes.length > 0 && (
+          <div className="panel p-3.5 text-[13px]">
+            <p className="font-medium">Búsqueda dentro de los PDF</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {pendientes.length} PDF todavía no se pueden buscar por su contenido. Se procesan en esta computadora; puede tardar un poco.
+            </p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => void indexarTodos()} disabled={!!progreso}>
+              {progreso ? <Loader2 className="animate-spin" /> : <Search />}
+              {progreso ? `Procesando ${progreso.hechos}/${progreso.total}…` : "Indexar PDFs"}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** La fecha de revisión ya llegó. */
+function porRevisar(doc: Doc) {
+  return !!doc.review_by && doc.review_by.slice(0, 10) <= new Date().toLocaleDateString("sv-SE");
+}
+
+/** Guarda el texto del PDF para que la búsqueda encuentre palabras de adentro del documento. */
+async function indexarPdf(docId: string, adjuntoId: string | undefined, archivo: Blob) {
+  try {
+    const texto = await extraerTextoPdf(archivo);
+    await api.rpc("guardar_texto_instructivo", { _id: docId, _adjunto: adjuntoId ?? null, _texto: texto });
+  } catch {
+    /* PDF escaneado o dañado: se sigue buscando por título y etiquetas */
+  }
+}
+
 function FileCard({
   doc,
   pdf,
@@ -785,6 +895,11 @@ function FileCard({
         {!pdf && (
           <Badge variant="warn" className="absolute right-2 top-2">
             Sin PDF
+          </Badge>
+        )}
+        {porRevisar(doc) && (
+          <Badge variant="crit" className="absolute left-2 top-2">
+            Revisar
           </Badge>
         )}
       </div>
@@ -998,6 +1113,8 @@ function UploadDialog({
           created_by: userId,
         });
         if (att.error) throw att.error;
+        const adjunto = (Array.isArray(att.data) ? att.data[0] : att.data) as { id?: string } | null;
+        void indexarPdf(doc.id, adjunto?.id, r.file);
         update(i, { status: "listo" });
         ok++;
       } catch (e) {
@@ -1263,7 +1380,16 @@ function DocViewer({
     if (pdf && !res.error) await api.storage.from("instructivos").remove(pdf.file_path);
     setReplacing(false);
     if (res.error) return toast.error(res.error.message);
+    const nuevo = (Array.isArray(res.data) ? res.data[0] : res.data) as { id?: string } | null;
+    void indexarPdf(doc.id, pdf?.id ?? nuevo?.id, file);
     toast.success(pdf ? "PDF reemplazado" : "PDF cargado");
+    await onChanged();
+  };
+
+  const programarRevision = async (meses: number) => {
+    const { error } = await api.rpc("programar_revision_instructivo", { _id: doc.id, _meses: meses });
+    if (error) return toast.error(error.message);
+    toast.success(meses ? `Próxima revisión en ${meses} meses` : "Revisión periódica quitada");
     await onChanged();
   };
 
@@ -1388,6 +1514,32 @@ function DocViewer({
                 <Meta label="Vistas" value={String(doc.views ?? 0)} />
                 <Meta label="Creado" value={formatDate(doc.created_at)} />
                 <Meta label="Actualizado" value={formatDate(doc.updated_at)} />
+                <div className="col-span-2 min-w-0">
+                  <dt className="eyebrow">Revisión</dt>
+                  <dd className="mt-1 flex flex-wrap items-center gap-2">
+                    {doc.review_by ? (
+                      <span className={cn("font-medium", porRevisar(doc) && "text-crit")}>
+                        {porRevisar(doc) ? "Para revisar desde el " : "Próxima: "}
+                        {formatDate(doc.review_by)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Sin revisión periódica</span>
+                    )}
+                    {canWrite && (
+                      <Select value="" onValueChange={(v) => void programarRevision(Number(v))}>
+                        <SelectTrigger className="h-7 w-auto gap-1 text-xs">
+                          <SelectValue placeholder={doc.review_by ? "Revisado / cambiar" : "Programar"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="3">Revisado: volver en 3 meses</SelectItem>
+                          <SelectItem value="6">Revisado: volver en 6 meses</SelectItem>
+                          <SelectItem value="12">Revisado: volver en 12 meses</SelectItem>
+                          {doc.review_by && <SelectItem value="0">Sin revisión periódica</SelectItem>}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </dd>
+                </div>
               </dl>
 
               <div className="grid gap-2">

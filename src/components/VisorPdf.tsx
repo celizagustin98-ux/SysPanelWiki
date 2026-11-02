@@ -7,7 +7,7 @@ type PdfDoc = import("pdfjs-dist").PDFDocumentProxy;
 
 // pdf.js se carga recién cuando hace falta (la build "legacy" también anda en tablets y celulares viejos).
 let pdfjs: Promise<typeof import("pdfjs-dist")> | null = null;
-function cargarPdfjs() {
+export function cargarPdfjs() {
   pdfjs ??= Promise.all([
     import("pdfjs-dist/legacy/build/pdf.mjs"),
     import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url"),
