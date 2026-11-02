@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, PenLine, Search, X } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, PenLine, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,8 +69,8 @@ const ESTADO_BADGE: Record<string, string> = Object.fromEntries(
 type Alcance = "todos" | "asignados" | "creados";
 const ALCANCES: { key: Alcance; label: string; hint: string }[] = [
   { key: "todos", label: "Todos", hint: "Todos los tickets del área" },
-  { key: "asignados", label: "Asignados a mí", hint: "Los que tengo que resolver" },
-  { key: "creados", label: "Creados por mí", hint: "Las solicitudes que abrí" },
+  { key: "asignados", label: "Mis tickets", hint: "Los que tengo asignados" },
+  { key: "creados", label: "Cargados por mí", hint: "Los tickets que cargué yo" },
 ];
 const ALCANCE_KEY = "nodara.tickets.alcance";
 
@@ -270,7 +270,6 @@ function TicketsPage() {
       historial: historyTickets.length,
     };
   }, [openTickets, historyTickets, vista, user?.id]);
-  const alcanceActual = ALCANCES.find((a) => a.key === alcance)!;
 
   // Si viene por link (ej. desde un activo) y no está en las listas cargadas, se busca suelto.
   const { data: ticketSuelto } = useQuery({
@@ -372,7 +371,7 @@ function TicketsPage() {
           icon={<CheckCircle2 className="size-4" />}
           tone="info"
           value={counts.asignados}
-          title="Asignados a mí"
+          title="Mis tickets"
           activo={alcance === "asignados"}
           onClick={() => setAlcance("asignados")}
           hint={vista === "activos" ? "Los que tenés que resolver vos" : "Los que resolviste vos este mes"}
@@ -381,10 +380,10 @@ function TicketsPage() {
           icon={<PenLine className="size-4" />}
           tone="warn"
           value={counts.creados}
-          title="Creados por mí"
+          title="Cargados por mí"
           activo={alcance === "creados"}
           onClick={() => setAlcance("creados")}
-          hint={vista === "activos" ? "Las solicitudes que abriste y siguen activas" : "Las solicitudes que abriste, cerradas este mes"}
+          hint={vista === "activos" ? "Los que cargaste vos y siguen activos" : "Los que cargaste vos, cerrados este mes"}
         />
       </div>
 
@@ -432,17 +431,31 @@ function TicketsPage() {
           </span>
         </button>
       </div>
-        {alcance !== "todos" && (
-          <button
-            type="button"
-            onClick={() => setAlcance("todos")}
-            title="Volver a ver todos los tickets"
-            className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 py-1 pl-3 pr-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
-          >
-            Viendo: {alcanceActual.label.toLowerCase()}
-            <X className="size-3.5" />
-          </button>
-        )}
+        <div role="group" aria-label="Qué tickets ver" className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-xs">
+          {ALCANCES.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              title={a.hint}
+              aria-pressed={alcance === a.key}
+              onClick={() => setAlcance(a.key)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition",
+                alcance === a.key ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {a.label}
+              <span
+                className={cn(
+                  "num inline-flex min-w-5 justify-center rounded px-1.5 text-[11px] font-semibold",
+                  alcance === a.key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {counts[a.key]}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {vista === "activos" && (
@@ -505,7 +518,7 @@ function TicketsPage() {
                 : alcance === "asignados"
                   ? "No tenés tickets activos asignados."
                   : alcance === "creados"
-                    ? "No tenés solicitudes activas creadas por vos."
+                    ? "No hay tickets activos cargados por vos."
                     : "Nada en la bandeja activa."}
             </div>
           )}
