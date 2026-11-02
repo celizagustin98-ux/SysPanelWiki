@@ -138,10 +138,10 @@ export function initials(name?: string | null) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 export function prioLabel(p: string) {
-  if (p === "critica") return "Urgent";
-  if (p === "alta") return "High";
-  if (p === "media") return "Medium";
-  return "Low";
+  if (p === "critica") return "Urgente";
+  if (p === "alta") return "Alta";
+  if (p === "media") return "Media";
+  return "Baja";
 }
 export function sortTickets(list: Ticket[]) {
   const prioRank = (p: string) => PRIORIDADES.indexOf(p as (typeof PRIORIDADES)[number]);

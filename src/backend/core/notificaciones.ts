@@ -129,6 +129,22 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
   const sinAsignar = await seguro(() => one<{ n: number; criticos: number }>(`select count(*)::int n, count(*) filter (where prioridad in ('critica','alta'))::int criticos from tareas where asignado_a is null and estado not in ('resuelto','cerrado','cancelado')`));
   if (sinAsignar?.criticos) alertas.push({ id: "sin-asignar", tipo: "ticket", tono: "warn", titulo: `${sinAsignar.criticos} ticket${sinAsignar.criticos === 1 ? "" : "s"} urgente${sinAsignar.criticos === 1 ? "" : "s"} sin asignar`, cuerpo: `${sinAsignar.n} en total esperan a alguien.`, link: "/tareas" });
 
+  // SLA por prioridad (mismas horas que en Tickets): sin tomar y sin resolver a tiempo.
+  const fueraSla = await seguro(() =>
+    one<{ sin_tomar: number; sin_resolver: number }>(
+      `select count(*) filter (where asignado_a is null and created_at + (case prioridad when 'critica' then 1 when 'alta' then 4 when 'media' then 8 else 24 end) * interval '1 hour' < now())::int sin_tomar,
+              count(*) filter (where asignado_a is not null and estado <> 'esperando' and created_at + (case prioridad when 'critica' then 4 when 'alta' then 24 when 'media' then 72 else 168 end) * interval '1 hour' < now())::int sin_resolver
+         from tareas where estado not in ('resuelto','cerrado','cancelado')`,
+    ),
+  );
+  if (fueraSla && fueraSla.sin_tomar + fueraSla.sin_resolver > 0) {
+    const partes = [
+      fueraSla.sin_tomar ? `${fueraSla.sin_tomar} sin tomar` : "",
+      fueraSla.sin_resolver ? `${fueraSla.sin_resolver} sin resolver a tiempo` : "",
+    ].filter(Boolean);
+    alertas.push({ id: "sla", tipo: "ticket", tono: "crit", titulo: `${fueraSla.sin_tomar + fueraSla.sin_resolver} ticket${fueraSla.sin_tomar + fueraSla.sin_resolver === 1 ? "" : "s"} fuera de SLA`, cuerpo: partes.join(" · "), link: "/tareas" });
+  }
+
   const reparaciones = await seguro(() => one<{ n: number }>(`select count(*)::int n from inventario_reparaciones where fecha_fin is null and fecha_inicio < current_date - 7`));
   if (reparaciones?.n) alertas.push({ id: "reparaciones", tipo: "activo", tono: "warn", titulo: `${reparaciones.n} reparación${reparaciones.n === 1 ? "" : "es"} abierta${reparaciones.n === 1 ? "" : "s"} hace más de 7 días`, cuerpo: "Revisá el estado con el servicio técnico.", link: "/inventario" });
 
