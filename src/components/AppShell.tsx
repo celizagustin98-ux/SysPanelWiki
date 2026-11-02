@@ -7,7 +7,6 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   ChevronRight,
-  History,
   LayoutDashboard,
   LogOut,
   UserRound,
@@ -65,8 +64,7 @@ export const NAV: NavItem[] = [
   { to: "/guardias", label: "Guardias / Horarios", icon: CalendarClock, modulo: "guardias", adminOnly: false, group: "operacion", hint: "Turnos, horarios y horas extras" },
   { to: "/instructivos", label: "Instructivos", icon: BookOpen, modulo: "instructivos", adminOnly: false, group: "operacion", hint: "Procedimientos" },
   { to: "/credenciales", label: "Credenciales", icon: ShieldCheck, modulo: "credenciales", adminOnly: false, group: "operacion", hint: "Accesos cifrados" },
-  { to: "/auditoria", label: "Auditoría", icon: History, modulo: "auditoria", adminOnly: false, group: "admin", hint: "Registro de cambios" },
-  { to: "/configuracion", label: "Configuración", icon: Settings2, modulo: null, adminOnly: true, group: "admin", hint: "Usuarios, roles y sistema" },
+  { to: "/configuracion", label: "Configuración", icon: Settings2, modulo: null, adminOnly: true, group: "admin", hint: "Usuarios, roles, auditoría y sistema" },
 ];
 
 const GROUP_LABEL: Record<NavItem["group"], string> = {
@@ -88,7 +86,11 @@ const sinAcentos = (text: string) => text.normalize("NFD").replace(/\p{Diacritic
 
 function useVisibleNav() {
   const { isAdmin, can } = useAuth();
-  return NAV.filter((item) => (!item.adminOnly || isAdmin) && (!item.modulo || can(item.modulo, "view")));
+  return NAV.filter(
+    (item) =>
+      (!item.adminOnly || isAdmin || (item.to === "/configuracion" && can("auditoria", "view"))) &&
+      (!item.modulo || can(item.modulo, "view")),
+  );
 }
 
 function initialsOf(text: string) {
