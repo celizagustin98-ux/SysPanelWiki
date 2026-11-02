@@ -66,7 +66,7 @@ type Actor = { actor_id: string; actor_nombre: string; actor_email: string };
 
 const MODULOS = [
   { key: "instructivos", label: "Instructivos" },
-  { key: "guardias", label: "Guardias" },
+  { key: "guardias", label: "Guardias / Horarios" },
   { key: "inventario", label: "Inventario" },
   { key: "toners", label: "Tóners" },
   { key: "tareas", label: "Tareas" },

@@ -260,3 +260,88 @@ export async function removeNightFromGuardia(g: Guardia, day: Date) {
     if (error) throw new Error(error.message);
   }
 }
+
+// ── Horarios y horas extras ────────────────────────────────────────────
+
+export const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
+
+export type HorarioDia = {
+  id?: string;
+  operario_id: string;
+  dia: number; // 0 = lunes … 6 = domingo
+  desde: string;
+  hasta: string;
+  desde2: string | null;
+  hasta2: string | null;
+};
+
+export type HoraExtra = {
+  id: string;
+  operario_id: string | null;
+  operador_nombre: string;
+  fecha: string;
+  desde: string;
+  hasta: string;
+  horas: number;
+  tipo: "50" | "100";
+  motivo: string | null;
+};
+
+/** "08:30:00" → "08:30". */
+export function hhmm(t: string | null | undefined) {
+  return String(t ?? "").slice(0, 5);
+}
+
+function minutosDe(t: string) {
+  const [h, m] = hhmm(t).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/** Horas entre dos horas del día; si termina antes de empezar, cruza la medianoche. */
+export function horasEntre(desde: string | null | undefined, hasta: string | null | undefined) {
+  if (!hhmm(desde) || !hhmm(hasta)) return 0;
+  let min = minutosDe(hasta!) - minutosDe(desde!);
+  if (min <= 0) min += 24 * 60;
+  return Math.round((min / 60) * 100) / 100;
+}
+
+export function horasDelDia(h: Pick<HorarioDia, "desde" | "hasta" | "desde2" | "hasta2">) {
+  return horasEntre(h.desde, h.hasta) + (h.desde2 && h.hasta2 ? horasEntre(h.desde2, h.hasta2) : 0);
+}
+
+/** 37.5 → "37:30 h". */
+export function formatHoras(h: number) {
+  const total = Math.round(h * 60);
+  const hs = Math.floor(total / 60);
+  const mm = total % 60;
+  return `${hs}:${String(mm).padStart(2, "0")} h`;
+}
+
+/** Las extras de sábado, domingo o feriado se pagan al 100%; las de días hábiles, al 50%. */
+export function tipoExtraSugerido(fecha: string): "50" | "100" {
+  const [y, m, d] = fecha.split("-").map(Number);
+  if (!y || !m || !d) return "50";
+  return isFeriado(new Date(y, m - 1, d)) ? "100" : "50";
+}
+
+export type ResumenExtras = { operario: Operario; h50: number; h100: number; total: number; cantidad: number };
+
+/** Totales de horas extras por empleado (incluye a quien ya no está activo si tiene horas en el período). */
+export function resumirExtras(extras: HoraExtra[], operarios: Operario[]): ResumenExtras[] {
+  const filas = new Map<string, ResumenExtras>();
+  for (const op of operarios) filas.set(normalizeName(op.nombre), { operario: op, h50: 0, h100: 0, total: 0, cantidad: 0 });
+  for (const e of extras) {
+    const clave = normalizeName(e.operador_nombre);
+    let fila = filas.get(clave);
+    if (!fila) {
+      fila = { operario: { nombre: e.operador_nombre, code: "—", color: "" }, h50: 0, h100: 0, total: 0, cantidad: 0 };
+      filas.set(clave, fila);
+    }
+    const h = Number(e.horas) || 0;
+    if (e.tipo === "100") fila.h100 += h;
+    else fila.h50 += h;
+    fila.total += h;
+    fila.cantidad += 1;
+  }
+  return [...filas.values()];
+}

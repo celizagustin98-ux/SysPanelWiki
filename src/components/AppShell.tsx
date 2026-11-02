@@ -62,7 +62,7 @@ export const NAV: NavItem[] = [
   { to: "/tareas", label: "Tickets", icon: Ticket, modulo: "tareas", adminOnly: false, group: "operacion", hint: "Mesa de ayuda" },
   { to: "/inventario", label: "Activos IT", icon: Boxes, modulo: "inventario", adminOnly: false, group: "operacion", hint: "Equipos, QR y reparaciones" },
   { to: "/toners", label: "Tóners", icon: Printer, modulo: "toners", adminOnly: false, group: "operacion", hint: "Stock y pedidos" },
-  { to: "/guardias", label: "Guardias", icon: CalendarClock, modulo: "guardias", adminOnly: false, group: "operacion", hint: "Turnos y cobertura" },
+  { to: "/guardias", label: "Guardias / Horarios", icon: CalendarClock, modulo: "guardias", adminOnly: false, group: "operacion", hint: "Turnos, horarios y horas extras" },
   { to: "/instructivos", label: "Instructivos", icon: BookOpen, modulo: "instructivos", adminOnly: false, group: "operacion", hint: "Procedimientos" },
   { to: "/credenciales", label: "Credenciales", icon: ShieldCheck, modulo: "credenciales", adminOnly: false, group: "operacion", hint: "Accesos cifrados" },
   { to: "/auditoria", label: "Auditoría", icon: History, modulo: "auditoria", adminOnly: false, group: "admin", hint: "Registro de cambios" },

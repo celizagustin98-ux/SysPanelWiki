@@ -5,10 +5,10 @@ export const Route = createFileRoute("/_app/guardias")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Guardias · Nodara" },
+      { title: "Guardias / Horarios · Nodara" },
       {
         name: "description",
-        content: "Planilla de guardias por período 21–20, feriados y liquidación.",
+        content: "Guardias por período 21–20, horario semanal, horas extras y liquidación.",
       },
     ],
   }),

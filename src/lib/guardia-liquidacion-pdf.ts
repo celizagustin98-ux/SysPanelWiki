@@ -10,6 +10,10 @@ export type LiqRow = {
   total: number;
 };
 
+export type ExtraFila = { code: string; nombre: string; h50: number; h100: number; total: number };
+
+export type ExtraDetalle = { fecha: string; nombre: string; horario: string; horas: number; tipo: "50" | "100"; motivo: string };
+
 export type LiqPdfInput = {
   periodoLabel: string;
   desde: string;
@@ -19,7 +23,49 @@ export type LiqPdfInput = {
   notas?: string;
   pie?: string;
   filas: LiqRow[];
+  /** Horas extras del período (resumen por empleado y detalle). Sin este dato el PDF sale solo con guardias. */
+  extras?: { filas: ExtraFila[]; detalle: ExtraDetalle[] };
 };
+
+/** 7.5 → "7:30". */
+function horas(h: number) {
+  const total = Math.round(h * 60);
+  return Math.floor(total / 60) + ":" + String(total % 60).padStart(2, "0");
+}
+
+function bloqueExtras(extras: NonNullable<LiqPdfInput["extras"]>) {
+  const t50 = extras.filas.reduce((s, r) => s + r.h50, 0);
+  const t100 = extras.filas.reduce((s, r) => s + r.h100, 0);
+  if (!extras.detalle.length) {
+    return '<h2>Horas extras</h2><p class="vacio">No hay horas extras cargadas en el período.</p>';
+  }
+  const resumen = extras.filas
+    .map(
+      (r) =>
+        '<tr><td class="code">' + esc(r.code) + "</td><td>" + esc(r.nombre) + "</td>" +
+        '<td class="num">' + horas(r.h50) + '</td><td class="num fer">' + horas(r.h100) + '</td><td class="num tot">' + horas(r.total) + "</td></tr>",
+    )
+    .join("");
+  const detalle = extras.detalle
+    .map(
+      (d) =>
+        '<tr><td class="nowrap">' + esc(d.fecha) + "</td><td>" + esc(d.nombre) + '</td><td class="nowrap">' + esc(d.horario) + "</td>" +
+        '<td class="num">' + horas(d.horas) + "</td><td" + (d.tipo === "100" ? ' class="fer"' : "") + ">" + esc(d.tipo) + "%</td>" +
+        '<td class="motivo">' + esc(d.motivo || "—") + "</td></tr>",
+    )
+    .join("");
+  return (
+    '<h2>Horas extras</h2>' +
+    "<table><thead><tr><th>Cód.</th><th>Empleado</th>" +
+    '<th class="num">Al 50%</th><th class="num">Al 100%</th><th class="num">Total</th>' +
+    "</tr></thead><tbody>" + resumen + "</tbody><tfoot><tr>" +
+    '<td colspan="2">TOTALES</td><td class="num">' + horas(t50) + '</td><td class="num fer">' + horas(t100) + '</td><td class="num tot">' + horas(t50 + t100) + "</td>" +
+    "</tr></tfoot></table>" +
+    '<h3>Detalle de horas extras</h3>' +
+    '<table class="detalle"><thead><tr><th>Fecha</th><th>Empleado</th><th>Horario</th><th class="num">Horas</th><th>Tipo</th><th>Motivo</th></tr></thead>' +
+    "<tbody>" + detalle + "</tbody></table>"
+  );
+}
 
 function esc(value: unknown) {
   return String(value ?? "")
@@ -105,6 +151,15 @@ function buildHtml(input: LiqPdfInput) {
     "tfoot td{background:#ecfdf5;font-weight:700;border-top:2px solid var(--acento,#0d9488);padding:12px}" +
     ".note{margin-top:18px;font-size:11px;color:#64748b;line-height:1.5;white-space:pre-wrap}" +
     ".footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}" +
+    "h2{margin:26px 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--acento,#0d9488);break-after:avoid}" +
+    "h3{margin:18px 0 6px;font-size:12px;color:#334155;break-after:avoid}" +
+    ".vacio{font-size:12px;color:#64748b}" +
+    "table.detalle td{padding:7px 10px;font-size:12px}" +
+    "table.detalle th{padding:8px 10px}" +
+    "td.nowrap{white-space:nowrap}" +
+    "td.motivo{color:#475569}" +
+    "tr{break-inside:avoid}" +
+    ".box.cuatro{grid-template-columns:repeat(4,1fr)}" +
     "@media print{body{padding:0}}" +
     "</style>" +
     estiloMarca() +
@@ -126,7 +181,7 @@ function buildHtml(input: LiqPdfInput) {
     "<br/>Generado " +
     esc(generada) +
     "</div></div>" +
-    '<div class="box">' +
+    (input.extras ? '<div class="box cuatro">' : '<div class="box">') +
     "<div><label>Total normales</label><span>" +
     totN +
     "</span></div>" +
@@ -135,7 +190,12 @@ function buildHtml(input: LiqPdfInput) {
     "</span></div>" +
     "<div><label>Total noches</label><span>" +
     totT +
-    "</span></div></div>" +
+    "</span></div>" +
+    (input.extras
+      ? "<div><label>Horas extras</label><span>" + horas(input.extras.filas.reduce((s, r) => s + r.total, 0)) + "</span></div>"
+      : "") +
+    "</div>" +
+    (input.extras ? "<h2>Guardias</h2>" : "") +
     "<table><thead><tr>" +
     "<th>Cód.</th><th>Operario</th>" +
     '<th class="num">Normales</th><th class="num">Feriados</th><th class="num">Total</th>' +
@@ -152,6 +212,7 @@ function buildHtml(input: LiqPdfInput) {
     '<td class="num tot">' +
     totT +
     "</td></tr></tfoot></table>" +
+    (input.extras ? bloqueExtras(input.extras) : "") +
     notasBlock +
     '<div class="footer">' +
     esc(pie) +

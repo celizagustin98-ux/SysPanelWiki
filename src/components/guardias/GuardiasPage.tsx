@@ -14,8 +14,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Clock,
   FileDown,
   Palmtree,
+  Timer,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,7 +47,9 @@ import {
   SEED_OPERARIOS,
   colorForIndex,
   coversNight,
+  formatHoras,
   getPeriodContaining,
+  hhmm,
   isFeriado,
   isVacacion,
   nightEndIso,
@@ -54,11 +58,13 @@ import {
   parseLocal,
   periodLabel,
   removeNightFromGuardia,
+  resumirExtras,
   shiftPeriod,
   weekdayLetter,
   ymd,
 } from "@/components/guardias/domain";
 import { OperariosDialog } from "@/components/guardias/dialogs";
+import { HorarioSemanal, HorasExtras, useHorasExtras } from "@/components/guardias/Horarios";
 import { useFeriados } from "@/lib/feriados";
 import { useMarca } from "@/lib/brand";
 
@@ -86,10 +92,12 @@ export function GuardiasPage() {
   const { data: feriadosDb } = useFeriados();
   const [cellDialog, setCellDialog] = useState<null | { op: Operario; day: Date }>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
-  const [pdfTitulo, setPdfTitulo] = useState("Liquidación de guardias");
+  const [tab, setTab] = useState<"planilla" | "horarios" | "liquidacion">("planilla");
+  const [pdfTitulo, setPdfTitulo] = useState("Liquidación de guardias y horas extras");
   const [pdfNotas, setPdfNotas] = useState(
-    "Feriado = sábado, domingo o feriado nacional. Cada noche cuenta 20:00–08:00. Las vacaciones (V) no suman.",
+    "Feriado = sábado, domingo o feriado nacional. Cada noche cuenta 20:00–08:00. Las vacaciones (V) no suman. Horas extras: al 50% en días hábiles y al 100% en sábados, domingos y feriados.",
   );
+  const [pdfExtras, setPdfExtras] = useState(true);
   const [pdfPie, setPdfPie] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -232,6 +240,10 @@ export function GuardiasPage() {
     });
   }, [days, assignmentByDay, operarios, feriadosDb]);
 
+  const { data: extras = [] } = useHorasExtras(period.desde, period.hasta);
+  const resumenExtras = useMemo(() => resumirExtras(extras, operarios), [extras, operarios]);
+  const totExtras = resumenExtras.reduce((s, r) => ({ h50: s.h50 + r.h50, h100: s.h100 + r.h100 }), { h50: 0, h100: 0 });
+
   const vacacionesResumen = useMemo(() => {
     return operarios
       .map((op) => {
@@ -349,6 +361,21 @@ export function GuardiasPage() {
         feriados: r.feriados,
         total: r.total,
       })),
+      extras: pdfExtras
+        ? {
+            filas: resumenExtras
+              .filter((r) => r.total > 0)
+              .map((r) => ({ code: r.operario.code, nombre: r.operario.nombre, h50: r.h50, h100: r.h100, total: r.total })),
+            detalle: extras.map((e) => ({
+              fecha: e.fecha.split("-").reverse().join("/"),
+              nombre: e.operador_nombre,
+              horario: `${hhmm(e.desde)} – ${hhmm(e.hasta)}`,
+              horas: e.horas,
+              tipo: e.tipo,
+              motivo: e.motivo ?? "",
+            })),
+          }
+        : undefined,
     });
     setPdfOpen(false);
   }
@@ -356,8 +383,8 @@ export function GuardiasPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Guardias"
-        description="Planilla 21→20 · clic en celda para asignar"
+        title="Guardias / Horarios"
+        description="Guardias nocturnas, horario semanal del equipo, horas extras y liquidación del período 21→20."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -389,6 +416,38 @@ export function GuardiasPage() {
         }
       />
 
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 shadow-xs">
+        {(
+          [
+            ["planilla", "Planilla de guardias", CalendarRange],
+            ["horarios", "Horarios y horas extras", Clock],
+            ["liquidacion", "Liquidación", ClipboardList],
+          ] as const
+        ).map(([k, label, Icono]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+              tab === k ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icono className="size-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "horarios" && (
+        <div className="space-y-4">
+          <HorarioSemanal operarios={operarios} canWrite={canWrite} />
+          <HorasExtras operarios={operarios} desde={period.desde} hasta={period.hasta} periodo={periodLabel(period.desde, period.hasta)} canWrite={canWrite} />
+        </div>
+      )}
+
+      {tab === "planilla" && (
+      <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 stagger">
         <div className="kpi-cell">
           <p className="kpi-label flex items-center gap-2">
@@ -581,13 +640,64 @@ export function GuardiasPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr] xl:items-start">
+        <Card className="panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Palmtree className="size-4 text-ok" />
+              Vacaciones del período
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {vacacionesResumen.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nadie tiene vacaciones cargadas en este período.
+              </p>
+            )}
+            {vacacionesResumen.map((v) => (
+              <div
+                key={v.code + v.nombre}
+                className="flex items-start gap-3 rounded-lg border border-ok/30 bg-ok/9 px-3 py-2.5 text-sm"
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 inline-flex size-7 items-center justify-center rounded-md border text-xs font-extrabold",
+                    v.color,
+                  )}
+                >
+                  {v.code}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">{v.nombre}</p>
+                    <Badge variant="secondary" className="tabular-nums">
+                      {v.cantidad} día{v.cantidad === 1 ? "" : "s"}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {format(v.desde, "dd/MM")} → {format(v.hasta, "dd/MM")}
+                    {v.dias.length <= 8
+                      ? ` · ${v.dias.join(", ")}`
+                      : ` · ${v.dias.slice(0, 6).join(", ")}…`}
+                  </p>
+                </div>
+                <span className="inline-flex items-center rounded border border-ok/35 bg-ok px-1.5 py-0.5 text-[10px] font-bold text-background">
+                  V
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </>
+      )}
+
+      {tab === "liquidacion" && (
+      <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <Card className="panel">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2 text-sm">
                 <ClipboardList className="size-4 text-primary" />
-                Liquidación del período
+                Guardias del período
               </CardTitle>
               <Button
                 type="button"
@@ -641,51 +751,49 @@ export function GuardiasPage() {
         <Card className="panel">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
-              <Palmtree className="size-4 text-ok" />
-              Vacaciones del período
+              <Timer className="size-4 text-primary" />
+              Horas extras del período
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {vacacionesResumen.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Nadie tiene vacaciones cargadas en este período.
-              </p>
-            )}
-            {vacacionesResumen.map((v) => (
-              <div
-                key={v.code + v.nombre}
-                className="flex items-start gap-3 rounded-lg border border-ok/30 bg-ok/9 px-3 py-2.5 text-sm"
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 inline-flex size-7 items-center justify-center rounded-md border text-xs font-extrabold",
-                    v.color,
-                  )}
-                >
-                  {v.code}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium">{v.nombre}</p>
-                    <Badge variant="secondary" className="tabular-nums">
-                      {v.cantidad} día{v.cantidad === 1 ? "" : "s"}
-                    </Badge>
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {format(v.desde, "dd/MM")} → {format(v.hasta, "dd/MM")}
-                    {v.dias.length <= 8
-                      ? ` · ${v.dias.join(", ")}`
-                      : ` · ${v.dias.slice(0, 6).join(", ")}…`}
-                  </p>
-                </div>
-                <span className="inline-flex items-center rounded border border-ok/35 bg-ok px-1.5 py-0.5 text-[10px] font-bold text-background">
-                  V
-                </span>
-              </div>
-            ))}
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Empleado</TableHead>
+                  <TableHead className="text-right">Al 50%</TableHead>
+                  <TableHead className="text-right">Al 100%</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {resumenExtras.map((r) => (
+                  <TableRow key={r.operario.code + r.operario.nombre}>
+                    <TableCell>
+                      <span className={cn("mr-2 inline-flex size-5 items-center justify-center rounded border text-[10px] font-bold", r.operario.color || "border-border bg-muted")}>
+                        {r.operario.code}
+                      </span>
+                      {r.operario.nombre}
+                    </TableCell>
+                    <TableCell className="num text-right font-medium">{formatHoras(r.h50)}</TableCell>
+                    <TableCell className="num text-right font-medium text-crit">{formatHoras(r.h100)}</TableCell>
+                    <TableCell className="num text-right text-muted-foreground">{formatHoras(r.total)}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="bg-muted/40 font-semibold">
+                  <TableCell>Totales</TableCell>
+                  <TableCell className="num text-right">{formatHoras(totExtras.h50)}</TableCell>
+                  <TableCell className="num text-right text-crit">{formatHoras(totExtras.h100)}</TableCell>
+                  <TableCell className="num text-right">{formatHoras(totExtras.h50 + totExtras.h100)}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <Button type="button" variant="link" size="sm" className="mt-1 h-auto px-0 text-xs" onClick={() => setTab("horarios")}>
+              Cargar o revisar el detalle en Horarios y horas extras →
+            </Button>
           </CardContent>
         </Card>
       </div>
+      )}
 
       <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
         <DialogContent className="sm:max-w-md">
@@ -705,6 +813,17 @@ export function GuardiasPage() {
               <Label>Pie de página</Label>
               <Input value={pdfPie} placeholder={`${marca.pie} · Documento de liquidación interna`} onChange={(e) => setPdfPie(e.target.value)} />
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
+              <input type="checkbox" className="mt-0.5 size-4 accent-[var(--primary)]" checked={pdfExtras} onChange={(e) => setPdfExtras(e.target.checked)} />
+              <span>
+                Incluir horas extras
+                <span className="block text-xs text-muted-foreground">
+                  {extras.length
+                    ? `${extras.length} registro${extras.length === 1 ? "" : "s"} · ${formatHoras(totExtras.h50 + totExtras.h100)} en el período (resumen por empleado y detalle).`
+                    : "No hay horas extras cargadas en este período."}
+                </span>
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setPdfOpen(false)}>
