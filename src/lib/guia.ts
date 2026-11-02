@@ -46,7 +46,7 @@ export const GUIA: SeccionGuia[] = [
     resumen:
       "Registra cada pedido o problema y lo acompaña hasta que se termina. Todo queda en la actividad del ticket: quién lo tomó, qué se hizo y cuándo se cerró.",
     pasos: [
-      { titulo: "Ver mis tickets", detalle: "Arriba de la lista elegí Todos, Mis tickets (asignados o creados por vos), Asignados a mí o Creados por mí. También podés tocar las tarjetas de arriba. El sistema recuerda tu elección." },
+      { titulo: "Ver mis tickets", detalle: "Al lado de Activos / Historial elegí Todos, Mis tickets (los que tenés asignados) o Cargados por mí (los que cargaste vos); cada uno muestra cuántos hay. Las tarjetas de arriba hacen lo mismo. El sistema recuerda tu elección." },
       { titulo: "Colores de cada estado", detalle: "Pendiente rojo, Asignado violeta, Trabajando celeste, En espera ámbar, Resuelto verde y Terminado gris. Se usan igual en la barra de arriba, en la franja de cada fila y en la barra de evolución del ticket." },
       { titulo: "Crear un ticket", detalle: "Botón 'Nuevo ticket'. Completá título, descripción, prioridad, sector y, si corresponde, el equipo afectado (podés buscarlo o escanear su QR)." },
       { titulo: "Filtrar la bandeja", detalle: "Los cuadros de arriba (Sin asignar, Asignados y trabajando, En espera, Resueltos) filtran la lista. La búsqueda encuentra por número, título o sector." },
@@ -179,7 +179,7 @@ export const GUIA: SeccionGuia[] = [
     id: "auditoria",
     titulo: "Auditoría (registro de cambios)",
     icono: "History",
-    resumen: "Registro de quién hizo qué y cuándo en todo el sistema.",
+    resumen: "Registro de quién hizo qué y cuándo en todo el sistema. Está en Configuración → Auditoría.",
     pasos: [
       { titulo: "Filtrar", detalle: "Por usuario, módulo, acción y rango de fechas." },
       { titulo: "Exportar", detalle: "Descargá el resultado en Excel para un control externo." },
