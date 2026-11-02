@@ -10,9 +10,9 @@ export type LiqRow = {
   total: number;
 };
 
-export type ExtraFila = { code: string; nombre: string; h50: number; h100: number; total: number };
+export type ExtraFila = { code: string; nombre: string; cantidad: number; total: number };
 
-export type ExtraDetalle = { fecha: string; nombre: string; horario: string; horas: number; tipo: "50" | "100"; motivo: string };
+export type ExtraDetalle = { fecha: string; nombre: string; horario: string; horas: number; motivo: string };
 
 export type LiqPdfInput = {
   periodoLabel: string;
@@ -34,8 +34,8 @@ function horas(h: number) {
 }
 
 function bloqueExtras(extras: NonNullable<LiqPdfInput["extras"]>) {
-  const t50 = extras.filas.reduce((s, r) => s + r.h50, 0);
-  const t100 = extras.filas.reduce((s, r) => s + r.h100, 0);
+  const totHoras = extras.filas.reduce((s, r) => s + r.total, 0);
+  const totCargas = extras.filas.reduce((s, r) => s + r.cantidad, 0);
   if (!extras.detalle.length) {
     return '<h2>Horas extras</h2><p class="vacio">No hay horas extras cargadas en el período.</p>';
   }
@@ -43,26 +43,26 @@ function bloqueExtras(extras: NonNullable<LiqPdfInput["extras"]>) {
     .map(
       (r) =>
         '<tr><td class="code">' + esc(r.code) + "</td><td>" + esc(r.nombre) + "</td>" +
-        '<td class="num">' + horas(r.h50) + '</td><td class="num fer">' + horas(r.h100) + '</td><td class="num tot">' + horas(r.total) + "</td></tr>",
+        '<td class="num">' + r.cantidad + '</td><td class="num tot">' + horas(r.total) + "</td></tr>",
     )
     .join("");
   const detalle = extras.detalle
     .map(
       (d) =>
         '<tr><td class="nowrap">' + esc(d.fecha) + "</td><td>" + esc(d.nombre) + '</td><td class="nowrap">' + esc(d.horario) + "</td>" +
-        '<td class="num">' + horas(d.horas) + "</td><td" + (d.tipo === "100" ? ' class="fer"' : "") + ">" + esc(d.tipo) + "%</td>" +
+        '<td class="num">' + horas(d.horas) + "</td>" +
         '<td class="motivo">' + esc(d.motivo || "—") + "</td></tr>",
     )
     .join("");
   return (
     '<h2>Horas extras</h2>' +
     "<table><thead><tr><th>Cód.</th><th>Empleado</th>" +
-    '<th class="num">Al 50%</th><th class="num">Al 100%</th><th class="num">Total</th>' +
+    '<th class="num">Cargas</th><th class="num">Total horas</th>' +
     "</tr></thead><tbody>" + resumen + "</tbody><tfoot><tr>" +
-    '<td colspan="2">TOTALES</td><td class="num">' + horas(t50) + '</td><td class="num fer">' + horas(t100) + '</td><td class="num tot">' + horas(t50 + t100) + "</td>" +
+    '<td colspan="2">TOTALES</td><td class="num">' + totCargas + '</td><td class="num tot">' + horas(totHoras) + "</td>" +
     "</tr></tfoot></table>" +
     '<h3>Detalle de horas extras</h3>' +
-    '<table class="detalle"><thead><tr><th>Fecha</th><th>Empleado</th><th>Horario</th><th class="num">Horas</th><th>Tipo</th><th>Motivo</th></tr></thead>' +
+    '<table class="detalle"><thead><tr><th>Fecha</th><th>Empleado</th><th>Horario</th><th class="num">Horas</th><th>Motivo</th></tr></thead>' +
     "<tbody>" + detalle + "</tbody></table>"
   );
 }

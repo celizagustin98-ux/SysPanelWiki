@@ -316,7 +316,7 @@ export function HorasExtras({
 
   const resumen = useMemo(() => resumirExtras(extras, operarios).filter((r) => r.total > 0), [extras, operarios]);
   const visibles = filtro === "todos" ? extras : extras.filter((e) => normalizeName(e.operador_nombre) === filtro);
-  const tot = resumen.reduce((s, r) => ({ h50: s.h50 + r.h50, h100: s.h100 + r.h100 }), { h50: 0, h100: 0 });
+  const totalHoras = resumen.reduce((s, r) => s + r.total, 0);
   const opDe = (nombre: string) => operarios.find((o) => normalizeName(o.nombre) === normalizeName(nombre)) ?? { nombre, code: "—", color: "" };
 
   const eliminar = async (e: HoraExtra) => {
@@ -346,16 +346,16 @@ export function HorasExtras({
       <CardContent className="space-y-4">
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="kpi-cell">
-            <p className="kpi-label">Al 50% · días hábiles</p>
-            <p className="num mt-1 text-lg font-semibold">{formatHoras(tot.h50)}</p>
-          </div>
-          <div className="kpi-cell">
-            <p className="kpi-label">Al 100% · fin de semana y feriados</p>
-            <p className="num mt-1 text-lg font-semibold text-crit">{formatHoras(tot.h100)}</p>
-          </div>
-          <div className="kpi-cell">
             <p className="kpi-label">Total del período</p>
-            <p className="num mt-1 text-lg font-semibold">{formatHoras(tot.h50 + tot.h100)}</p>
+            <p className="num mt-1 text-lg font-semibold">{formatHoras(totalHoras)}</p>
+          </div>
+          <div className="kpi-cell">
+            <p className="kpi-label">Cargas</p>
+            <p className="num mt-1 text-lg font-semibold">{extras.length}</p>
+          </div>
+          <div className="kpi-cell">
+            <p className="kpi-label">Empleados con horas extras</p>
+            <p className="num mt-1 text-lg font-semibold">{resumen.length}</p>
           </div>
         </div>
 
@@ -396,7 +396,6 @@ export function HorasExtras({
                 <th className="px-3 py-2 text-left font-semibold">Empleado</th>
                 <th className="px-3 py-2 text-left font-semibold">Desde – hasta</th>
                 <th className="px-3 py-2 text-right font-semibold">Horas</th>
-                <th className="px-3 py-2 text-left font-semibold">Tipo</th>
                 <th className="px-3 py-2 text-left font-semibold">Motivo</th>
                 {canWrite && <th className="w-20" />}
               </tr>
@@ -404,7 +403,7 @@ export function HorasExtras({
             <tbody>
               {!isLoading && visibles.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                  <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                     No hay horas extras cargadas en este período.
                   </td>
                 </tr>
@@ -422,9 +421,6 @@ export function HorasExtras({
                     {hhmm(e.desde)} – {hhmm(e.hasta)}
                   </td>
                   <td className="num px-3 py-2 text-right font-semibold">{formatHoras(e.horas)}</td>
-                  <td className="px-3 py-2">
-                    <Badge variant={e.tipo === "100" ? "crit" : "info"}>Al {e.tipo}%</Badge>
-                  </td>
                   <td className="max-w-[260px] truncate px-3 py-2 text-muted-foreground" title={e.motivo ?? ""}>
                     {e.motivo || "—"}
                   </td>
