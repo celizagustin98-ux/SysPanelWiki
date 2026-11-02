@@ -1,6 +1,6 @@
 {
   "name": "syswiki-panel",
-  "version": "1.16.6",
+  "version": "1.16.7",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -13,6 +13,7 @@
     "start": "node scripts/serve.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "vitest run",
     "format": "prettier --write .",
     "version:fix": "node scripts/bump-version.mjs patch",
     "version:module": "node scripts/bump-version.mjs minor",
@@ -73,7 +74,8 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.1.5"
+    "vite": "^8.1.5",
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "seroval": "^1.6.11",
