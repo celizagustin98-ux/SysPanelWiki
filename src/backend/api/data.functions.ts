@@ -22,7 +22,7 @@ import {
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
 import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
-import { alertasArea, notificarCambios } from "@/backend/core/notificaciones";
+import { alertasArea, notificar, notificarCambios } from "@/backend/core/notificaciones";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
 type Order = { column: string; ascending?: boolean };
@@ -609,6 +609,21 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
     }
+    if (data.name === "antiguedad_claves_contactos") {
+      if (!(await hasModulePermission(session.user.id, "oficina", "ver"))) throw new Error("Tu rol no tiene permiso en Oficina");
+      try {
+        const r = await query(
+          `select c.id,
+                  coalesce((select max(h.created_at) from oficina_contactos_historial h where h.contacto_id = c.id and h.campo = 'secreto'),
+                           c.created_at) as clave_desde
+             from oficina_contactos c
+            where coalesce(c.secreto, '') <> ''`,
+        );
+        return { data: r.rows, error: null };
+      } catch {
+        return { data: [], error: null };
+      }
+    }
     if (data.name === "consumo_toners") {
       // Consumo por modelo y por sector en los últimos N días (los usos/reposiciones descuentan stock).
       if (!(await hasModulePermission(session.user.id, "toners", "ver"))) throw new Error("Tu rol no tiene permiso en Tóners");
@@ -976,6 +991,28 @@ export const apiRpc = createServerFn({ method: "POST" })
         await client.query("commit");
         const fila = await one<Record<string, unknown>>(`select * from insumos_pedidos where id = $1`, [pedidoId]);
         if (fila) await writeAudit(session.user.id, "insumos_pedidos", "editar", [fila], { seguimiento: accion });
+        // Avisa a quien hizo el pedido cuando cambia el estado o le dejan una nota (no a quien hizo el cambio).
+        const solicitante = fila?.created_by ? String(fila.created_by) : "";
+        if (fila && solicitante && solicitante !== session.user.id) {
+          const cambioEstado = String(fila.estado) !== pedido.estado;
+          if (cambioEstado || accion === "nota") {
+            await notificar([
+              {
+                userId: solicitante,
+                tipo: "pedido",
+                titulo: cambioEstado
+                  ? `Tu pedido de compra N° ${pedido.numero}: ${ETIQUETA[String(fila.estado)] ?? fila.estado}`
+                  : `Nota en tu pedido de compra N° ${pedido.numero}`,
+                cuerpo:
+                  accion === "nota"
+                    ? String(data.args?._texto ?? "").trim().slice(0, 200)
+                    : String(data.args?._motivo ?? "").trim().slice(0, 200) || `${ETIQUETA[pedido.estado] ?? pedido.estado} → ${ETIQUETA[String(fila.estado)] ?? fila.estado}`,
+                link: "/oficina",
+                actorNombre: autor,
+              },
+            ]);
+          }
+        }
         return { data: fila, error: null };
       } catch (error) {
         await client.query("rollback").catch(() => {});

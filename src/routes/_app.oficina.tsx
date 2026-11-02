@@ -39,6 +39,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PedidoInsumos } from "@/components/oficina/PedidoInsumos";
 import { Agenda } from "@/components/oficina/Agenda";
+import { ImportarTelefonos } from "@/components/oficina/ImportarTelefonos";
 
 export const Route = createFileRoute("/_app/oficina")({
   ssr: false,
@@ -315,6 +316,7 @@ function TelefonosPanel() {
             )
           }
         />
+        {canWrite && <ImportarTelefonos existentes={rows} />}
         {canWrite && (
           <Button type="button" size="sm" onClick={openCreate}>
             <Plus className="size-4" /> Agregar
