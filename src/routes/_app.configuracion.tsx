@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronRight,
   Database,
+  HeartPulse,
   History,
   Info,
   KeyRound,
@@ -25,6 +26,7 @@ import { GuiaSistema } from "@/components/configuracion/GuiaSistema";
 import { RolesPermisos } from "@/components/configuracion/RolesPermisos";
 import { MantenimientoDatos } from "@/components/configuracion/MantenimientoDatos";
 import { Auditoria } from "@/components/configuracion/Auditoria";
+import { SaludSistema } from "@/components/configuracion/SaludSistema";
 import { UsuariosAdmin, useUsuariosAdmin } from "@/components/configuracion/UsuariosAdmin";
 import { useMarca } from "@/lib/brand";
 import { api } from "@/lib/api/client";
@@ -32,7 +34,7 @@ import { useAuth } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
-type SeccionKey = "general" | "usuarios" | "roles" | "auditoria" | "feriados" | "reportes" | "datos" | "guia";
+type SeccionKey = "general" | "salud" | "usuarios" | "roles" | "auditoria" | "feriados" | "reportes" | "datos" | "guia";
 
 const SECCIONES: {
   grupo: string;
@@ -42,6 +44,7 @@ const SECCIONES: {
     grupo: "Sistema",
     items: [
       { key: "general", label: "General", hint: "Versión, estado y escaneo QR", icon: Info },
+      { key: "salud", label: "Salud y respaldos", hint: "Disco, base, respaldos diarios y sesiones abiertas", icon: HeartPulse },
       {
         key: "feriados",
         label: "Feriados",
@@ -222,6 +225,7 @@ function ConfiguracionPage() {
           </div>
 
           {seccion === "general" && <General onIr={ir} />}
+          {seccion === "salud" && <SaludSistema />}
           {seccion === "usuarios" && <UsuariosAdmin />}
           {seccion === "roles" && <RolesPermisos />}
           {seccion === "auditoria" && <Auditoria />}

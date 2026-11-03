@@ -6,6 +6,7 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import pg from "pg";
+import { disco, estadoRespaldos, hacerRespaldo, iniciarRespaldoDiario, streamRespaldo } from "./respaldos.mjs";
 
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
@@ -734,6 +735,91 @@ NODE
   return logFile;
 }
 
+async function requireAdministrador(req) {
+  const session = await requireRequestSession(req);
+  if (session.role !== "administrador") {
+    const error = new Error("Solo administradores");
+    error.statusCode = 403;
+    throw error;
+  }
+  return session;
+}
+
+/** Salud del servidor, respaldos y sesiones activas (Configuración → Salud y respaldos). */
+async function handleSalud(req, res) {
+  const url = new URL(req.url || "/", "http://localhost");
+  if (!url.pathname.startsWith("/api/system/salud") && !url.pathname.startsWith("/api/system/respaldos") && !url.pathname.startsWith("/api/system/sesiones")) return false;
+  try {
+    const session = await requireAdministrador(req);
+    if (req.method === "GET" && url.pathname === "/api/system/salud") {
+      const base = await one(`select pg_database_size(current_database())::bigint as bytes`).catch(() => null);
+      const sesiones = await pool
+        .query(
+          `select s.user_id, p.full_name, p.username, count(*)::int as cantidad, max(s.created_at) as ultima
+             from app_sessions s join profiles p on p.id = s.user_id
+            where s.expires_at > now() group by s.user_id, p.full_name, p.username order by max(s.created_at) desc`,
+        )
+        .then((r) => r.rows)
+        .catch(() => []);
+      sendJson(res, 200, {
+        disco: disco(),
+        baseBytes: Number(base?.bytes ?? 0),
+        memoria: process.memoryUsage().rss,
+        uptime: Math.round(process.uptime()),
+        node: process.version,
+        respaldos: estadoRespaldos(),
+        sesiones,
+        yo: session.user.id,
+      });
+      return true;
+    }
+    if (req.method === "POST" && url.pathname === "/api/system/respaldos") {
+      const nombre = await hacerRespaldo();
+      sendJson(res, 200, { ok: true, nombre });
+      return true;
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/api/system/respaldos/")) {
+      const archivo = streamRespaldo(decodeURIComponent(url.pathname.split("/").pop() || ""));
+      if (!archivo) {
+        sendJson(res, 404, { error: "Respaldo inexistente" });
+        return true;
+      }
+      await pool
+        .query(
+          `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_desc, detalle) values ($1, $2, $3, 'configuracion', 'revelar', $4, '{"respaldo":true}'::jsonb)`,
+          [session.user.id, session.profile?.full_name || "", session.user.email || "", `Descarga de respaldo ${url.pathname.split("/").pop()}`],
+        )
+        .catch(() => {});
+      res.writeHead(200, {
+        "content-type": "application/gzip",
+        "content-length": archivo.bytes,
+        "content-disposition": `attachment; filename="${url.pathname.split("/").pop()}"`,
+        "cache-control": "no-store",
+      });
+      archivo.stream.pipe(res);
+      return true;
+    }
+    if (req.method === "POST" && url.pathname === "/api/system/sesiones/cerrar") {
+      // Cierra todas las sesiones de un usuario (si es uno mismo, deja la actual).
+      const body = await readJson(req);
+      const userId = String(body.userId || "");
+      if (!userId) {
+        sendJson(res, 400, { error: "Falta el usuario" });
+        return true;
+      }
+      const actual = hashToken(bearerToken(req));
+      const r = await pool.query(`delete from app_sessions where user_id = $1 and token_hash <> $2`, [userId, actual]);
+      sendJson(res, 200, { ok: true, cerradas: r.rowCount });
+      return true;
+    }
+    sendJson(res, 404, { error: "No encontrado" });
+    return true;
+  } catch (error) {
+    sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : String(error.message || "Error") });
+    return true;
+  }
+}
+
 async function handleUpdates(req, res) {
   if (req.method !== "POST" || !req.url?.startsWith("/api/updates/")) return false;
   try {
@@ -1002,6 +1088,7 @@ const server = createServer(async (req, res) => {
     if (await handleAuth(req, res)) return;
     if (await handleAdjunto(req, res)) return;
     if (await handleQrPublico(req, res)) return;
+    if (await handleSalud(req, res)) return;
     if (await handleSystem(req, res)) return;
     if (await handleUpdates(req, res)) return;
     if (await handleInstructivoPdf(req, res)) return;
@@ -1041,6 +1128,7 @@ const server = createServer(async (req, res) => {
 }
 
 server.listen(port, host, () => {
+  iniciarRespaldoDiario();
   console.log(`Nodara listening on http://${host}:${port}`);
   if (maintenanceEnabled()) {
     console.warn("MAINTENANCE_MODE activo — sirviendo página de mantenimiento");
