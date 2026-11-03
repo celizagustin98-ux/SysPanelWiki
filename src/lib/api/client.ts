@@ -110,7 +110,7 @@ class QueryBuilder {
   private singleRow = false;
   private pending:
     | { action: "select"; columns?: string; opts?: { count?: "exact"; head?: boolean } }
-    | { action: "insert" | "update" | "delete"; values?: any };
+    | { action: "insert" | "update" | "delete"; values?: any } = { action: "select" };
 
   constructor(private table: string) {}
 

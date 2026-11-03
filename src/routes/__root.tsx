@@ -17,6 +17,7 @@ import { AuthProvider } from "@/lib/auth";
 import { useZonaVisible } from "@/lib/zona-visible";
 import { ThemeProvider } from "@/lib/theme";
 import { tituloConMarca, useMarca } from "@/lib/brand";
+import { ConfirmarHost } from "@/components/Confirmar";
 
 function StatusFrame({
   title,
@@ -189,6 +190,7 @@ function RootComponent() {
           <Outlet />
           <TituloConMarca />
           <Toaster richColors position="top-right" closeButton offset={{ top: 64, right: 16 }} />
+          <ConfirmarHost />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

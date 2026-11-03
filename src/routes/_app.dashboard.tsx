@@ -102,7 +102,7 @@ function isAltaPrioridad(p?: string | null) {
   return v === "alta" || v === "urgente" || v === "critica" || v === "crítica";
 }
 
-async function safeList<T>(promise: Promise<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+async function safeList<T>(promise: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   try {
     const { data, error } = await promise;
     if (error) return [];
@@ -136,7 +136,7 @@ function resolveGuardiaAhora(rows: GuardiaLite[], now = new Date()): GuardiaEsta
   }
 
   const hoy = startOfDay(now);
-  const deHoy = parsed.find((g) => coversNight(g, hoy));
+  const deHoy = parsed.find((g) => coversNight({ id: g.id ?? "", operador_nombre: g.operador_nombre, desde: g.desde, hasta: g.hasta, notas: g.notas ?? null }, hoy));
   if (deHoy) {
     return {
       operador_nombre: deHoy.operador_nombre,
@@ -167,6 +167,72 @@ function fmtRango(desde: string, hasta: string) {
   return `${a} → ${b}`;
 }
 
+type Tend = { tickets?: { creados: number; creados_antes: number; resueltos: number; resueltos_antes: number } | null; toners?: { usados: number; usados_antes: number } | null };
+
+/** "Esta semana" contra los 7 días anteriores; para el administrador también el estado del servidor. */
+function Tendencias() {
+  const { isAdmin } = useAuth();
+  const { data } = useQuery({
+    queryKey: ["dashboard", "tendencias"],
+    staleTime: 5 * 60_000,
+    queryFn: async () => ((await api.rpc("tendencias_dashboard")).data ?? {}) as Tend,
+  });
+  const { data: sistema } = useQuery({
+    queryKey: ["dashboard", "sistema"],
+    enabled: isAdmin,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const r = await fetch("/api/system/salud", { credentials: "same-origin" });
+      if (!r.ok) return null;
+      return (await r.json()) as { disco: { libre: number; total: number } | null; respaldos: { respaldos: { fecha: string }[] } };
+    },
+  });
+  const filas: { label: string; valor: number; antes: number; bueno: "sube" | "baja" | null; to: string }[] = [];
+  if (data?.tickets) {
+    filas.push({ label: "Tickets creados", valor: data.tickets.creados, antes: data.tickets.creados_antes, bueno: "baja", to: "/tareas" });
+    filas.push({ label: "Tickets resueltos", valor: data.tickets.resueltos, antes: data.tickets.resueltos_antes, bueno: "sube", to: "/tareas" });
+  }
+  if (data?.toners) filas.push({ label: "Tóners usados", valor: data.toners.usados, antes: data.toners.usados_antes, bueno: null, to: "/toners" });
+  const ultimoRespaldo = sistema?.respaldos.respaldos[0]?.fecha;
+  const horasRespaldo = ultimoRespaldo ? (Date.now() - new Date(ultimoRespaldo).getTime()) / 3600_000 : null;
+  const usoDisco = sistema?.disco ? 1 - sistema.disco.libre / sistema.disco.total : null;
+  if (!filas.length && !sistema) return null;
+
+  return (
+    <div className="panel flex flex-wrap items-stretch gap-x-6 gap-y-3 px-4 py-3">
+      <p className="eyebrow w-full sm:w-auto sm:self-center">Esta semana</p>
+      {filas.map((f) => {
+        const delta = f.valor - f.antes;
+        const mejor = f.bueno === null || delta === 0 ? null : (f.bueno === "sube") === delta > 0;
+        return (
+          <Link key={f.label} to={f.to} className="group min-w-[8.5rem]">
+            <p className="text-xs text-muted-foreground">{f.label}</p>
+            <p className="flex items-baseline gap-2">
+              <span className="num text-lg font-semibold">{f.valor}</span>
+              <span className={cn("num text-xs font-medium", mejor === null ? "text-muted-foreground" : mejor ? "text-ok" : "text-crit")}>
+                {delta === 0 ? "= semana pasada" : `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} vs. semana pasada`}
+              </span>
+            </p>
+          </Link>
+        );
+      })}
+      {sistema && (
+        <Link to="/configuracion" search={{ seccion: "salud" }} className="min-w-[10rem] sm:ml-auto">
+          <p className="text-xs text-muted-foreground">Servidor</p>
+          <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span className={cn("font-medium", horasRespaldo == null || horasRespaldo > 48 ? "text-crit" : "text-foreground")}>
+              {horasRespaldo == null ? "Sin respaldos" : horasRespaldo < 24 ? "Respaldo de hoy" : `Respaldo de hace ${Math.floor(horasRespaldo / 24)} d`}
+            </span>
+            {usoDisco != null && (
+              <span className={cn("text-xs", usoDisco > 0.9 ? "text-crit" : "text-muted-foreground")}>disco {Math.round(usoDisco * 100)}% usado</span>
+            )}
+          </p>
+        </Link>
+      )}
+    </div>
+  );
+}
+
 function Dashboard() {
   const { user, profile, can } = useAuth();
   const nombre = prettyName(profile?.full_name);
@@ -182,13 +248,10 @@ function Dashboard() {
         safeList<TareaLite>(
           api
             .from("tareas")
-            .select("id, titulo, estado, prioridad, vence_el, asignado_a") as Promise<{ data: TareaLite[] | null; error: unknown }>,
+            .select("id, titulo, estado, prioridad, vence_el, asignado_a"),
         ),
         safeList<TonerRow>(
-          api.from("toner_modelos").select("id, nombre, stock, stock_minimo") as Promise<{
-            data: TonerRow[] | null;
-            error: unknown;
-          }>,
+          api.from("toner_modelos").select("id, nombre, stock, stock_minimo"),
         ),
         safeList<GuardiaLite>(
           // Solo guardias vigentes o futuras: antes traía las 120 más viejas y nunca encontraba la actual.
@@ -197,7 +260,7 @@ function Dashboard() {
             .select("id, operador_nombre, desde, hasta, notas")
             .gte("hasta", new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
             .order("desde")
-            .limit(60) as Promise<{ data: GuardiaLite[] | null; error: unknown }>,
+            .limit(60),
         ),
         safeList<TareaLite>(
           api
@@ -205,7 +268,7 @@ function Dashboard() {
             .select("id, titulo, estado, prioridad, vence_el")
             .eq("asignado_a", user?.id ?? "")
             .order("updated_at", { ascending: false })
-            .limit(40) as Promise<{ data: TareaLite[] | null; error: unknown }>,
+            .limit(40),
         ),
       ]);
 
@@ -250,6 +313,7 @@ function Dashboard() {
   const saludo = saludoSegunHora();
 
   type Kpi = {
+    modulo: "tareas" | "toners";
     label: string;
     value: number;
     detail: string;
@@ -259,6 +323,7 @@ function Dashboard() {
   };
   const kpis: Kpi[] = [
     {
+      modulo: "tareas",
       label: "Tickets abiertos",
       value: data?.abiertas ?? 0,
       detail: `${data?.sinAsignar ?? 0} sin asignar`,
@@ -267,6 +332,7 @@ function Dashboard() {
       tone: (data?.sinAsignar ?? 0) > 0 ? "warn" : "info",
     },
     {
+      modulo: "tareas",
       label: "Prioridad alta",
       value: data?.urgentes ?? 0,
       detail: "críticos y altos",
@@ -275,6 +341,7 @@ function Dashboard() {
       tone: (data?.urgentes ?? 0) > 0 ? "crit" : "ok",
     },
     {
+      modulo: "tareas",
       label: "Vencidos",
       value: data?.vencidas ?? 0,
       detail: "fecha límite superada",
@@ -283,6 +350,7 @@ function Dashboard() {
       tone: (data?.vencidas ?? 0) > 0 ? "warn" : "ok",
     },
     {
+      modulo: "toners",
       label: "Tóners críticos",
       value: data?.criticos ?? 0,
       detail: "bajo stock mínimo",
@@ -325,8 +393,9 @@ function Dashboard() {
         }
       />
 
+      {kpis.some((k) => can(k.modulo, "view")) && (
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 stagger">
-        {kpis.map((k) => (
+        {kpis.filter((k) => can(k.modulo, "view")).map((k) => (
           <Link key={k.label} to={k.to} className="kpi-cell panel-hover group block">
             <div className="flex items-start justify-between gap-2">
               <p className="kpi-label flex items-center gap-2">
@@ -351,6 +420,9 @@ function Dashboard() {
           </Link>
         ))}
       </div>
+      )}
+
+      <Tendencias />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <GuardiaCard guardia={guardia} proximas={data?.proximas ?? []} loading={isLoading} canOpen={can("guardias", "view")} />

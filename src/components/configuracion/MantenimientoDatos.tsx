@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
+import { confirmar } from "@/components/Confirmar";
 
 type Estado = {
   baseBytes: number;
@@ -59,7 +60,7 @@ export function MantenimientoDatos() {
   });
 
   const limpiar = async (tipo: string, titulo: string) => {
-    if (!window.confirm(`¿Eliminar definitivamente: ${titulo.toLowerCase()}?`)) return;
+    if (!(await confirmar(`¿Eliminar definitivamente: ${titulo.toLowerCase()}?`, { detalle: "Se borran los registros de más de 12 meses. No se puede deshacer.", peligro: true }))) return;
     setLimpiando(tipo);
     const { data: r, error } = await api.rpc("depurar_datos", { _tipo: tipo, _meses: 12 });
     setLimpiando(null);

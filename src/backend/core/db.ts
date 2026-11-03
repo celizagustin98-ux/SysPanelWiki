@@ -40,7 +40,7 @@ export function requireDatabaseUrl() {
   }
 }
 
-export async function query<T = any>(text: string, values: unknown[] = []) {
+export async function query<T extends pg.QueryResultRow = any>(text: string, values: unknown[] = []) {
   requireDatabaseUrl();
   try {
     return await pool.query<T>(text, values);
@@ -53,7 +53,7 @@ export async function query<T = any>(text: string, values: unknown[] = []) {
   }
 }
 
-export async function one<T = any>(text: string, values: unknown[] = []) {
+export async function one<T extends pg.QueryResultRow = any>(text: string, values: unknown[] = []) {
   const result = await query<T>(text, values);
   return result.rows[0] ?? null;
 }

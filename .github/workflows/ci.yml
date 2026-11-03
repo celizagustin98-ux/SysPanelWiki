@@ -35,10 +35,9 @@ jobs:
           node --check scripts/respaldos.mjs
           bash -n scripts/actualizar.sh deploy/instalar.sh deploy/reinstalar.sh deploy/https.sh deploy/proxmox/crear-lxc.sh deploy/docker/entrypoint.sh
 
-      # Informativo hasta resolver los errores de tipado preexistentes.
+      # Sin errores de tipos: si aparece uno nuevo, el PR no se puede mergear.
       - name: Typecheck
         run: npx tsc --noEmit
-        continue-on-error: true
 
   docker:
     name: Docker

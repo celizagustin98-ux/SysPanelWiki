@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { PedidoInsumos } from "@/components/oficina/PedidoInsumos";
 import { Agenda } from "@/components/oficina/Agenda";
 import { ImportarTelefonos } from "@/components/oficina/ImportarTelefonos";
+import { confirmar } from "@/components/Confirmar";
 
 export const Route = createFileRoute("/_app/oficina")({
   ssr: false,
@@ -410,7 +411,7 @@ function TelefonosPanel() {
                         className="size-7 text-destructive"
                         aria-label="Eliminar"
                         onClick={() => {
-                          if (confirm(`¿Eliminar ${row.nombre} (${row.interno})?`)) remove.mutate(row.id);
+                          void confirmar(`¿Eliminar ${row.nombre} (${row.interno})?`, { peligro: true }).then((ok) => ok && remove.mutate(row.id));
                         }}
                       >
                         <Trash2 className="size-3.5" />

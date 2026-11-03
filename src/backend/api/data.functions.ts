@@ -641,6 +641,27 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
     }
+    if (data.name === "tendencias_dashboard") {
+      // Esta semana contra la anterior (7 días corridos), solo de los módulos que el rol puede ver.
+      const r: Record<string, unknown> = {};
+      if (await hasModulePermission(session.user.id, "tareas", "ver")) {
+        r.tickets = await one(
+          `select count(*) filter (where created_at >= now() - interval '7 days')::int creados,
+                  count(*) filter (where created_at >= now() - interval '14 days' and created_at < now() - interval '7 days')::int creados_antes,
+                  count(*) filter (where coalesce(resuelto_en, cerrado_en) >= now() - interval '7 days' and estado in ('resuelto','cerrado'))::int resueltos,
+                  count(*) filter (where coalesce(resuelto_en, cerrado_en) >= now() - interval '14 days' and coalesce(resuelto_en, cerrado_en) < now() - interval '7 days' and estado in ('resuelto','cerrado'))::int resueltos_antes
+             from tareas where created_at >= now() - interval '400 days'`,
+        ).catch(() => null);
+      }
+      if (await hasModulePermission(session.user.id, "toners", "ver")) {
+        r.toners = await one(
+          `select coalesce(sum(cantidad) filter (where created_at >= now() - interval '7 days'), 0)::int usados,
+                  coalesce(sum(cantidad) filter (where created_at >= now() - interval '14 days' and created_at < now() - interval '7 days'), 0)::int usados_antes
+             from toner_movimientos where tipo in ('uso','consumo','salida','reposicion') and created_at >= now() - interval '14 days'`,
+        ).catch(() => null);
+      }
+      return { data: r, error: null };
+    }
     if (data.name === "auditoria_buscar") {
       // Registro de auditoría paginado en el servidor, con búsqueda de texto y exportación del rango completo.
       if (!(await hasModulePermission(session.user.id, "auditoria", "ver"))) throw new Error("Tu rol no tiene permiso en Auditoría");
