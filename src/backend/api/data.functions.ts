@@ -641,6 +641,43 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
     }
+    if (data.name === "auditoria_buscar") {
+      // Registro de auditoría paginado en el servidor, con búsqueda de texto y exportación del rango completo.
+      if (!(await hasModulePermission(session.user.id, "auditoria", "ver"))) throw new Error("Tu rol no tiene permiso en Auditoría");
+      const a = data.args ?? {};
+      const conds: string[] = [];
+      const vals: unknown[] = [];
+      const add = (sql: string, v: unknown) => {
+        vals.push(v);
+        conds.push(sql.replace("?", `$${vals.length}`));
+      };
+      if (a._actor) add("actor_id = ?::uuid", String(a._actor));
+      if (a._modulo) add("modulo = ?", String(a._modulo));
+      if (a._accion) add("accion = ?", String(a._accion));
+      if (a._desde) add("created_at >= ?::timestamptz", String(a._desde));
+      if (a._hasta) add("created_at <= ?::timestamptz", String(a._hasta));
+      const texto = String(a._q ?? "").trim();
+      if (texto) {
+        vals.push(`%${texto.replace(/[%_]/g, "\\$&")}%`);
+        const n = vals.length;
+        conds.push(`(actor_nombre ilike $${n} or actor_email ilike $${n} or entidad_desc ilike $${n} or detalle::text ilike $${n})`);
+      }
+      const where = conds.length ? ` where ${conds.join(" and ")}` : "";
+      const resumen = await one<{ total: number; criticas: number; usuarios: number; modulos: number }>(
+        `select count(*)::int total, count(*) filter (where accion = 'eliminar')::int criticas,
+                count(distinct actor_id)::int usuarios, count(distinct modulo)::int modulos from audit_log${where}`,
+        vals,
+      );
+      const exportar = !!a._exportar;
+      const porPagina = exportar ? 20000 : Math.min(Math.max(Number(a._por_pagina) || 25, 10), 200);
+      const pagina = exportar ? 1 : Math.max(Number(a._pagina) || 1, 1);
+      const filas = await query(
+        `select id, actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle, created_at
+           from audit_log${where} order by created_at desc limit ${porPagina} offset ${(pagina - 1) * porPagina}`,
+        vals,
+      );
+      return { data: { rows: filas.rows, ...resumen }, error: null };
+    }
     if (data.name === "salud_credenciales") {
       if (!(await hasModulePermission(session.user.id, "credenciales", "ver"))) throw new Error("Tu rol no tiene permiso para ver credenciales");
       const vals: unknown[] = [];

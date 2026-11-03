@@ -38,3 +38,6 @@ dist-ssr
 storage/
 build-info.json
 dist.anterior
+
+# Respaldos diarios de la base (los genera el servidor)
+backups/

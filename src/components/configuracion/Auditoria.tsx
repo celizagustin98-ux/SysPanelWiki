@@ -6,6 +6,7 @@ import {
   History,
   Loader2,
   RefreshCw,
+  Search,
   ShieldCheck,
   Users,
   X,
@@ -105,28 +106,60 @@ export function Auditoria() {
   const [hasta, setHasta] = useState("");
   const [pagina, setPagina] = useState(1);
   const POR_PAGINA = 25;
+  const [texto, setTexto] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [resumen, setResumen] = useState({ total: 0, criticas: 0, usuarios: 0, modulos: 0 });
+  const [exportando, setExportando] = useState(false);
+
+  // La búsqueda se aplica cuando se deja de escribir.
+  useEffect(() => {
+    const t = window.setTimeout(() => setBusqueda(texto.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [texto]);
+  useEffect(() => setPagina(1), [actor, modulo, accion, desde, hasta, busqueda]);
+
+  const argumentos = useCallback(
+    () => ({
+      _actor: actor !== TODOS ? actor : null,
+      _modulo: modulo !== TODOS ? modulo : null,
+      _accion: accion !== TODOS ? accion : null,
+      _desde: desde ? new Date(`${desde}T00:00:00`).toISOString() : null,
+      _hasta: hasta ? new Date(`${hasta}T23:59:59`).toISOString() : null,
+      _q: busqueda || null,
+    }),
+    [actor, modulo, accion, desde, hasta, busqueda],
+  );
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    let q = api
-      .from("audit_log")
-      .select(
-        "id, actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle, created_at",
-      )
-      .order("created_at", { ascending: false })
-      .limit(300);
-
-    if (actor !== TODOS) q = q.eq("actor_id", actor);
-    if (modulo !== TODOS) q = q.eq("modulo", modulo);
-    if (accion !== TODOS) q = q.eq("accion", accion);
-    if (desde) q = q.gte("created_at", new Date(`${desde}T00:00:00`).toISOString());
-    if (hasta) q = q.lte("created_at", new Date(`${hasta}T23:59:59`).toISOString());
-
-    const { data, error } = await q;
+    const { data, error } = await api.rpc("auditoria_buscar", { ...argumentos(), _pagina: pagina, _por_pagina: POR_PAGINA });
     setCargando(false);
     if (error) return toast.error(error.message);
-    setRows((data ?? []) as AuditRow[]);
-  }, [actor, modulo, accion, desde, hasta]);
+    const r = data as { rows: AuditRow[]; total: number; criticas: number; usuarios: number; modulos: number };
+    setRows(r.rows ?? []);
+    setResumen({ total: r.total ?? 0, criticas: r.criticas ?? 0, usuarios: r.usuarios ?? 0, modulos: r.modulos ?? 0 });
+  }, [argumentos, pagina]);
+
+  const exportarTodo = async () => {
+    setExportando(true);
+    const { data, error } = await api.rpc("auditoria_buscar", { ...argumentos(), _exportar: true });
+    setExportando(false);
+    if (error) return toast.error(error.message);
+    const todas = ((data as { rows: AuditRow[] })?.rows ?? []) as AuditRow[];
+    exportCsv(
+      "auditoria-nodara.csv",
+      ["Fecha", "Usuario", "Correo", "Modulo", "Accion", "Elemento", "Detalle"],
+      todas.map((r) => [
+        new Date(r.created_at).toLocaleString("es-AR"),
+        r.actor_nombre,
+        r.actor_email,
+        labelModulo(r.modulo),
+        labelAccion(r.accion),
+        r.entidad_desc,
+        detalleLegible(r.detalle),
+      ]),
+    );
+  };
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -147,21 +180,14 @@ export function Auditoria() {
     setAccion(TODOS);
     setDesde("");
     setHasta("");
+    setTexto("");
   };
 
-  const hayFiltros = actor !== TODOS || modulo !== TODOS || accion !== TODOS || desde || hasta;
+  const hayFiltros = actor !== TODOS || modulo !== TODOS || accion !== TODOS || desde || hasta || texto;
 
-  useEffect(() => setPagina(1), [rows]);
-  const paginas = Math.max(1, Math.ceil(rows.length / POR_PAGINA));
+  const paginas = Math.max(1, Math.ceil(resumen.total / POR_PAGINA));
   const paginaSegura = Math.min(pagina, paginas);
-  const enPagina = rows.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA);
-
-  const resumen = useMemo(() => {
-    const criticas = rows.filter((r) => r.accion === "eliminar").length;
-    const usuarios = new Set(rows.map((r) => r.actor_id).filter(Boolean)).size;
-    const modulos = new Set(rows.map((r) => r.modulo).filter(Boolean)).size;
-    return { total: rows.length, criticas, usuarios, modulos };
-  }, [rows]);
+  const enPagina = rows;
 
   if (!isAdmin) {
     return (
@@ -179,25 +205,11 @@ export function Auditoria() {
   return (
     <div className="space-y-6">
           <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() =>
-                exportCsv(
-                  "auditoria-nodara.csv",
-                  ["Fecha", "Usuario", "Correo", "Modulo", "Accion", "Elemento", "Detalle"],
-                  rows.map((r) => [
-                    new Date(r.created_at).toLocaleString("es-AR"),
-                    r.actor_nombre,
-                    r.actor_email,
-                    labelModulo(r.modulo),
-                    labelAccion(r.accion),
-                    r.entidad_desc,
-                    detalleLegible(r.detalle),
-                  ]),
-                )
-              }
-              disabled={rows.length === 0}
-            >
+            <div className="relative mr-auto min-w-[14rem] flex-1 sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9" placeholder="Buscar usuario, elemento o detalle…" value={texto} onChange={(e) => setTexto(e.target.value)} />
+            </div>
+            <Button variant="outline" onClick={() => void exportarTodo()} disabled={resumen.total === 0 || exportando}>
               <Download className="mr-2 size-4" />
               Exportar
             </Button>
@@ -422,7 +434,7 @@ export function Auditoria() {
               {paginas > 1 && (
                 <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
                   <span>
-                    {(paginaSegura - 1) * POR_PAGINA + 1}–{Math.min(paginaSegura * POR_PAGINA, rows.length)} de {rows.length} eventos
+                    {(paginaSegura - 1) * POR_PAGINA + 1}–{Math.min(paginaSegura * POR_PAGINA, resumen.total)} de {resumen.total} eventos
                   </span>
                   <div className="flex items-center gap-1">
                     <Button size="sm" variant="outline" className="h-7" disabled={paginaSegura <= 1} onClick={() => setPagina(paginaSegura - 1)}>
