@@ -56,14 +56,10 @@ function ResetPasswordPage() {
 
       try {
         if (accessToken && refreshToken) {
-          await api.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-        } else if (code) {
-          await api.auth.exchangeCodeForSession(code);
-        } else if (tokenHash) {
-          await api.auth.verifyOtp({ type: "recovery", token_hash: tokenHash });
+          await api.auth.setSession({ access_token: accessToken });
+        } else if (code || tokenHash) {
+          // Los enlaces por correo requieren SMTP: sin eso la sesión no se abre y se muestra "enlace inválido".
+          await api.auth.exchangeCodeForSession();
         }
       } catch {
         /* se valida abajo con getSession */
@@ -74,7 +70,7 @@ function ResetPasswordPage() {
 
       const { data } = await api.auth.getSession();
       if (cancelado) return;
-      setEstado(data.session ? "listo" : "invalido");
+      setEstado(data?.session ? "listo" : "invalido");
     })();
 
     return () => {

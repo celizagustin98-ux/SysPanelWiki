@@ -57,6 +57,7 @@ import { useAuth } from "@/lib/auth";
 import { abrirPdfPedido } from "@/lib/toner-pedido-pdf";
 import { cn } from "@/lib/utils";
 import { StatTile } from "@/components/StatTile";
+import { confirmar } from "@/components/Confirmar";
 
 export const Route = createFileRoute("/_app/toners")({
   ssr: false,
@@ -317,7 +318,7 @@ function TonersPage() {
   };
 
   const eliminarPedido = async (p: Pedido) => {
-    if (!confirm(`¿Eliminar PED-${p.numero}? Esta acción no se puede deshacer.`)) return;
+    if (!(await confirmar(`¿Eliminar PED-${p.numero}?`, { detalle: "Esta acción no se puede deshacer.", peligro: true }))) return;
     await api.from("toner_pedido_items").delete().eq("pedido_id", p.id);
     const { error } = await api.from("toner_pedidos").delete().eq("id", p.id);
     if (error) return toast.error(error.message);

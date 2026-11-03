@@ -28,6 +28,7 @@ import {
   tipoExtraSugerido,
   ymd,
 } from "@/components/guardias/domain";
+import { confirmar } from "@/components/Confirmar";
 
 // ── Datos ──────────────────────────────────────────────────────────────
 
@@ -320,7 +321,7 @@ export function HorasExtras({
   const opDe = (nombre: string) => operarios.find((o) => normalizeName(o.nombre) === normalizeName(nombre)) ?? { nombre, code: "—", color: "" };
 
   const eliminar = async (e: HoraExtra) => {
-    if (!window.confirm(`¿Eliminar ${formatHoras(e.horas)} extra de ${e.operador_nombre} del ${fechaCorta(e.fecha)}?`)) return;
+    if (!(await confirmar(`¿Eliminar ${formatHoras(e.horas)} extra de ${e.operador_nombre} del ${fechaCorta(e.fecha)}?`, { peligro: true }))) return;
     const { error } = await api.from("guardia_horas_extras").delete().eq("id", e.id);
     if (error) return toast.error(error.message);
     toast.success("Horas extras eliminadas");

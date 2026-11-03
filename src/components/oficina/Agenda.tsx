@@ -36,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { confirmar } from "@/components/Confirmar";
 
 type Tipo = "proveedor" | "empresa";
 
@@ -911,7 +912,7 @@ function HistorialCambios({
   const restaurar = async (h: CambioContacto) => {
     const que = ETIQUETA_CAMPO[h.campo] ?? h.campo;
     const valor = h.cifrado ? "la clave anterior" : `«${valorLegible(h.campo, h.antes) ?? "vacío"}»`;
-    if (!window.confirm(`¿Volver ${que.toLowerCase()} de «${h.contacto_nombre}» a ${valor}?`)) return;
+    if (!(await confirmar(`¿Volver ${que.toLowerCase()} de «${h.contacto_nombre}» a ${valor}?`, { detalle: "El cambio queda registrado en el historial.", accion: "Restaurar" }))) return;
     setRestaurando(h.id);
     const { error } = await api.rpc("restaurar_historial_contacto", { _id: h.id });
     setRestaurando(null);
@@ -1088,7 +1089,7 @@ async function guardarContacto(contacto: Contacto | null, payload: Record<string
 }
 
 async function quitar(c: Contacto, onCambio: () => void) {
-  if (!window.confirm(`¿Quitar «${c.nombre}» de la agenda?`)) return;
+  if (!(await confirmar(`¿Quitar «${c.nombre}» de la agenda?`, { accion: "Quitar", peligro: true }))) return;
   const { error } = await api.from("oficina_contactos").update({ activo: false }).eq("id", c.id);
   if (error) return toast.error(error.message);
   toast.success("Quitado de la agenda");

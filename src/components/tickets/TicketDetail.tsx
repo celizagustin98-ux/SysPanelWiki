@@ -51,6 +51,7 @@ import {
   ticketLabel,
   tiempoRelativo,
 } from "./constants";
+import { confirmar } from "@/components/Confirmar";
 
 export function TicketDetail({
   ticket,
@@ -110,7 +111,7 @@ export function TicketDetail({
     queryKey: ["tarea_instructivos", ticket.id],
     queryFn: async () => {
       const { data } = await api.from("tarea_instructivos").select("doc_id").eq("tarea_id", ticket.id);
-      return (data ?? []).map((r) => r.doc_id as string);
+      return ((data ?? []) as { doc_id: string }[]).map((r) => r.doc_id);
     },
   });
 
@@ -467,7 +468,7 @@ export function TicketDetail({
 
             {isAdmin && (
               <Button variant="outline" size="sm" className="w-full" onClick={async () => {
-                if (!confirm("¿Eliminar este ticket?")) return;
+                if (!(await confirmar("¿Eliminar este ticket?", { detalle: "Se borran también sus comentarios y pasos. No se puede deshacer.", peligro: true }))) return;
                 await api.from("tareas").delete().eq("id", ticket.id);
                 toast.success("Ticket eliminado");
                 onClose();
