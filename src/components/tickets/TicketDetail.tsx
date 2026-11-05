@@ -38,6 +38,7 @@ import { Adjuntos } from "@/components/Adjuntos";
 import { ActivoPicker } from "@/components/activos/ActivoPicker";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
+import { pasoAnimado } from "@/lib/fila-clic";
 import {
   ESTADOS,
   colorEstado,
@@ -318,7 +319,7 @@ export function TicketDetail({
 
             <section>
               <SectionTitle icon={<MessageSquare className="size-3.5" />}>Actividad</SectionTitle>
-              <div className="mt-3 space-y-3">
+              <div className="linea-tiempo mt-3 space-y-3">
                 {comentarios.map((c) =>
                   c.contenido.startsWith(MARCA_SISTEMA) ? (
                     <div key={c.id} className="relative flex items-center gap-2 pl-4 text-xs text-muted-foreground">
@@ -519,9 +520,11 @@ function FlujoTicket({ estado }: { estado: string }) {
         return (
           <li key={p.key} className="min-w-0" aria-current={actual ? "step" : undefined}>
             <div
+              style={pasoAnimado(i)}
               className={cn(
                 "rounded-full transition-all duration-500",
-                actual ? "h-2.5 shadow-sm" : "h-2",
+                actual ? "paso-actual h-2.5 shadow-sm" : "h-2",
+                hecho && "crece-x",
                 hecho || actual ? colorEstado(actual ? estado : p.key).barra : "bg-muted",
                 hecho && "opacity-55",
               )}

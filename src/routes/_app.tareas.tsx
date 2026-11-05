@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
+import { clicDeFila } from "@/lib/fila-clic";
 import {
   type Ticket as TicketT,
   estadoLabel,
@@ -656,8 +657,9 @@ function TicketTable({
       {items.map((t, i) => (
         <div
           key={t.id}
+          onClick={(e) => clicDeFila(e, () => onOpen(t.id))}
           className={cn(
-            "relative grid grid-cols-1 gap-2 px-4 py-3 transition hover:bg-muted/25 lg:grid-cols-[minmax(0,1.7fr)_88px_120px_140px_100px_110px] lg:items-center",
+            "fila-clic relative grid grid-cols-1 gap-2 px-4 py-3 lg:grid-cols-[minmax(0,1.7fr)_88px_120px_140px_100px_110px] lg:items-center",
             i > 0 && "border-t border-border/40",
           )}
         >
@@ -1085,7 +1087,7 @@ function HistorialMes({
               </p>
               <div className="panel divide-y divide-border/60 overflow-hidden">
                 {items.map((t) => (
-                  <div key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/30">
+                  <div key={t.id} onClick={(e) => clicDeFila(e, () => onOpen(t.id))} className="fila-clic flex flex-wrap items-center gap-3 px-4 py-3">
                     <span className="led" data-tone={t.estado === "cerrado" ? "ok" : undefined} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13.5px] font-medium">{t.titulo}</p>

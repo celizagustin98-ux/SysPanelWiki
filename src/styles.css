@@ -766,6 +766,93 @@
   }
 }
 
+/* Fila o tarjeta que abre un detalle: se remarca al pasar el mouse para que se note que es clicable. */
+@utility fila-clic {
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+  /* :is(.fila-clic) sube la especificidad para ganarle al hover propio de las tablas. */
+  &:is(.fila-clic):hover {
+    background-color: color-mix(in oklab, var(--color-primary) 9%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 30%, transparent);
+  }
+  &:is(.fila-clic):active {
+    background-color: color-mix(in oklab, var(--color-primary) 14%, transparent);
+  }
+}
+
+/* Barras de avance (pasos de un pedido o ticket): crecen de izquierda a derecha, una después de la otra. */
+@utility crece-x {
+  transform-origin: left center;
+  animation: meter-grow 0.55s var(--ease-out-expo) both;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+
+/* El paso en el que está el pedido o ticket "late" suave. */
+@utility paso-actual {
+  animation:
+    meter-grow 0.55s var(--ease-out-expo) both,
+    paso-latido 2.6s ease-in-out 0.8s infinite;
+  animation-delay: calc(var(--i, 0) * 80ms), calc(var(--i, 0) * 80ms + 0.6s);
+}
+
+@keyframes paso-latido {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 0%, transparent);
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+    box-shadow: 0 0 10px 1px color-mix(in oklab, var(--color-primary) 45%, transparent);
+  }
+}
+
+/* Historial / línea de tiempo: los eventos entran escalonados y el punto "aparece". */
+@utility linea-tiempo {
+  & > * {
+    animation: rise-in 0.4s var(--ease-out-expo) both;
+  }
+  & > li > span:first-child {
+    animation: pop-in 0.35s var(--ease-out-expo) both;
+    animation-delay: inherit;
+  }
+  & > *:nth-child(2) {
+    animation-delay: 50ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 100ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 150ms;
+  }
+  & > *:nth-child(5) {
+    animation-delay: 200ms;
+  }
+  & > *:nth-child(6) {
+    animation-delay: 250ms;
+  }
+  & > *:nth-child(n + 7) {
+    animation-delay: 300ms;
+  }
+}
+
+/* Al expandir el menú los textos aparecen recién cuando ya hay lugar (no se cortan ni saltan de línea). */
+@utility aparece-tarde {
+  animation: aparece-tarde 0.32s ease both;
+}
+
+@keyframes aparece-tarde {
+  0%,
+  45% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 .wiki-content h1 {
   font-size: 1.5rem;
   font-weight: 650;

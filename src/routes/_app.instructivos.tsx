@@ -966,7 +966,7 @@ function FileTable({
               <tr
                 key={d.id}
                 onClick={() => onOpen(d)}
-                className="cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
+                className="fila-clic border-b border-border/60 last:border-0"
               >
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-2.5">
