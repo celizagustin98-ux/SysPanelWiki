@@ -22,6 +22,7 @@ import { coversNight, isVacacion, parseLocal } from "@/components/guardias/domai
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { AccesosRapidos, MiDia } from "@/components/dashboard/MiDia";
 
 export const Route = createFileRoute("/_app/dashboard")({
   ssr: false,
@@ -360,14 +361,6 @@ function Dashboard() {
     },
   ];
 
-  const atajos = [
-    { label: "Tickets", to: "/tareas", icon: ClipboardList, modulo: "tareas" as const },
-    { label: "Tóners", to: "/toners", icon: Printer, modulo: "toners" as const },
-    { label: "Instructivos", to: "/instructivos", icon: BookOpen, modulo: "instructivos" as const },
-    { label: "Activos IT", to: "/inventario", icon: Boxes, modulo: "inventario" as const },
-    { label: "Guardias / Horarios", to: "/guardias", icon: CalendarClock, modulo: "guardias" as const },
-    { label: "Credenciales", to: "/credenciales", icon: KeyRound, modulo: "credenciales" as const },
-  ].filter((a) => can(a.modulo, "view"));
 
   return (
     <div className="space-y-6">
@@ -392,6 +385,8 @@ function Dashboard() {
           </div>
         }
       />
+
+      <MiDia />
 
       {kpis.some((k) => can(k.modulo, "view")) && (
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 stagger">
@@ -444,25 +439,7 @@ function Dashboard() {
         />
       </div>
 
-      {atajos.length > 0 && (
-        <div>
-          <p className="eyebrow mb-2.5">Accesos rápidos</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            {atajos.map((a) => (
-              <Link
-                key={a.to}
-                to={a.to}
-                className="panel panel-hover group flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium"
-              >
-                <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary transition-transform group-hover:scale-110">
-                  <a.icon className="size-3.5" />
-                </span>
-                {a.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      <AccesosRapidos />
     </div>
   );
 }

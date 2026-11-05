@@ -23,7 +23,7 @@ import {
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
 import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
-import { alertasArea, notificar, notificarCambios } from "@/backend/core/notificaciones";
+import { EVENTOS_EXTERNOS, alertasArea, avisoExterno, notificar, notificarCambios } from "@/backend/core/notificaciones";
 import { proximaFecha, type Frecuencia } from "@/components/tickets/recurrencia";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
@@ -81,6 +81,9 @@ const TABLES = new Set([
   "sistema_actualizaciones",
   "ticket_respuestas",
   "ticket_recurrentes",
+  "insumos_plantillas",
+  "guardia_intercambios",
+  "instructivo_ejecuciones",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -122,6 +125,9 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   sistema_actualizaciones: { modulo: "oficina", fields: ["sistema", "version", "titulo"] },
   ticket_respuestas: { modulo: "tareas", fields: ["titulo"] },
   ticket_recurrentes: { modulo: "tareas", fields: ["titulo", "frecuencia"] },
+  insumos_plantillas: { modulo: "oficina", fields: ["nombre"] },
+  guardia_intercambios: { modulo: "guardias", fields: ["fecha", "de_nombre", "a_nombre", "estado"] },
+  instructivo_ejecuciones: { modulo: "instructivos", fields: ["doc_titulo", "completos", "total"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -406,6 +412,9 @@ const MODULO_DE_TABLA: Record<string, string> = {
   sistema_actualizaciones: "oficina",
   ticket_respuestas: "tareas",
   ticket_recurrentes: "tareas",
+  insumos_plantillas: "oficina",
+  guardia_intercambios: "guardias",
+  instructivo_ejecuciones: "instructivos",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
@@ -577,13 +586,18 @@ export const apiMutate = createServerFn({ method: "POST" })
         const prevWhere = appendFilters(data.filters, prevValues);
         antes = (await query<Record<string, unknown>>(`select * from oficina_contactos${prevWhere}`, prevValues)).rows;
       }
+      if (table === "sistema_actualizaciones") {
+        const prevValues: unknown[] = [];
+        const prevWhere = appendFilters(data.filters, prevValues);
+        antes = (await query<Record<string, unknown>>(`select id, estado from sistema_actualizaciones${prevWhere}`, prevValues)).rows;
+      }
       if (table === "tareas") {
         const prevValues: unknown[] = [];
         const prevWhere = appendFilters(data.filters, prevValues);
         antes = (await query<Record<string, unknown>>(`select id, asignado_a, estado from tareas${prevWhere}`, prevValues)).rows;
       }
       const result = await query<Record<string, unknown>>(`update ${table} set ${assignments.join(", ")}${where} returning *`, values);
-      if (table === "tareas") await notificarCambios(table, "update", session.user.id, result.rows, antes);
+      if (table === "tareas" || table === "sistema_actualizaciones") await notificarCambios(table, "update", session.user.id, result.rows, antes);
       if (table === "oficina_contactos") await registrarHistorialContactos(session.user.id, antes, result.rows);
       await writeAudit(session.user.id, table, "editar", result.rows, { campos: Object.keys(payload).filter((k) => k !== "secreto") });
       return { data: null, count: result.rowCount ?? 0, error: null };
@@ -655,6 +669,137 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "mi_dia") {
+      // Resumen personal para el inicio: mis tickets, la guardia de hoy, mi próxima guardia y mis pedidos.
+      const uid = session.user.id;
+      const yo = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [uid]);
+      const nombre = (yo?.full_name ?? "").trim().toLowerCase();
+      const r: Record<string, unknown> = {};
+      if (await hasModulePermission(uid, "tareas", "ver")) {
+        r.tickets = await one(
+          `select count(*)::int abiertos,
+                  count(*) filter (where vence_el = current_date)::int vencen_hoy,
+                  count(*) filter (where vence_el < current_date)::int vencidos,
+                  count(*) filter (where prioridad in ('critica', 'alta'))::int urgentes
+             from tareas where asignado_a = $1 and estado not in ('resuelto', 'cerrado', 'cancelado')`,
+          [uid],
+        ).catch(() => null);
+      }
+      if (await hasModulePermission(uid, "guardias", "ver")) {
+        r.guardia_hoy = (
+          await one<{ operador_nombre: string }>(
+            `select operador_nombre from guardias where desde::date <= current_date and hasta::date > current_date and coalesce(notas, '') not ilike '%vacacion%' order by desde desc limit 1`,
+          ).catch(() => null)
+        )?.operador_nombre ?? null;
+        r.mi_proxima = nombre
+          ? ((await one<{ d: string }>(
+              `select to_char(desde::date, 'YYYY-MM-DD') d from guardias
+                where lower(trim(operador_nombre)) = $1 and desde::date >= current_date and coalesce(notas, '') not ilike '%vacacion%'
+                order by desde limit 1`,
+              [nombre],
+            ).catch(() => null))?.d ?? null)
+          : null;
+      }
+      if (await hasModulePermission(uid, "oficina", "ver")) {
+        r.pedidos = (
+          await one<{ n: number }>(
+            `select count(*)::int n from insumos_pedidos where (created_by = $1 or lower(trim(solicitante_nombre)) = $2) and estado in ('enviado', 'aprobado', 'en_compra', 'comprado')`,
+            [uid, nombre],
+          ).catch(() => null)
+        )?.n ?? 0;
+        r.versiones_pendientes = (await one<{ n: number }>(`select count(*)::int n from sistema_actualizaciones where estado = 'pendiente'`).catch(() => null))?.n ?? 0;
+      }
+      return { data: r, error: null };
+    }
+    if (data.name === "avisos_externos_leer") {
+      await assertAdmin(session.user.id);
+      const v = (await one<{ valor: { token?: string; chat_id?: string; eventos?: string[] } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
+      // El token nunca vuelve al navegador: solo se informa si está cargado.
+      return { data: { tiene_token: !!v?.token, chat_id: v?.chat_id ?? "", eventos: v?.eventos ?? [...EVENTOS_EXTERNOS] }, error: null };
+    }
+    if (data.name === "avisos_externos_guardar") {
+      await assertAdmin(session.user.id);
+      const previo = (await one<{ valor: { token?: string } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
+      const tokenNuevo = String(data.args?._token ?? "").trim();
+      if (tokenNuevo && !/^\d{5,}:[\w-]{20,}$/.test(tokenNuevo)) throw new Error("El token del bot no tiene el formato de Telegram (números:letras)");
+      const eventos = (Array.isArray(data.args?._eventos) ? data.args._eventos : []).filter((e: unknown) => (EVENTOS_EXTERNOS as readonly string[]).includes(String(e)));
+      const valor = {
+        token: data.args?._quitar_token ? undefined : tokenNuevo ? encryptSecret(tokenNuevo) : previo?.token,
+        chat_id: String(data.args?._chat_id ?? "").trim().slice(0, 40),
+        eventos,
+      };
+      await query(
+        `insert into ajustes (clave, valor, updated_at) values ('avisos_telegram', $1::jsonb, now()) on conflict (clave) do update set valor = excluded.valor, updated_at = now()`,
+        [JSON.stringify(valor)],
+      );
+      await writeAudit(session.user.id, "ajustes", "editar", [{ id: "avisos_telegram" }], { entidad_desc: "Avisos por Telegram" }, "configuracion");
+      return { data: true, error: null };
+    }
+    if (data.name === "avisos_externos_probar") {
+      await assertAdmin(session.user.id);
+      const r = await avisoExterno("prueba", "✅ Prueba de avisos de Nodara: si ves este mensaje, los avisos urgentes van a llegar a este chat.");
+      if (!r.ok) throw new Error(r.motivo);
+      return { data: true, error: null };
+    }
+    if (data.name === "ajuste_leer") {
+      // Solo ajustes que cualquiera puede ver; los de integraciones (tokens) quedan para el administrador.
+      const clave = String(data.args?._clave ?? "");
+      const publicos = ["tope_horas_extras"];
+      if (!publicos.includes(clave)) await assertAdmin(session.user.id);
+      const fila = await one<{ valor: unknown }>(`select valor from ajustes where clave = $1`, [clave]).catch(() => null);
+      return { data: fila?.valor ?? null, error: null };
+    }
+    if (data.name === "ajuste_guardar") {
+      await assertAdmin(session.user.id);
+      const clave = String(data.args?._clave ?? "");
+      if (!/^[a-z_]{3,40}$/.test(clave)) throw new Error("Ajuste inválido");
+      await query(
+        `insert into ajustes (clave, valor, updated_at) values ($1, $2::jsonb, now()) on conflict (clave) do update set valor = excluded.valor, updated_at = now()`,
+        [clave, JSON.stringify(data.args?._valor ?? null)],
+      );
+      await writeAudit(session.user.id, "ajustes", "editar", [{ id: clave }], { entidad_desc: clave }, "configuracion");
+      return { data: true, error: null };
+    }
+    if (data.name === "mis_preferencias") {
+      const fila = await one<{ preferencias: Record<string, unknown> }>(`select coalesce(preferencias, '{}'::jsonb) preferencias from profiles where id = $1`, [session.user.id]).catch(() => null);
+      return { data: fila?.preferencias ?? {}, error: null };
+    }
+    if (data.name === "guardar_preferencias") {
+      // Cada usuario guarda solo las suyas; se fusionan con las que ya tenía.
+      const cambios = data.args?._preferencias;
+      if (!cambios || typeof cambios !== "object" || Array.isArray(cambios)) throw new Error("Preferencias inválidas");
+      if (JSON.stringify(cambios).length > 20_000) throw new Error("Preferencias demasiado grandes");
+      const fila = await one<{ preferencias: Record<string, unknown> }>(
+        `update profiles set preferencias = coalesce(preferencias, '{}'::jsonb) || $2::jsonb where id = $1 returning preferencias`,
+        [session.user.id, JSON.stringify(cambios)],
+      );
+      return { data: fila?.preferencias ?? {}, error: null };
+    }
+    if (data.name === "avisar_actualizacion_pendiente") {
+      // Aviso al resto del área de que hay una versión para subir.
+      if (!(await hasModulePermission(session.user.id, "oficina", "editar"))) throw new Error("Tu rol no tiene permiso en Oficina");
+      const a = await one<{ sistema: string; version: string | null }>(`select sistema, version from sistema_actualizaciones where id = $1`, [data.args?._id]);
+      if (!a) throw new Error("Actualización inexistente");
+      const actor = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [session.user.id]);
+      const destinos = await query<{ id: string }>(
+        `select distinct p.id from profiles p join user_roles ur on ur.user_id = p.id
+           left join app_users au on au.id = p.id
+          where p.id <> $1 and coalesce(au.activo, true) and ur.role in ('administrador', 'tecnico')`,
+        [session.user.id],
+      ).catch(() => ({ rows: [] as { id: string }[] }));
+      await notificar(
+        destinos.rows.map((d) => ({
+          userId: d.id,
+          tipo: "actualizacion",
+          titulo: `Versión pendiente de subir: ${a.sistema}${a.version ? ` v${a.version}` : ""}`,
+          cuerpo: "Registrada en Oficina → Actualizaciones de sistemas.",
+          link: "/oficina?tab=actualizaciones",
+          actorNombre: actor?.full_name ?? "",
+        })),
+      );
+      await avisoExterno("version_pendiente", `🆕 Versión pendiente de subir: ${a.sistema}${a.version ? ` v${a.version}` : ""} (registró ${actor?.full_name ?? ""}).`);
+      return { data: { avisados: destinos.rows.length }, error: null };
     }
     if (data.name === "generar_tickets_recurrentes") {
       // Crea los tickets periódicos que ya tocan. Es idempotente: cada recurrente se "reserva"

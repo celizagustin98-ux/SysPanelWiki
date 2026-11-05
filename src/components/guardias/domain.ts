@@ -345,3 +345,21 @@ export function resumirExtras(extras: HoraExtra[], operarios: Operario[]): Resum
   }
   return [...filas.values()];
 }
+
+/**
+ * Plan para copiar la planilla: cada noche vacía del período toma a quien estuvo de guardia
+ * el mismo día de la semana `semanas` atrás. No pisa noches ya cargadas ni a quien esté de vacaciones.
+ */
+export function planCopiaGuardias(dias: Date[], guardias: Guardia[], semanas: number): { dia: Date; operador: string }[] {
+  const plan: { dia: Date; operador: string }[] = [];
+  for (const dia of dias) {
+    if (guardias.some((g) => !isVacacion(g) && coversNight(g, dia))) continue;
+    const origen = addDays(dia, -7 * semanas);
+    const g = guardias.find((x) => !isVacacion(x) && coversNight(x, origen));
+    if (!g) continue;
+    const deVacaciones = guardias.some((x) => isVacacion(x) && coversNight(x, dia) && normalizeName(x.operador_nombre) === normalizeName(g.operador_nombre));
+    if (deVacaciones) continue;
+    plan.push({ dia, operador: g.operador_nombre });
+  }
+  return plan;
+}

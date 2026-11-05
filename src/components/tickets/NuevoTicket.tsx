@@ -28,13 +28,16 @@ export function NuevoTicket({
   userId,
   userName,
   onDone,
+  abrir,
 }: {
+  /** Abrir el formulario al entrar (acceso directo "Nuevo ticket"). */
+  abrir?: boolean;
   perfiles: { id: string; full_name: string }[];
   userId?: string;
   userName?: string | null;
   onDone: (id?: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!abrir);
   const [prioridad, setPrioridad] = useState("media");
   const [tipo, setTipo] = useState("pedido");
   const [asignado, setAsignado] = useState("none");

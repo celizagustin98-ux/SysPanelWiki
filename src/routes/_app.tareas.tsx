@@ -39,7 +39,10 @@ import { SLA_HORAS, calcularSla } from "@/components/tickets/sla";
 
 export const Route = createFileRoute("/_app/tareas")({
   ssr: false,
-  validateSearch: (s: Record<string, unknown>): { ticket?: string } => (typeof s.ticket === "string" ? { ticket: s.ticket } : {}),
+  validateSearch: (s: Record<string, unknown>): { ticket?: string; nuevo?: string } => ({
+    ...(typeof s.ticket === "string" ? { ticket: s.ticket } : {}),
+    ...(s.nuevo ? { nuevo: String(s.nuevo) } : {}),
+  }),
   head: () => ({
     meta: [
       { title: "Tickets · Nodara" },
@@ -107,7 +110,7 @@ function TicketsPage() {
     }
   };
   const [q, setQ] = useState("");
-  const { ticket: ticketParam } = Route.useSearch();
+  const { ticket: ticketParam, nuevo: nuevoParam } = Route.useSearch();
   const [selectedId, setSelectedId] = useState<string | null>(ticketParam ?? null);
   // Tickets tildados para acciones en lote.
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
@@ -378,6 +381,7 @@ function TicketsPage() {
             <Recurrentes perfiles={perfiles} canWrite={!!canWrite} />
             {canWrite && (
               <NuevoTicket
+                abrir={!!nuevoParam}
                 perfiles={perfiles}
                 userId={user?.id}
                 userName={profile?.full_name}

@@ -14,8 +14,7 @@ import {
   ShieldCheck,
   UserCheck,
   Users,
-  type LucideIcon,
-} from "lucide-react";
+  type LucideIcon, BellRing } from "lucide-react";
 import { PageHeader } from "@/components/AppShell";
 import { Card, CardContent } from "@/components/ui/card";
 import { BrandMark } from "@/components/brand/BrandMark";
@@ -33,8 +32,9 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { AvisosExternos } from "@/components/configuracion/AvisosExternos";
 
-type SeccionKey = "general" | "salud" | "usuarios" | "roles" | "auditoria" | "feriados" | "reportes" | "datos" | "guia";
+type SeccionKey = "general" | "salud" | "avisos" | "usuarios" | "roles" | "auditoria" | "feriados" | "reportes" | "datos" | "guia";
 
 const SECCIONES: {
   grupo: string;
@@ -45,6 +45,7 @@ const SECCIONES: {
     items: [
       { key: "general", label: "General", hint: "Versión, estado y escaneo QR", icon: Info },
       { key: "salud", label: "Salud y respaldos", hint: "Disco, base, respaldos diarios y sesiones abiertas", icon: HeartPulse },
+      { key: "avisos", label: "Avisos externos", hint: "Avisos urgentes por Telegram", icon: BellRing },
       {
         key: "feriados",
         label: "Feriados",
@@ -226,6 +227,7 @@ function ConfiguracionPage() {
 
           {seccion === "general" && <General onIr={ir} />}
           {seccion === "salud" && <SaludSistema />}
+          {seccion === "avisos" && <AvisosExternos />}
           {seccion === "usuarios" && <UsuariosAdmin />}
           {seccion === "roles" && <RolesPermisos />}
           {seccion === "auditoria" && <Auditoria />}

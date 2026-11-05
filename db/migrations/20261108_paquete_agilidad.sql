@@ -40,3 +40,60 @@ create index if not exists inventario_mant_proximo_idx on inventario (mant_proxi
 alter table inventario add column if not exists toner_modelo_id uuid references toner_modelos(id) on delete set null;
 alter table toner_movimientos add column if not exists activo_id uuid references inventario(id) on delete set null;
 create index if not exists toner_movimientos_activo_idx on toner_movimientos (activo_id, created_at desc) where activo_id is not null;
+
+-- ── Oficina: plantillas de pedidos frecuentes ──
+create table if not exists insumos_plantillas (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique,
+  lineas text not null,
+  created_at timestamptz not null default now()
+);
+
+-- ── Preferencias de cada usuario (favoritos, accesos rápidos) ──
+alter table profiles add column if not exists preferencias jsonb not null default '{}'::jsonb;
+
+-- ── Ajustes generales del sistema (clave → valor) ──
+create table if not exists ajustes (
+  clave text primary key,
+  valor jsonb,
+  updated_at timestamptz not null default now()
+);
+
+-- ── Guardias: intercambios entre compañeros con aprobación ──
+create table if not exists guardia_intercambios (
+  id uuid primary key default gen_random_uuid(),
+  fecha date not null,
+  de_nombre text not null,
+  a_nombre text not null,
+  devuelve_fecha date,
+  motivo text,
+  estado text not null default 'pendiente' check (estado in ('pendiente', 'aprobado', 'rechazado', 'cancelado')),
+  pedido_por uuid references profiles(id) on delete set null,
+  pedido_por_nombre text,
+  resuelto_por_nombre text,
+  resuelto_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists guardia_intercambios_estado_idx on guardia_intercambios (estado, fecha);
+
+-- ── Instructivos: checklist ejecutable ──
+alter table wiki_docs add column if not exists pasos text[] not null default '{}';
+create table if not exists instructivo_ejecuciones (
+  id uuid primary key default gen_random_uuid(),
+  doc_id uuid not null references wiki_docs(id) on delete cascade,
+  doc_titulo text,
+  pasos jsonb not null default '[]'::jsonb,
+  completos integer not null default 0,
+  total integer not null default 0,
+  notas text,
+  tarea_id uuid references tareas(id) on delete set null,
+  ticket_numero integer,
+  ejecutado_por_nombre text,
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists instructivo_ejecuciones_doc_idx on instructivo_ejecuciones (doc_id, created_at desc);
+
+-- ── Credenciales: responsable y cada cuánto hay que cambiar la clave ──
+alter table credenciales add column if not exists responsable_id uuid references profiles(id) on delete set null;
+alter table credenciales add column if not exists rotar_cada_dias integer;

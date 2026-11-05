@@ -616,9 +616,30 @@ function CargaRapida({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const qc = useQueryClient();
   const [texto, setTexto] = useState("");
   const [sector, setSector] = useState(sectorInicial);
   const [busy, setBusy] = useState(false);
+  const [nombrePlantilla, setNombrePlantilla] = useState<string | null>(null);
+  const { data: plantillas = [] } = useQuery({
+    queryKey: ["insumos_plantillas"],
+    queryFn: async () => ((await api.from("insumos_plantillas").select("*").order("nombre")).data ?? []) as { id: string; nombre: string; lineas: string }[],
+  });
+  const agregarTexto = (nuevas: string) => setTexto((t) => (t.trim() ? `${t.trim()}\n${nuevas}` : nuevas));
+  const guardarPlantilla = async () => {
+    const nombre = (nombrePlantilla ?? "").trim();
+    if (nombre.length < 3) return toast.error("Poné un nombre (por ejemplo «Kit puesto nuevo»)");
+    const { error } = await api.from("insumos_plantillas").insert({ nombre, lineas: texto.trim() });
+    if (error) return toast.error(error.message.includes("unique") || error.message.includes("duplic") ? "Ya hay una plantilla con ese nombre" : error.message);
+    toast.success(`Plantilla «${nombre}» guardada`);
+    setNombrePlantilla(null);
+    void qc.invalidateQueries({ queryKey: ["insumos_plantillas"] });
+  };
+  const borrarPlantilla = async (id: string) => {
+    const { error } = await api.from("insumos_plantillas").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    void qc.invalidateQueries({ queryKey: ["insumos_plantillas"] });
+  };
   const recientes = catalogo.pedidos.filter((p) => p.estado !== "rechazado").slice(0, 15);
 
   const lineas = texto
@@ -632,8 +653,7 @@ function CargaRapida({
 
   const traer = (pedidoId: string) => {
     const its = catalogo.historico.filter((i) => i.pedido_id === pedidoId && !i.cancelado);
-    const nuevas = its.map((i) => `${Number(i.cantidad)} ${i.unidad && i.unidad !== "u." ? `${i.unidad} ` : "x "}${i.descripcion}`).join("\n");
-    setTexto((t) => (t.trim() ? `${t.trim()}\n${nuevas}` : nuevas));
+    agregarTexto(its.map((i) => `${Number(i.cantidad)} ${i.unidad && i.unidad !== "u." ? `${i.unidad} ` : "x "}${i.descripcion}`).join("\n"));
   };
 
   const agregar = async () => {
@@ -668,6 +688,23 @@ function CargaRapida({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {plantillas.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Pedidos frecuentes</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {plantillas.map((p) => (
+                  <span key={p.id} className="group inline-flex items-center overflow-hidden rounded-md border border-border">
+                    <button type="button" onClick={() => agregarTexto(p.lineas)} className="px-2.5 py-1 text-xs font-medium hover:bg-primary/10 hover:text-primary">
+                      {p.nombre}
+                    </button>
+                    <button type="button" onClick={() => void borrarPlantilla(p.id)} className="hidden border-l border-border px-1.5 py-1 text-muted-foreground hover:text-destructive group-hover:block" aria-label={`Borrar ${p.nombre}`}>
+                      <Trash2 className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {recientes.length > 0 && (
             <div className="space-y-1.5">
               <Label className="text-xs">Repetir un pedido anterior</Label>
@@ -690,6 +727,19 @@ function CargaRapida({
             <Label className="text-xs">Para qué sector (todos)</Label>
             <Input value={sector} onChange={(e) => setSector(e.target.value)} list="sectores-insumo" placeholder="Opcional" className="h-9" />
           </div>
+          {lineas.length > 1 &&
+            (nombrePlantilla === null ? (
+              <button type="button" className="w-fit text-xs text-primary hover:underline" onClick={() => setNombrePlantilla("")}>
+                Guardar esta lista como pedido frecuente
+              </button>
+            ) : (
+              <div className="flex gap-1.5">
+                <Input value={nombrePlantilla} onChange={(e) => setNombrePlantilla(e.target.value)} placeholder="Nombre (ej. Kit puesto nuevo)" className="h-8 text-xs" autoFocus />
+                <Button type="button" size="sm" className="h-8" onClick={() => void guardarPlantilla()}>
+                  Guardar
+                </Button>
+              </div>
+            ))}
           {lineas.length > 0 && (
             <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 p-2 text-xs">
               {lineas.map((l, i) => (

@@ -1,4 +1,5 @@
 import { one, query } from "./db";
+import { decryptSecret } from "@/backend/core/crypto-secrets";
 
 type Nueva = { userId: string; tipo: string; titulo: string; cuerpo?: string | null; link?: string | null; actorNombre?: string | null };
 
@@ -23,6 +24,36 @@ function ticketLabel(t: Record<string, unknown>) {
   return t.numero ? `TK-${t.numero}` : "Ticket";
 }
 
+export const EVENTOS_EXTERNOS = ["ticket_critico", "version_pendiente", "version_problemas"] as const;
+
+/**
+ * Aviso urgente fuera del sistema (Telegram). Se configura en Configuración → Avisos externos;
+ * si no está configurado o el evento está apagado, no hace nada. Nunca corta la operación que lo disparó.
+ */
+export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "prueba", texto: string) {
+  try {
+    const cfg = await one<{ valor: { token?: string; chat_id?: string; eventos?: string[] } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`);
+    const v = cfg?.valor;
+    if (!v?.token || !v.chat_id) return { ok: false, motivo: "Falta configurar el bot y el chat" };
+    if (evento !== "prueba" && Array.isArray(v.eventos) && !v.eventos.includes(evento)) return { ok: false, motivo: "Evento apagado" };
+    const token = decryptSecret(v.token);
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: v.chat_id, text: texto, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      const p = (await r.json().catch(() => null)) as { description?: string } | null;
+      return { ok: false, motivo: p?.description ?? `Telegram respondió ${r.status}` };
+    }
+    return { ok: true, motivo: "" };
+  } catch (error) {
+    console.error("No se pudo enviar el aviso externo", error);
+    return { ok: false, motivo: error instanceof Error ? error.message : "Sin conexión con Telegram" };
+  }
+}
+
 /** Reglas de notificación según lo que cambió en la base. */
 export async function notificarCambios(
   table: string,
@@ -36,7 +67,20 @@ export async function notificarCambios(
     const actor = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [actorId]);
     const actorNombre = actor?.full_name ?? "";
 
+    if (table === "sistema_actualizaciones" && accion === "update") {
+      const previo = new Map(antes.map((r) => [String(r.id), r]));
+      for (const a of filas) {
+        if (a.estado === "con_problemas" && previo.get(String(a.id))?.estado !== "con_problemas")
+          await avisoExterno("version_problemas", `⚠️ ${String(a.sistema)}${a.version ? ` v${String(a.version)}` : ""} quedó con problemas después de actualizar (marcado por ${actorNombre}).`);
+      }
+      return;
+    }
+
     if (table === "tareas") {
+      if (accion === "insert")
+        for (const t of filas)
+          if (t.prioridad === "critica")
+            await avisoExterno("ticket_critico", `🔴 Ticket crítico ${ticketLabel(t)}: ${String(t.titulo ?? "")}${t.sector ? ` · ${String(t.sector)}` : ""} (cargó ${actorNombre})`);
       const previo = new Map(antes.map((r) => [String(r.id), r]));
       const nuevas: Nueva[] = [];
       for (const t of filas) {
@@ -117,6 +161,68 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
       link: "/toners",
     });
   }
+
+  const claves = await seguro(() =>
+    query<{ servicio: string }>(
+      `select servicio from credenciales
+        where responsable_id = $1 and rotar_cada_dias is not null
+          and coalesce(last_rotated_at, updated_at, created_at) < now() - rotar_cada_dias * interval '1 day'
+        order by servicio limit 8`,
+      [userId],
+    ),
+  );
+  if (claves?.rows.length)
+    alertas.push({
+      id: "claves-rotar",
+      tipo: "clave",
+      tono: "warn",
+      titulo: `${claves.rows.length} clave${claves.rows.length === 1 ? "" : "s"} a tu cargo para cambiar`,
+      cuerpo: claves.rows.map((c) => c.servicio).join(", "),
+      link: "/credenciales",
+    });
+
+  const esAdmin = await seguro(() => one<{ ok: boolean }>(`select exists(select 1 from user_roles where user_id = $1 and role = 'administrador') ok`, [userId]));
+  if (esAdmin?.ok) {
+    // Primera semana del mes: el reporte del mes anterior ya se puede presentar.
+    const hoy = new Date();
+    if (hoy.getDate() <= 7) {
+      const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1).toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+      alertas.push({
+        id: `reporte-${hoy.getFullYear()}-${hoy.getMonth()}`,
+        tipo: "doc",
+        tono: "info",
+        titulo: `Reporte de ${mesAnterior} listo`,
+        cuerpo: "Tickets, compras, tóners, actualizaciones y horas extras del mes, en PDF.",
+        link: "/configuracion?seccion=reportes",
+      });
+    }
+    const intercambios = await seguro(() => one<{ n: number }>(`select count(*)::int n from guardia_intercambios where estado = 'pendiente'`));
+    if (intercambios?.n)
+      alertas.push({
+        id: "intercambios",
+        tipo: "guardia",
+        tono: "info",
+        titulo: `${intercambios.n} intercambio${intercambios.n === 1 ? "" : "s"} de guardia para aprobar`,
+        cuerpo: "Pedidos entre compañeros esperando tu aprobación.",
+        link: "/guardias",
+      });
+  }
+
+  const versiones = await seguro(() =>
+    query<{ sistema: string; version: string | null; dias: number }>(
+      `select sistema, version, (current_date - coalesce(aviso_fecha, fecha))::int dias from sistema_actualizaciones
+        where estado = 'pendiente' and coalesce(aviso_fecha, fecha) <= current_date - 2 order by fecha limit 5`,
+    ),
+  );
+  if (versiones?.rows.length)
+    alertas.push({
+      id: "versiones",
+      tipo: "actualizacion",
+      tono: "warn",
+      titulo: `${versiones.rows.length} versión${versiones.rows.length === 1 ? "" : "es"} sin subir hace más de 2 días`,
+      cuerpo: versiones.rows.map((v) => `${v.sistema}${v.version ? ` v${v.version}` : ""} (${v.dias} d)`).join(", "),
+      link: "/oficina?tab=actualizaciones",
+    });
 
   const mant = await seguro(() =>
     one<{ n: number; vencidos: number }>(
