@@ -38,6 +38,8 @@ import { Adjuntos } from "@/components/Adjuntos";
 import { ActivoPicker } from "@/components/activos/ActivoPicker";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
+import { RespuestasGuardadas } from "./RespuestasGuardadas";
+import { AvisoEquipoReciente, InstructivosSugeridos } from "./Sugerencias";
 import { pasoAnimado } from "@/lib/fila-clic";
 import {
   ESTADOS,
@@ -77,6 +79,7 @@ export function TicketDetail({
   const [resolucionDraft, setResolucionDraft] = useState(ticket.resolucion ?? "");
   const [resolveOpen, setResolveOpen] = useState(false);
   const [docVinculo, setDocVinculo] = useState("");
+  const [equipoCierre, setEquipoCierre] = useState<string | null>(null);
 
   useEffect(() => {
     setResolucionDraft(ticket.resolucion ?? "");
@@ -158,7 +161,8 @@ export function TicketDetail({
   const resolver = async () => {
     const text = resolucionDraft.trim();
     if (!text) return toast.error("Indicá la resolución");
-    await cambiarEstado("resuelto", { resolucion: text, resuelto_en: new Date().toISOString() }, "Ticket resuelto");
+    await cambiarEstado("resuelto", { resolucion: text, resuelto_en: new Date().toISOString(), ...(equipoCierre && !ticket.activo_id ? { activo_id: equipoCierre } : {}) }, "Ticket resuelto");
+    setEquipoCierre(null);
     setResolveOpen(false);
   };
 
@@ -356,8 +360,11 @@ export function TicketDetail({
                   setComentario("");
                   localRefetch();
                 }}>
-                  <Textarea rows={2} className="min-h-[64px] resize-none" placeholder="Escribí un comentario…" value={comentario} onChange={(e) => setComentario(e.target.value)} />
-                  <Button type="submit" size="icon" className="size-9 shrink-0 self-end"><Send className="size-4" /></Button>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <Textarea rows={2} className="min-h-[64px] resize-none" placeholder="Escribí un comentario…" value={comentario} onChange={(e) => setComentario(e.target.value)} />
+                    <RespuestasGuardadas texto={comentario} onElegir={(t) => setComentario((c) => (c.trim() ? `${c.trim()}\n${t}` : t))} />
+                  </div>
+                  <Button type="submit" size="icon" className="size-9 shrink-0 self-start"><Send className="size-4" /></Button>
                 </form>
               )}
             </section>
@@ -431,6 +438,19 @@ export function TicketDetail({
                 })}
                 {vinculados.length === 0 && <p className="text-xs text-muted-foreground">Ninguno vinculado.</p>}
               </div>
+              <InstructivosSugeridos
+                categoria={ticket.categoria}
+                excluir={vinculados}
+                onVincular={
+                  canWrite
+                    ? async (id) => {
+                        const { error } = await api.from("tarea_instructivos").insert({ tarea_id: ticket.id, doc_id: id });
+                        if (error) return toast.error("Ya está vinculado");
+                        localRefetch();
+                      }
+                    : undefined
+                }
+              />
               {canWrite && (
                 <Select value={docVinculo} onValueChange={async (v) => {
                   setDocVinculo("");
@@ -460,6 +480,7 @@ export function TicketDetail({
                   Ver planilla técnica del equipo →
                 </Link>
               )}
+              <AvisoEquipoReciente activoId={ticket.activo_id} excluir={ticket.id} />
             </div>
 
             <div className="space-y-2">
@@ -489,9 +510,19 @@ export function TicketDetail({
             <DialogDescription>Registrá qué se hizo para cerrar el caso.</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Nota de resolución</Label>
+            <div className="flex items-center justify-between">
+              <Label>Nota de resolución</Label>
+              <RespuestasGuardadas texto={resolucionDraft} onElegir={(t) => setResolucionDraft((c) => (c.trim() ? `${c.trim()}\n${t}` : t))} />
+            </div>
             <Textarea rows={4} placeholder="Qué se hizo para resolver el caso…" value={resolucionDraft} onChange={(e) => setResolucionDraft(e.target.value)} />
           </div>
+          {!ticket.activo_id && (
+            <div className="space-y-1.5">
+              <Label>Equipo afectado (opcional)</Label>
+              <ActivoPicker value={equipoCierre} onChange={setEquipoCierre} />
+              <p className="text-[11px] text-muted-foreground">Queda en el historial de la ficha del equipo.</p>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setResolveOpen(false)}>Cancelar</Button>
             <Button onClick={resolver}>Marcar resuelto</Button>

@@ -64,7 +64,7 @@ export const TIPOS = [
 ] as const;
 
 export const PRIORIDADES = ["critica", "alta", "media", "baja"] as const;
-export const CATEGORIAS = ["Red", "PC", "Impresora", "Accesos", "Correo", "Servidor", "Otro"];
+export const CATEGORIAS = ["Red", "PC", "Impresora", "Accesos", "Correo", "Servidor", "Sistemas", "Otro"];
 
 export const PRIORIDAD_STYLE: Record<string, string> = {
   baja: "bg-muted text-muted-foreground",

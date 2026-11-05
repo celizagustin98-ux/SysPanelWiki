@@ -40,6 +40,7 @@ import { useQrAjustes } from "./useQrAjustes";
 import { api } from "@/lib/api/client";
 import { cn, formatFecha } from "@/lib/utils";
 import { categoriaInfo, diasHasta, estadoInfo, garantiaInfo, tipoReparacionLabel, type Tono } from "./catalogo";
+import { TonerImpresora } from "./TonerImpresora";
 import { ActivoDialog, AsignarDialog, ControlDialog, ReparacionDialog, finalizarReparacion, type Activo } from "./dialogs";
 
 const ICONOS: Record<string, typeof Monitor> = {
@@ -119,6 +120,7 @@ export function FichaActivo({
   const Icono = iconoCategoria(item.rubro || item.categoria);
   const est = estadoInfo(item.estado);
   const gar = garantiaInfo(item.garantia_hasta);
+  const diasMant = diasHasta(item.mant_proximo);
   const diasControl = item.ultima_vez_controlada ? -(diasHasta(item.ultima_vez_controlada) ?? 0) : null;
   const tonoControl: Tono = diasControl == null ? "warn" : diasControl > 180 ? "crit" : diasControl > 90 ? "warn" : "ok";
 
@@ -199,6 +201,11 @@ export function FichaActivo({
             {diasControl == null ? "Nunca controlado" : `Control hace ${diasControl} d`}
           </Badge>
           {item.garantia_hasta && <Badge variant={badgeVariant(gar.tono)}>Garantía: {gar.texto.toLowerCase()}</Badge>}
+          {diasMant != null && (
+            <Badge variant={diasMant < 0 ? "crit" : diasMant <= 30 ? "warn" : "ok"}>
+              {diasMant < 0 ? `Mantenimiento vencido hace ${-diasMant} d` : diasMant === 0 ? "Mantenimiento hoy" : `Mantenimiento en ${diasMant} d`}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -300,6 +307,8 @@ export function FichaActivo({
                 ))}
             </Bloque>
           )}
+          {cat.value === "Impresora" && <TonerImpresora item={item} onChanged={onChanged} />}
+          <Preventivo item={item} canEdit={canEdit} onChanged={onChanged} />
           <Bloque titulo="Compra y garantía">
             <Dato label="Proveedor" value={item.proveedor} />
             <Dato label="Factura / orden" value={item.nro_factura} />
@@ -390,6 +399,75 @@ export function FichaActivo({
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+/** Plan de mantenimiento preventivo: cada cuántos meses y cuándo toca el próximo. */
+function Preventivo({ item, canEdit, onChanged }: { item: Activo; canEdit: boolean; onChanged: () => void }) {
+  const [editando, setEditando] = useState(false);
+  const [cada, setCada] = useState(String(item.mant_cada_meses ?? ""));
+  const [proximo, setProximo] = useState(item.mant_proximo?.slice(0, 10) ?? "");
+  const guardar = async () => {
+    const meses = Number(cada) || null;
+    let fecha = proximo || null;
+    if (meses && !fecha) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + meses);
+      fecha = d.toLocaleDateString("sv-SE");
+    }
+    const { error } = await api.from("inventario").update({ mant_cada_meses: meses, mant_proximo: meses ? fecha : null }).eq("id", item.id);
+    if (error) return toast.error(error.message);
+    toast.success(meses ? "Plan de mantenimiento guardado" : "Plan de mantenimiento quitado");
+    setEditando(false);
+    onChanged();
+  };
+  if (!item.mant_cada_meses && !canEdit) return null;
+  return (
+    <section className="rounded-xl border border-border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="eyebrow">Mantenimiento preventivo</p>
+        {canEdit && !editando && (
+          <button type="button" className="text-xs text-primary hover:underline" onClick={() => setEditando(true)}>
+            {item.mant_cada_meses ? "Cambiar" : "Programar"}
+          </button>
+        )}
+      </div>
+      {editando ? (
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">Cada</p>
+            <select value={cada} onChange={(e) => setCada(e.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+              <option value="">Sin plan</option>
+              {[1, 2, 3, 4, 6, 12, 24].map((m) => (
+                <option key={m} value={m}>
+                  {m === 1 ? "1 mes" : `${m} meses`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">Próximo</p>
+            <input type="date" value={proximo} onChange={(e) => setProximo(e.target.value)} disabled={!cada} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm [color-scheme:light] dark:[color-scheme:dark]" />
+          </div>
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="ghost" className="h-9" onClick={() => setEditando(false)}>
+              Cancelar
+            </Button>
+            <Button size="sm" className="h-9" onClick={() => void guardar()}>
+              Guardar
+            </Button>
+          </div>
+        </div>
+      ) : item.mant_cada_meses ? (
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <Dato label="Frecuencia" value={item.mant_cada_meses === 1 ? "Cada mes" : `Cada ${item.mant_cada_meses} meses`} />
+          <Dato label="Próximo" value={item.mant_proximo ? formatFecha(item.mant_proximo) : "Sin fecha"} />
+          <p className="col-span-2 text-[11px] text-muted-foreground">Al registrar un mantenimiento terminado, la próxima fecha se corre sola.</p>
+        </dl>
+      ) : (
+        <p className="text-sm text-muted-foreground">Sin plan. Programalo para que avise cuando toque limpiar o revisar el equipo.</p>
+      )}
+    </section>
   );
 }
 

@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
+import { Recurrentes, useGenerarRecurrentes } from "@/components/tickets/Recurrentes";
 import { clicDeFila } from "@/lib/fila-clic";
 import {
   type Ticket as TicketT,
@@ -108,6 +109,8 @@ function TicketsPage() {
   const [q, setQ] = useState("");
   const { ticket: ticketParam } = Route.useSearch();
   const [selectedId, setSelectedId] = useState<string | null>(ticketParam ?? null);
+  // Tickets tildados para acciones en lote.
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (ticketParam) setSelectedId(ticketParam);
   }, [ticketParam]);
@@ -298,6 +301,23 @@ function TicketsPage() {
     : null;
 
   const refetch = () => qc.invalidateQueries({ queryKey: ["tareas"] });
+  useGenerarRecurrentes(() => void refetch());
+
+  /** Aplica el mismo cambio a todos los tickets tildados. */
+  const enLote = async (values: Record<string, unknown>, msg: string) => {
+    const ids = [...marcados];
+    const ahora = new Date().toISOString();
+    const extra: Record<string, unknown> = {};
+    if (values.estado === "resuelto") extra.resuelto_en = ahora;
+    if (values.estado === "cerrado" || values.estado === "cancelado") extra.cerrado_en = ahora;
+    if ("asignado_a" in values && values.asignado_a) extra.estado = "asignado";
+    const r = await Promise.all(ids.map((id) => api.from("tareas").update({ ...extra, ...values }).eq("id", id)));
+    const fallas = r.filter((x) => x.error).length;
+    if (fallas) toast.error(`${fallas} no se pudieron cambiar`);
+    toast.success(`${msg} (${ids.length - fallas})`);
+    setMarcados(new Set());
+    refetch();
+  };
 
   const patchTicket = async (id: string, values: Record<string, unknown>, msg?: string) => {
     const { error } = await api.from("tareas").update(values).eq("id", id);
@@ -355,6 +375,7 @@ function TicketsPage() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
+            <Recurrentes perfiles={perfiles} canWrite={!!canWrite} />
             {canWrite && (
               <NuevoTicket
                 perfiles={perfiles}
@@ -553,8 +574,26 @@ function TicketsPage() {
 
           {!isLoading && visibles.length > 0 && (
             <>
+              {canWrite && marcados.size > 0 && (
+                <AccionesLote
+                  n={marcados.size}
+                  perfiles={perfiles}
+                  onAplicar={enLote}
+                  onLimpiar={() => setMarcados(new Set())}
+                  onTodos={() => setMarcados(new Set(enPagina.map((t) => t.id)))}
+                />
+              )}
               <TicketTable
                 items={enPagina}
+                marcados={marcados}
+                onMarcar={(id) =>
+                  setMarcados((s) => {
+                    const n = new Set(s);
+                    if (n.has(id)) n.delete(id);
+                    else n.add(id);
+                    return n;
+                  })
+                }
                 canWrite={!!canWrite}
                 nombre={nombre}
                 onOpen={setSelectedId}
@@ -629,8 +668,78 @@ function TicketsPage() {
   );
 }
 
+/** Barra de acciones para varios tickets a la vez. */
+function AccionesLote({
+  n,
+  perfiles,
+  onAplicar,
+  onLimpiar,
+  onTodos,
+}: {
+  n: number;
+  perfiles: { id: string; full_name: string }[];
+  onAplicar: (values: Record<string, unknown>, msg: string) => Promise<void>;
+  onLimpiar: () => void;
+  onTodos: () => void;
+}) {
+  return (
+    <div className="sticky top-16 z-20 mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-card/95 px-3 py-2 shadow-lg backdrop-blur animate-in fade-in slide-in-from-top-1">
+      <span className="text-sm font-semibold">
+        {n} {n === 1 ? "seleccionado" : "seleccionados"}
+      </span>
+      <button type="button" className="text-xs text-primary hover:underline" onClick={onTodos}>
+        Todos los de la página
+      </button>
+      <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <Select value="" onValueChange={(v) => void onAplicar({ asignado_a: v === "none" ? null : v }, "Asignados")}>
+          <SelectTrigger className="h-8 w-40 text-xs">
+            <SelectValue placeholder="Asignar a…" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Sin asignar</SelectItem>
+            {perfiles.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.full_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value="" onValueChange={(v) => void onAplicar({ estado: v }, `Pasados a «${estadoLabel(v)}»`)}>
+          <SelectTrigger className="h-8 w-36 text-xs">
+            <SelectValue placeholder="Cambiar estado…" />
+          </SelectTrigger>
+          <SelectContent>
+            {ESTADOS.map((e) => (
+              <SelectItem key={e.key} value={e.key}>
+                {e.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value="" onValueChange={(v) => void onAplicar({ prioridad: v }, "Prioridad cambiada")}>
+          <SelectTrigger className="h-8 w-32 text-xs">
+            <SelectValue placeholder="Prioridad…" />
+          </SelectTrigger>
+          <SelectContent>
+            {(["critica", "alta", "media", "baja"] as const).map((p) => (
+              <SelectItem key={p} value={p}>
+                {PRIO_LABEL[p] ?? p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="sm" variant="ghost" className="h-8" onClick={onLimpiar}>
+          Cancelar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function TicketTable({
   items,
+  marcados,
+  onMarcar,
   canWrite,
   nombre,
   onOpen,
@@ -638,6 +747,8 @@ function TicketTable({
   onAuto,
 }: {
   items: TicketT[];
+  marcados: Set<string>;
+  onMarcar: (id: string) => void;
   canWrite: boolean;
   nombre: (id: string | null) => string;
   onOpen: (id: string) => void;
@@ -664,7 +775,17 @@ function TicketTable({
           )}
         >
           <span aria-hidden className={cn("absolute inset-y-2 left-0 w-1 rounded-r-full", colorEstado(t.estado).barra)} />
-          <button type="button" className="min-w-0 text-left" onClick={() => onOpen(t.id)}>
+          <div className="flex min-w-0 items-start gap-2.5">
+          {canWrite && (
+            <input
+              type="checkbox"
+              className={cn("mt-1 size-4 shrink-0 accent-[var(--primary)] transition-opacity", marcados.size === 0 && "opacity-40 hover:opacity-100")}
+              checked={marcados.has(t.id)}
+              onChange={() => onMarcar(t.id)}
+              aria-label="Seleccionar ticket"
+            />
+          )}
+          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(t.id)}>
             <p className="truncate text-[14px] font-semibold tracking-tight">{t.titulo}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <span className="font-mono">{ticketLabel(t)}</span>
@@ -684,6 +805,7 @@ function TicketTable({
               )}
             </p>
           </button>
+          </div>
 
           <div className="flex flex-col gap-1">
             <span

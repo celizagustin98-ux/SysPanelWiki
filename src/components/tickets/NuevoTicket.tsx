@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ActivoPicker } from "@/components/activos/ActivoPicker";
+import { AvisoEquipoReciente, InstructivosSugeridos } from "./Sugerencias";
 import { BookmarkPlus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -251,6 +252,7 @@ export function NuevoTicket({
                 <Input name="sector" placeholder="Planta / oficina" />
               </div>
             </div>
+            <InstructivosSugeridos categoria={categoria} />
           </div>
           <div className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Contexto</p>
@@ -266,6 +268,7 @@ export function NuevoTicket({
               <div className="col-span-2 space-y-1.5">
                 <Label>Equipo (opcional)</Label>
                 <ActivoPicker value={activoId} onChange={setActivoId} />
+                <AvisoEquipoReciente activoId={activoId} />
               </div>
               <div className="col-span-2 space-y-1.5">
                 <Label>Asignar a</Label>
