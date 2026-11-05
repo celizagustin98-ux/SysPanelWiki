@@ -102,6 +102,20 @@ function initialsOf(text: string) {
     .join("");
 }
 
+/** Tablet (o ventana angosta): el menú expandido se superpone al contenido en lugar de empujarlo. */
+function useMenuSuperpuesto() {
+  const consulta = "(max-width: 1279px)";
+  const [si, setSi] = useState(() => typeof window !== "undefined" && window.matchMedia(consulta).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(consulta);
+    const cambio = () => setSi(mq.matches);
+    cambio();
+    mq.addEventListener("change", cambio);
+    return () => mq.removeEventListener("change", cambio);
+  }, []);
+  return si;
+}
+
 function useServerStatus() {
   return useQuery({
     queryKey: ["system-health"],
@@ -126,6 +140,9 @@ export function AppShell() {
       return false;
     }
   });
+  const superpuesto = useMenuSuperpuesto();
+  // En tablet arranca contraído siempre: abierto taparía el contenido.
+  const [abiertoTablet, setAbiertoTablet] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [escaner, setEscaner] = useState(false);
   const contenidoRef = useRef<HTMLDivElement>(null);
@@ -157,7 +174,7 @@ export function AppShell() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
         e.preventDefault();
-        setCollapsed((v) => !v);
+        alternarMenu.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -179,7 +196,14 @@ export function AppShell() {
 
   const online = status.data?.ok && status.data.database !== false;
 
-  const mini = collapsed;
+  const mini = superpuesto ? !abiertoTablet : collapsed;
+  const alternarMenu = useRef(() => {});
+  alternarMenu.current = () => (superpuesto ? setAbiertoTablet((v) => !v) : setCollapsed((v) => !v));
+
+  // En tablet el menú se cierra solo al elegir un módulo.
+  useEffect(() => {
+    setAbiertoTablet(false);
+  }, [pathname, superpuesto]);
 
   // Al cambiar de módulo el contenido vuelve arriba (el menú queda fijo).
   useEffect(() => {
@@ -190,24 +214,26 @@ export function AppShell() {
     <TooltipProvider delayDuration={150}>
       <div className="flex h-[var(--av)] w-full max-w-[100vw] overflow-hidden bg-background">
         {/* El botón redondo del borde contrae o expande el menú (Ctrl B). */}
-        <div className="group/menu relative hidden h-[var(--av)] shrink-0 md:block">
+        {superpuesto && !mini && (
           <button
             type="button"
-            onClick={() => setCollapsed((v) => !v)}
-            aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
-            title={collapsed ? "Expandir menú (Ctrl B)" : "Contraer menú (Ctrl B)"}
-            className="absolute -right-3 top-[17px] z-50 grid size-6 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:border-primary/50 hover:text-primary"
-          >
-            <ChevronLeft className={cn("size-3.5 transition-transform duration-300", collapsed && "rotate-180")} />
-          </button>
+            aria-label="Cerrar menú"
+            onClick={() => setAbiertoTablet(false)}
+            className="fixed inset-0 z-40 hidden bg-black/30 backdrop-blur-[1px] animate-in fade-in md:block"
+          />
+        )}
+        {/* En tablet el lugar que ocupa el menú es siempre el angosto: abierto se superpone y el contenido no se reacomoda. */}
+        <div className={cn("group/menu relative hidden h-[var(--av)] shrink-0 md:block", superpuesto && "z-50 w-[68px]")}>
           <aside
             className={cn(
-              "flex h-[var(--av)] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              "flex h-[var(--av)] flex-col overflow-hidden whitespace-nowrap border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
               mini ? "w-[68px]" : "w-[248px]",
+              superpuesto && "absolute inset-y-0 left-0",
+              superpuesto && !mini && "shadow-2xl",
             )}
           >
             <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", mini && "justify-center px-0")}>
-              {mini ? <BrandMark /> : <BrandLockup />}
+              {mini ? <BrandMark /> : <div className="aparece-tarde min-w-0"><BrandLockup /></div>}
             </div>
 
             <nav
@@ -220,8 +246,8 @@ export function AppShell() {
                 <div key={group} className="flex flex-col gap-0.5">
                   <p
                     className={cn(
-                      "mb-1 px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/40",
-                      mini && "sr-only",
+                      "mb-1 truncate px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/40",
+                      mini ? "sr-only" : "aparece-tarde",
                     )}
                   >
                     {GROUP_LABEL[group]}
@@ -244,7 +270,7 @@ export function AppShell() {
                           <item.icon
                             className={cn("size-[17px] shrink-0", active ? "text-sidebar-primary" : "text-current")}
                           />
-                          <span className={cn("truncate", mini && "sr-only")}>{item.label}</span>
+                          <span className={cn("min-w-0 truncate", mini ? "sr-only" : "aparece-tarde")}>{item.label}</span>
                         </Link>
                       </SidebarTooltip>
                     );
@@ -276,7 +302,7 @@ export function AppShell() {
                   />
                 </Link>
                 {!mini && (
-                  <Link to="/perfil" className="min-w-0 flex-1 rounded-sm hover:[&>p:first-child]:text-white">
+                  <Link to="/perfil" className="aparece-tarde min-w-0 flex-1 rounded-sm hover:[&>p:first-child]:text-white">
                     <p className="truncate text-[13px] font-medium text-sidebar-foreground">{displayName}</p>
                     <p className="truncate text-[11px] text-sidebar-foreground/45">
                       {roles.find((r) => r.clave === role)?.nombre ?? ROLE_LABEL[role ?? ""] ?? "—"} · {status.isLoading ? "verificando…" : online ? "en línea" : "sin conexión"}
@@ -290,6 +316,18 @@ export function AppShell() {
               </div>
             </div>
           </aside>
+          <button
+            type="button"
+            onClick={() => alternarMenu.current()}
+            aria-label={mini ? "Expandir menú" : "Contraer menú"}
+            title={mini ? "Expandir menú (Ctrl B)" : "Contraer menú (Ctrl B)"}
+            className={cn(
+              "absolute top-[17px] z-50 grid size-6 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-[left,color,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-primary/50 hover:text-primary",
+              mini ? "left-[56px]" : "left-[236px]",
+            )}
+          >
+            <ChevronLeft className={cn("size-3.5 transition-transform duration-300", mini && "rotate-180")} />
+          </button>
         </div>
 
         <div ref={contenidoRef} id="contenido" className="flex h-[var(--av)] min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-clip">

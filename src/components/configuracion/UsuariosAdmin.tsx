@@ -530,7 +530,7 @@ export function UsuariosAdmin() {
                     <tr
                       key={u.id}
                       className={cn(
-                        "cursor-pointer border-b border-border/60 transition-colors last:border-0 hover:bg-muted/25",
+                        "fila-clic border-b border-border/60 last:border-0",
                         sel.has(u.id) && "bg-primary/5",
                         !u.activo && "text-muted-foreground",
                       )}

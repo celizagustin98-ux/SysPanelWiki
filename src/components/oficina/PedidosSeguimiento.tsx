@@ -41,6 +41,7 @@ import { useAuth } from "@/lib/auth";
 import { pesos } from "@/lib/imprimir";
 import { imprimirPedidoInsumos, numeroPedidoInsumos } from "@/lib/insumos-pdf";
 import { cn, formatFecha } from "@/lib/utils";
+import { clicDeFila, pasoAnimado } from "@/lib/fila-clic";
 import { EditarPedido } from "./PedidoInsumos";
 
 export type ItemPedido = {
@@ -231,7 +232,7 @@ function BarraItems({ its, className }: { its: ItemPedido[]; className?: string 
           <span
             key={k}
             title={`${ESTADO_ITEM[k].label}: ${r[k]}`}
-            className={ESTADO_ITEM[k].barra}
+            className={cn("crece-x", ESTADO_ITEM[k].barra)}
             style={{ width: `${(r[k] / total) * 100}%` }}
           />
         ) : null,
@@ -520,7 +521,8 @@ export function PedidosHistorico() {
             return (
               <div
                 key={p.id}
-                className="relative grid gap-2 px-4 py-3 transition hover:bg-muted/25 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
+                onClick={(e) => clicDeFila(e, () => setAbierto(p.id))}
+                className="fila-clic relative grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
               >
                 <span
                   aria-hidden
@@ -738,8 +740,10 @@ function PedidoDetalle({
                 return (
                   <li key={k} className="min-w-0" aria-current={actual ? "step" : undefined}>
                     <div
+                      style={pasoAnimado(i)}
                       className={cn(
                         "rounded-full transition-all",
+                        actual ? "paso-actual h-2.5" : pasado && "crece-x",
                         actual ? "h-2.5" : "h-2",
                         pasado || actual ? e.barra : "bg-muted",
                         pasado && "opacity-55",
@@ -1086,7 +1090,7 @@ function PedidoDetalle({
                 </Button>
               </form>
             )}
-            <ol className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+            <ol className="linea-tiempo min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
               {eventos.length === 0 && (
                 <li className="text-xs text-muted-foreground">Todavía no hay movimientos.</li>
               )}

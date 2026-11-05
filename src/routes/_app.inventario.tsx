@@ -1494,7 +1494,7 @@ function InventarioPage() {
                   const gar = garantiaInfo(item.garantia_hasta);
                   const Icono = iconoCategoria(item.rubro || item.categoria);
                   return (
-                    <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined} className="cursor-pointer" onClick={() => abrirFicha(item.id)}>
+                    <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined} className="fila-clic" onClick={() => abrirFicha(item.id)}>
                       {canDelete && (
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox

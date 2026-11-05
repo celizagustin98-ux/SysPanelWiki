@@ -505,7 +505,7 @@ function Timeline({ item, controles, reparaciones, asignaciones }: { item: Activ
     neutral: "bg-muted text-muted-foreground",
   };
   return (
-    <ol className="relative space-y-4 border-l border-border pl-6">
+    <ol className="linea-tiempo relative space-y-4 border-l border-border pl-6">
       {eventos.map((e, i) => (
         <li key={i} className="relative">
           <span className={cn("absolute -left-[37px] grid size-7 place-items-center rounded-full ring-4 ring-background", color[e.tono])}>
