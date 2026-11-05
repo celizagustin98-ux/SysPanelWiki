@@ -57,6 +57,8 @@ export type Activo = {
   /** Mantenimiento preventivo: cada cuántos meses y cuándo toca el próximo. */
   mant_cada_meses?: number | null;
   mant_proximo?: string | null;
+  /** Impresoras: modelo de tóner que usa. */
+  toner_modelo_id?: string | null;
   created_at?: string;
   updated_at?: string;
 };

@@ -35,3 +35,8 @@ alter table sistema_actualizaciones add column if not exists ticket_id uuid refe
 alter table inventario add column if not exists mant_cada_meses integer;
 alter table inventario add column if not exists mant_proximo date;
 create index if not exists inventario_mant_proximo_idx on inventario (mant_proximo) where mant_proximo is not null;
+
+-- ── Tóners: qué impresora usa cada modelo y en qué impresora se instaló cada tóner ──
+alter table inventario add column if not exists toner_modelo_id uuid references toner_modelos(id) on delete set null;
+alter table toner_movimientos add column if not exists activo_id uuid references inventario(id) on delete set null;
+create index if not exists toner_movimientos_activo_idx on toner_movimientos (activo_id, created_at desc) where activo_id is not null;

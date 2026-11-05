@@ -40,6 +40,7 @@ import { useQrAjustes } from "./useQrAjustes";
 import { api } from "@/lib/api/client";
 import { cn, formatFecha } from "@/lib/utils";
 import { categoriaInfo, diasHasta, estadoInfo, garantiaInfo, tipoReparacionLabel, type Tono } from "./catalogo";
+import { TonerImpresora } from "./TonerImpresora";
 import { ActivoDialog, AsignarDialog, ControlDialog, ReparacionDialog, finalizarReparacion, type Activo } from "./dialogs";
 
 const ICONOS: Record<string, typeof Monitor> = {
@@ -306,6 +307,7 @@ export function FichaActivo({
                 ))}
             </Bloque>
           )}
+          {cat.value === "Impresora" && <TonerImpresora item={item} onChanged={onChanged} />}
           <Preventivo item={item} canEdit={canEdit} onChanged={onChanged} />
           <Bloque titulo="Compra y garantía">
             <Dato label="Proveedor" value={item.proveedor} />

@@ -882,7 +882,18 @@ export const apiRpc = createServerFn({ method: "POST" })
           limit 15`,
         [dias],
       );
-      return { data: { modelos: modelos.rows, sectores: sectores.rows }, error: null };
+      // Impresoras que más consumen (los usos registrados desde la ficha del equipo).
+      const impresoras = await query(
+        `select i.id, i.codigo, coalesce(nullif(i.descripcion, ''), i.nombre) as nombre, i.sector, sum(mv.cantidad)::int as usados,
+                max(mv.created_at) as ultimo
+           from toner_movimientos mv join inventario i on i.id = mv.activo_id
+          where mv.tipo in ${usos} and mv.created_at >= now() - $1 * interval '1 day'
+          group by i.id, i.codigo, i.descripcion, i.nombre, i.sector
+          order by usados desc
+          limit 15`,
+        [dias],
+      ).catch(() => ({ rows: [] }));
+      return { data: { modelos: modelos.rows, sectores: sectores.rows, impresoras: impresoras.rows }, error: null };
     }
     if (data.name === "metricas_tickets") {
       // Por técnico: resueltos en el rango, tiempo de resolución, % dentro del SLA y carga actual.

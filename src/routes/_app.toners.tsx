@@ -50,7 +50,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ConsumoToners } from "@/components/toners/ConsumoToners";
+import { AvisoPedidoSugerido, ConsumoToners } from "@/components/toners/ConsumoToners";
 import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
@@ -375,7 +375,8 @@ function TonersPage() {
           <ConsumoToners canWrite={!!canWrite} userId={user?.id} userName={profile?.full_name} onPedido={() => setTab("pedidos")} />
         </TabsContent>
 
-        <TabsContent value="deposito" className="mt-4">
+        <TabsContent value="deposito" className="mt-4 space-y-3">
+          <AvisoPedidoSugerido canWrite={!!canWrite} userId={user?.id} userName={profile?.full_name} onPedido={() => setTab("pedidos")} />
           <Card className="panel overflow-hidden">
             <CardHeader className="border-b border-border/70 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
