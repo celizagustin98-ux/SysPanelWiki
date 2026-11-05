@@ -13,10 +13,12 @@ import {
   Plus,
   Search,
   Sparkles,
+  Ticket as TicketIcon,
   Trash2,
   Wand2,
   X,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Adjuntos } from "@/components/Adjuntos";
 import { confirmar } from "@/components/Confirmar";
@@ -359,6 +361,7 @@ function DetalleActualizacion({
   onDuplicar: () => void;
 }) {
   const qc = useQueryClient();
+  const { profile } = useAuth();
   const est = estadoActualizacion(a.estado);
   const [verMensaje, setVerMensaje] = useState(false);
   const porModulo = useMemo(() => {
@@ -368,9 +371,29 @@ function DetalleActualizacion({
   }, [a.cambios]);
 
   const cambiarEstado = async (estado: EstadoActualizacion) => {
-    const { error } = await api.from("sistema_actualizaciones").update({ estado, updated_at: new Date().toISOString() }).eq("id", a.id);
+    const extra: Record<string, unknown> = {};
+    // Si la versión dio problemas, queda un ticket abierto para seguirlo (una sola vez).
+    if (estado === "con_problemas" && !a.ticket_id) {
+      const nombre = `${a.sistema}${a.version ? ` v${a.version}` : ""}`;
+      const t = await api.from("tareas").insert({
+        titulo: `Problema después de actualizar ${nombre}`,
+        descripcion: [`Actualización del ${fechaLarga(a.fecha)}: ${a.titulo}`, a.incidencias && `Incidencias: ${a.incidencias}`, a.como_revertir && `Cómo volver atrás: ${a.como_revertir}`].filter(Boolean).join("\n\n"),
+        tipo: "incidente",
+        prioridad: "alta",
+        categoria: "Sistemas",
+        estado: "nuevo",
+        canal: "sistema",
+        solicitante_nombre: profile?.full_name ?? null,
+        created_by: profile?.id ?? null,
+      });
+      const id = (t.data as { id?: string } | null)?.id;
+      if (t.error) toast.error(`No se pudo abrir el ticket: ${t.error.message}`);
+      else if (id) extra.ticket_id = id;
+    }
+    const { error } = await api.from("sistema_actualizaciones").update({ estado, updated_at: new Date().toISOString(), ...extra }).eq("id", a.id);
     if (error) return toast.error(error.message);
-    toast.success(`Marcada como «${estadoActualizacion(estado).label.toLowerCase()}»`);
+    toast.success(extra.ticket_id ? "Marcada con problemas y se abrió un ticket" : `Marcada como «${estadoActualizacion(estado).label.toLowerCase()}»`);
+    void qc.invalidateQueries({ queryKey: ["tareas"] });
     void qc.invalidateQueries({ queryKey: ["sistema_actualizaciones"] });
   };
   const eliminar = async () => {
@@ -471,6 +494,12 @@ function DetalleActualizacion({
               </div>
             )}
           </section>
+        )}
+
+        {a.ticket_id && (
+          <Link to="/tareas" search={{ ticket: a.ticket_id }} className="inline-flex w-fit items-center gap-1.5 rounded-md border border-warn/40 bg-warn/8 px-2.5 py-1 text-xs font-medium hover:border-warn">
+            <TicketIcon className="size-3.5" /> Ver el ticket del problema →
+          </Link>
         )}
 
         {a.mensaje_original && (

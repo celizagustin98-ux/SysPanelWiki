@@ -25,6 +25,7 @@ export type Actualizacion = {
   incidencias: string | null;
   como_revertir: string | null;
   subido_por_nombre: string | null;
+  ticket_id?: string | null;
   created_at: string;
   updated_at: string;
 };

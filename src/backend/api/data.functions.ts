@@ -24,6 +24,7 @@ import {
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
 import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
 import { alertasArea, notificar, notificarCambios } from "@/backend/core/notificaciones";
+import { proximaFecha, type Frecuencia } from "@/components/tickets/recurrencia";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
 type Order = { column: string; ascending?: boolean };
@@ -78,6 +79,8 @@ const TABLES = new Set([
   "tareas",
   "ticket_plantillas",
   "sistema_actualizaciones",
+  "ticket_respuestas",
+  "ticket_recurrentes",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -117,6 +120,8 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   tareas: { modulo: "tareas", fields: ["numero", "titulo", "estado", "prioridad"] },
   ticket_plantillas: { modulo: "tareas", fields: ["nombre"] },
   sistema_actualizaciones: { modulo: "oficina", fields: ["sistema", "version", "titulo"] },
+  ticket_respuestas: { modulo: "tareas", fields: ["titulo"] },
+  ticket_recurrentes: { modulo: "tareas", fields: ["titulo", "frecuencia"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -399,6 +404,8 @@ const MODULO_DE_TABLA: Record<string, string> = {
   insumos_pedido_eventos: "oficina",
   oficina_contactos: "oficina",
   sistema_actualizaciones: "oficina",
+  ticket_respuestas: "tareas",
+  ticket_recurrentes: "tareas",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
@@ -648,6 +655,67 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "generar_tickets_recurrentes") {
+      // Crea los tickets periódicos que ya tocan. Es idempotente: cada recurrente se "reserva"
+      // moviendo su próxima fecha antes de crear el ticket, así dos pestañas no lo duplican.
+      if (!(await hasModulePermission(session.user.id, "tareas", "ver"))) return { data: { creados: 0 }, error: null };
+      const hoy = await one<{ d: string }>(`select to_char(current_date, 'YYYY-MM-DD') d`);
+      const vencidas = (
+        await query<{ id: string; proxima: string; frecuencia: Frecuencia; titulo: string; descripcion: string | null; tipo: string; prioridad: string; categoria: string; sector: string | null; asignado_a: string | null; dias_para_vencer: number | null }>(
+          `select id, to_char(proxima, 'YYYY-MM-DD') proxima, frecuencia, titulo, descripcion, tipo, prioridad, categoria, sector, asignado_a, dias_para_vencer
+             from ticket_recurrentes where activo and proxima <= current_date order by proxima limit 50`,
+        ).catch(() => ({ rows: [] }))
+      ).rows;
+      const creados: string[] = [];
+      for (const r of vencidas) {
+        const siguiente = proximaFecha(r.proxima, r.frecuencia, hoy?.d);
+        const reservado = await one(`update ticket_recurrentes set proxima = $2, ultima_creada = now() where id = $1 and proxima = $3::date returning id`, [r.id, siguiente, r.proxima]);
+        if (!reservado) continue;
+        const fila = await assignTicketNumero({
+          titulo: r.titulo,
+          descripcion: r.descripcion,
+          tipo: r.tipo,
+          prioridad: r.prioridad,
+          categoria: r.categoria,
+          sector: r.sector,
+          asignado_a: r.asignado_a,
+          estado: r.asignado_a ? "asignado" : "nuevo",
+          canal: "recurrente",
+          solicitante_nombre: "Tarea programada",
+        });
+        const t = await one<{ id: string }>(
+          `insert into tareas (titulo, descripcion, tipo, prioridad, categoria, sector, asignado_a, estado, canal, solicitante_nombre, numero, vence_el)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, case when $12::int is null then null else current_date + $12::int end) returning *`,
+          [fila.titulo, fila.descripcion, fila.tipo, fila.prioridad, fila.categoria, fila.sector, fila.asignado_a, fila.estado, fila.canal, fila.solicitante_nombre, fila.numero ?? null, r.dias_para_vencer],
+        );
+        if (!t) continue;
+        await query(`update ticket_recurrentes set ultimo_ticket_id = $2 where id = $1`, [r.id, t.id]);
+        await writeAudit(session.user.id, "tareas", "crear", [t as unknown as Record<string, unknown>], { origen: "recurrente" });
+        await notificarCambios("tareas", "insert", session.user.id, [t as unknown as Record<string, unknown>]);
+        creados.push(t.id);
+      }
+      return { data: { creados: creados.length }, error: null };
+    }
+    if (data.name === "instructivos_sugeridos") {
+      // Instructivos para una categoría de ticket: los que tienen esa etiqueta y los que más se vincularon
+      // a tickets de la misma categoría.
+      if (!(await hasModulePermission(session.user.id, "instructivos", "ver"))) return { data: [], error: null };
+      const categoria = String(data.args?._categoria ?? "").trim();
+      if (!categoria) return { data: [], error: null };
+      const result = await query(
+        `with por_uso as (
+           select ti.doc_id, count(*)::int n from tarea_instructivos ti join tareas t on t.id = ti.tarea_id
+            where lower(t.categoria) = lower($1) group by ti.doc_id
+         )
+         select d.id, d.title, coalesce(u.n, 0) usos,
+                exists (select 1 from unnest(coalesce(d.tags, '{}')) tg where lower(tg) = lower($1)) etiquetado
+           from wiki_docs d left join por_uso u on u.doc_id = d.id
+          where u.n is not null or exists (select 1 from unnest(coalesce(d.tags, '{}')) tg where lower(tg) = lower($1))
+          order by etiquetado desc, usos desc, d.title limit 5`,
+        [categoria],
+      ).catch(() => ({ rows: [] }));
+      return { data: result.rows, error: null };
     }
     if (data.name === "tendencias_dashboard") {
       // Esta semana contra la anterior (7 días corridos), solo de los módulos que el rol puede ver.
