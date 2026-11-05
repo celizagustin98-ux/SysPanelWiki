@@ -54,6 +54,9 @@ export type Activo = {
   ubicacion_detalle?: string | null;
   etiqueta_impresa_at?: string | null;
   etiqueta_reimprimir?: boolean | null;
+  /** Mantenimiento preventivo: cada cuántos meses y cuándo toca el próximo. */
+  mant_cada_meses?: number | null;
+  mant_proximo?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -434,6 +437,12 @@ export function ReparacionDialog({ item, trigger, onDone }: { item: Activo; trig
     if (error) {
       setSaving(false);
       return toast.error(error.message);
+    }
+    // Un mantenimiento terminado reprograma el próximo preventivo.
+    if (tipo === "mantenimiento" && finalizada && item.mant_cada_meses) {
+      const base = new Date(`${t(fd.get("fecha_fin")) || fechaLocal()}T00:00:00`);
+      base.setMonth(base.getMonth() + item.mant_cada_meses);
+      await api.from("inventario").update({ mant_proximo: base.toLocaleDateString("sv-SE") }).eq("id", item.id);
     }
     // El estado del equipo acompaña a la reparación.
     const nuevoEstado = finalizada ? "operativo" : tipo === "mantenimiento" || tipo === "actualizacion" ? null : "reparacion";

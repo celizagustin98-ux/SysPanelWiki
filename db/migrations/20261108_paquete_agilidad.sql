@@ -30,3 +30,8 @@ create table if not exists ticket_recurrentes (
 
 -- ── Actualizaciones de sistemas: ticket abierto cuando la versión dio problemas ──
 alter table sistema_actualizaciones add column if not exists ticket_id uuid references tareas(id) on delete set null;
+
+-- ── Activos: mantenimiento preventivo ──
+alter table inventario add column if not exists mant_cada_meses integer;
+alter table inventario add column if not exists mant_proximo date;
+create index if not exists inventario_mant_proximo_idx on inventario (mant_proximo) where mant_proximo is not null;

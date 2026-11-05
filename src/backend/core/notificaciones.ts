@@ -118,6 +118,21 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
     });
   }
 
+  const mant = await seguro(() =>
+    one<{ n: number; vencidos: number }>(
+      `select count(*)::int n, count(*) filter (where mant_proximo < current_date)::int vencidos from inventario where mant_proximo is not null and mant_proximo <= current_date + 7`,
+    ),
+  );
+  if (mant?.n)
+    alertas.push({
+      id: "mantenimiento",
+      tipo: "activo",
+      tono: mant.vencidos ? "warn" : "info",
+      titulo: mant.vencidos ? `${mant.vencidos} mantenimiento${mant.vencidos === 1 ? "" : "s"} preventivo${mant.vencidos === 1 ? "" : "s"} vencido${mant.vencidos === 1 ? "" : "s"}` : `${mant.n} mantenimiento${mant.n === 1 ? "" : "s"} esta semana`,
+      cuerpo: "Equipos con el preventivo programado.",
+      link: "/inventario",
+    });
+
   const vencidos = await seguro(() =>
     one<{ n: number }>(
       `select count(*)::int n from tareas where asignado_a = $1 and estado not in ('resuelto','cerrado','cancelado') and vence_el < current_date`,

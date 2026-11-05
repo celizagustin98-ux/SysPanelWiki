@@ -23,6 +23,8 @@ import {
   Search,
   Trash2,
   Upload,
+  MapPin,
+  ScanLine,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
@@ -86,6 +88,7 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { StatTile } from "@/components/StatTile";
 import { cn } from "@/lib/utils";
+import { EscaneoRafaga, MoverActivos } from "@/components/activos/Lote";
 import { estadoInfo, garantiaInfo, diasHasta } from "@/components/activos/catalogo";
 import { ACTIVO_COLUMNAS_SQL, ActivoDialog, ControlDialog, type Activo } from "@/components/activos/dialogs";
 import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/FichaActivo";
@@ -1003,6 +1006,10 @@ function InventarioPage() {
   const [control, setControl] = useState("todos");
   // Garantía: por vencer (próximos 90 días), vencida o sin dato.
   const [garantia, setGarantia] = useState("todos");
+  // Mantenimiento preventivo: vencido, próximo (30 días) o sin plan.
+  const [mant, setMant] = useState("todos");
+  const [rafaga, setRafaga] = useState(false);
+  const [moviendo, setMoviendo] = useState<string[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(25);
@@ -1087,6 +1094,12 @@ function InventarioPage() {
           (garantia === "por_vencer" && diasGarantia != null && diasGarantia >= 0 && diasGarantia <= 90) ||
           (garantia === "vencida" && diasGarantia != null && diasGarantia < 0) ||
           (garantia === "sin_dato" && diasGarantia == null);
+        const diasMant = diasHasta(item.mant_proximo);
+        const mantMatch =
+          mant === "todos" ||
+          (mant === "vencido" && diasMant != null && diasMant < 0) ||
+          (mant === "proximo" && diasMant != null && diasMant >= 0 && diasMant <= 30) ||
+          (mant === "sin_plan" && !item.mant_cada_meses);
         return (
           searchable.toLowerCase().includes(deferredQ.toLowerCase()) &&
           (planta === "todos" || item.planta === planta) &&
@@ -1096,10 +1109,11 @@ function InventarioPage() {
           (propiedad === "todos" || item.propiedad === propiedad) &&
           (estado === "todos" || estadoLabel(item.estado) === estado) &&
           controlMatch &&
-          garantiaMatch
+          garantiaMatch &&
+          mantMatch
         );
       }),
-    [data, deferredQ, planta, sector, rubro, tipo, propiedad, estado, control, garantia],
+    [data, deferredQ, planta, sector, rubro, tipo, propiedad, estado, control, garantia, mant],
   );
 
   const { ordenadas: rowsOrdenadas, orden, alternar } = useOrden(rows, {
@@ -1162,7 +1176,7 @@ function InventarioPage() {
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [data]);
-  const filtrosExtra = [planta, tipo, propiedad, control, garantia].filter((v) => v !== "todos").length;
+  const filtrosExtra = [planta, tipo, propiedad, control, garantia, mant].filter((v) => v !== "todos").length;
   const hayFiltros = filtrosExtra > 0 || [rubro, sector, estado].some((v) => v !== "todos") || !!q;
   const limpiarFiltros = () => {
     setQ("");
@@ -1174,6 +1188,7 @@ function InventarioPage() {
     setEstado("todos");
     setControl("todos");
     setGarantia("todos");
+    setMant("todos");
     setPage(1);
   };
   const contarEstado = (v: string) => rows.filter((r) => estadoInfo(r.estado).value === v).length;
@@ -1199,10 +1214,12 @@ function InventarioPage() {
   const canEdit = can("inventario", "edit");
   const fichaItem = itemParam ? (data.find((i) => i.id === itemParam) ?? null) : null;
   const canDelete = can("inventario", "delete") || isAdmin;
+  // Se puede tildar para mover (editar) o para borrar.
+  const canSelect = canDelete || canEdit;
 
   useEffect(() => {
     setPage(1);
-  }, [deferredQ, planta, sector, rubro, tipo, propiedad, estado, control, garantia]);
+  }, [deferredQ, planta, sector, rubro, tipo, propiedad, estado, control, garantia, mant]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -1252,6 +1269,11 @@ function InventarioPage() {
                 </Button>
               }
             />
+            {canEdit && (
+              <Button variant="outline" onClick={() => setRafaga(true)} title="Escanear varias etiquetas seguidas">
+                <ScanLine /> Ráfaga
+              </Button>
+            )}
             <Button variant="outline" asChild>
               <Link to="/inventario-auditoria">
                 <ClipboardList /> Auditoría
@@ -1383,6 +1405,17 @@ function InventarioPage() {
                       <SelectItem value="sin_dato">Sin fecha de garantía</SelectItem>
                     </SelectContent>
                   </Select>
+                  <Select value={mant} onValueChange={(value) => { setMant(value); setPage(1); }}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Mantenimiento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todo mantenimiento</SelectItem>
+                      <SelectItem value="vencido">Mantenimiento vencido</SelectItem>
+                      <SelectItem value="proximo">Mantenimiento en 30 días</SelectItem>
+                      <SelectItem value="sin_plan">Sin plan preventivo</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </PopoverContent>
               </Popover>
               <Popover>
@@ -1409,11 +1442,17 @@ function InventarioPage() {
             </div>
           </div>
 
-          {(isFetching || (canDelete && selectedRows.length > 0)) && (
+          {(isFetching || (canSelect && selectedRows.length > 0)) && (
             <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs">
               <span className="text-muted-foreground">
-                {canDelete && selectedRows.length > 0 ? `${selectedRows.length} seleccionado(s)` : "Actualizando…"}
+                {canSelect && selectedRows.length > 0 ? `${selectedRows.length} seleccionado(s)` : "Actualizando…"}
               </span>
+              <div className="flex gap-1.5">
+              {canEdit && selectedRows.length > 0 && (
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setMoviendo(selectedRows.map((row) => row.id))}>
+                  <MapPin className="size-3.5" /> Mover seleccionados
+                </Button>
+              )}
               {canDelete && selectedRows.length > 0 && (
                 <Button
                   size="sm"
@@ -1426,6 +1465,7 @@ function InventarioPage() {
                   {bulkDelete.isPending ? "Eliminando…" : "Eliminar seleccionados"}
                 </Button>
               )}
+              </div>
             </div>
           )}
 
@@ -1468,7 +1508,7 @@ function InventarioPage() {
             <Table className="min-w-[1080px]">
               <TableHeader className="sticky top-0 z-10 [&_th]:bg-muted">
                 <TableRow>
-                  {canDelete && (
+                  {canSelect && (
                     <TableHead className="w-10">
                       <Checkbox
                         checked={allVisibleSelected}
@@ -1495,7 +1535,7 @@ function InventarioPage() {
                   const Icono = iconoCategoria(item.rubro || item.categoria);
                   return (
                     <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined} className="fila-clic" onClick={() => abrirFicha(item.id)}>
-                      {canDelete && (
+                      {canSelect && (
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedIds.has(item.id)}
@@ -1663,6 +1703,29 @@ function InventarioPage() {
         </SheetContent>
       </Sheet>
 
+      {rafaga && (
+        <EscaneoRafaga
+          onClose={() => setRafaga(false)}
+          onDone={refresh}
+          onMover={(ids) => {
+            setRafaga(false);
+            setMoviendo(ids);
+          }}
+        />
+      )}
+      {moviendo && (
+        <MoverActivos
+          ids={moviendo}
+          plantas={options.plantas}
+          sectores={options.sectores}
+          onClose={() => setMoviendo(null)}
+          onDone={() => {
+            setMoviendo(null);
+            setSelectedIds(new Set());
+            refresh();
+          }}
+        />
+      )}
       <AlertDialog open={pendingDeleteIds.length > 0} onOpenChange={(open) => !open && setPendingDeleteIds([])}>
         <AlertDialogContent>
           <AlertDialogHeader>
