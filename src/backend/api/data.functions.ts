@@ -755,7 +755,7 @@ export const apiRpc = createServerFn({ method: "POST" })
     }
     if (data.name === "avisos_externos_probar") {
       await assertAdmin(session.user.id);
-      const r = await avisoExterno("prueba", "✅ Prueba de avisos de Nodara: si ves este mensaje, los avisos urgentes van a llegar a este chat.");
+      const r = await avisoExterno("prueba", "✅", "Prueba del Bot Sistema", ["Si ves este mensaje, los avisos van a llegar a este chat.", "Escribí /ayuda para ver los comandos."]);
       if (!r.ok) throw new Error(r.motivo);
       return { data: true, error: null };
     }
@@ -815,7 +815,7 @@ export const apiRpc = createServerFn({ method: "POST" })
           actorNombre: actor?.full_name ?? "",
         })),
       );
-      await avisoExterno("version_pendiente", `🆕 Versión pendiente de subir: ${a.sistema}${a.version ? ` v${a.version}` : ""} (registró ${actor?.full_name ?? ""}).`);
+      await avisoExterno("version_pendiente", "🆕", "Versión pendiente de subir", [`Sistema: ${a.sistema}${a.version ? ` v${a.version}` : ""}`, `Registró: ${actor?.full_name ?? ""}`, "Oficina → Actualizaciones de sistemas"]);
       return { data: { avisados: destinos.rows.length }, error: null };
     }
     if (data.name === "generar_tickets_recurrentes") {
