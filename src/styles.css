@@ -766,6 +766,17 @@
   }
 }
 
+/* Los dos puntos del reloj del ingreso titilan suave cada segundo. */
+.reloj-dos-puntos {
+  animation: reloj-titila 1s ease-in-out infinite;
+}
+
+@keyframes reloj-titila {
+  50% {
+    opacity: 0.25;
+  }
+}
+
 /* Fila o tarjeta que abre un detalle: se remarca al pasar el mouse para que se note que es clicable. */
 @utility fila-clic {
   cursor: pointer;

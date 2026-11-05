@@ -1,20 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
-  BookOpen,
-  Boxes,
-  CalendarClock,
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   LockKeyhole,
-  Printer,
   ShieldCheck,
-  Ticket,
   UserRound,
 } from "lucide-react";
 import { BrandLockup } from "@/components/brand/BrandMark";
@@ -26,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
-import { useMarca } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/auth")({
@@ -39,15 +32,6 @@ export const Route = createFileRoute("/auth")({
   }),
   component: AuthPage,
 });
-
-const MODULOS = [
-  { icon: Ticket, label: "Tickets" },
-  { icon: Boxes, label: "Inventario" },
-  { icon: Printer, label: "Tóners" },
-  { icon: CalendarClock, label: "Guardias / Horarios" },
-  { icon: BookOpen, label: "Instructivos" },
-  { icon: KeyRound, label: "Credenciales" },
-];
 
 function useClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -86,155 +70,74 @@ function AuthPage() {
     if (setupRequired) setMode("signup");
   }, [setupRequired]);
 
+  const online = !!health.data?.ok && !health.isError;
+
   return (
-    <div className="grid min-h-[var(--av)] bg-background lg:grid-cols-[minmax(420px,1fr)_minmax(460px,0.9fr)]">
-      <ConsolePanel health={health.data} healthError={health.isError} />
+    <div className="relative flex min-h-[var(--av)] flex-col overflow-hidden bg-background">
+      {/* Fondo: grilla suave y dos luces que se mueven despacio. */}
+      <div className="pointer-events-none absolute inset-0 bg-grid opacity-60 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
+      <div className="pointer-events-none absolute -left-40 -top-40 size-[34rem] rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_22%,transparent),transparent_65%)] blur-2xl [animation:drift_20s_ease-in-out_infinite]" />
+      <div className="pointer-events-none absolute -bottom-48 -right-40 size-[30rem] rounded-full bg-[radial-gradient(circle,oklch(0.6_0.13_250/0.18),transparent_65%)] blur-2xl [animation:drift_24s_ease-in-out_infinite_reverse]" />
 
-      <main className="relative grid place-items-center px-5 py-12 sm:px-10">
-        <div className="pointer-events-none absolute inset-0 bg-grid opacity-70 [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]" />
-        <div className="pointer-events-none absolute left-1/2 top-0 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--primary)_14%,transparent),transparent)]" />
-        <div className="relative w-full max-w-[380px] rise-in">
-          <div className="mb-10 lg:hidden">
-            <BrandLockup tone="default" />
-          </div>
+      <header className="relative flex items-center justify-between gap-3 px-5 py-4 sm:px-8">
+        <BrandLockup tone="default" />
+        <span
+          className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur"
+          title={health.data?.version ?? undefined}
+        >
+          <span className="led" data-tone={health.data ? (online ? "ok" : "crit") : health.isError ? "crit" : undefined} data-pulse={online} />
+          {health.data ? (online ? (health.data.maintenance ? "En mantenimiento" : "En línea") : "Sin respuesta") : health.isError ? "Sin respuesta" : "Conectando…"}
+        </span>
+      </header>
 
-          {mode === "login" ? (
-            <LoginForm onSubmit={signIn} />
-          ) : (
-            <SignupForm setupRequired={setupRequired} onSubmit={signUp} />
-          )}
+      <main className="relative mx-auto grid w-full max-w-5xl flex-1 items-center gap-10 px-5 pb-10 sm:px-8 lg:grid-cols-[1.1fr_minmax(0,400px)] lg:gap-16">
+        <Reloj />
+
+        <div className="w-full rounded-2xl border border-border bg-card/85 p-6 shadow-xl backdrop-blur-md rise-in sm:p-8 lg:justify-self-end">
+          {mode === "login" ? <LoginForm onSubmit={signIn} /> : <SignupForm setupRequired={setupRequired} onSubmit={signUp} />}
 
           {!setupRequired && signupEnabled && (
             <p className="mt-6 text-center text-xs text-muted-foreground">
               {mode === "login" ? "¿No tenés cuenta? " : "¿Ya tenés cuenta? "}
-              <button
-                type="button"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-                onClick={() => setMode(mode === "login" ? "signup" : "login")}
-              >
+              <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
                 {mode === "login" ? "Crear cuenta" : "Ingresar"}
               </button>
             </p>
           )}
-
-          <p className="mt-10 flex items-center justify-center gap-2 text-[11px] text-muted-foreground/80">
-            <ShieldCheck className="size-3.5" />
-            Acceso de uso interno · cada ingreso queda registrado
-          </p>
         </div>
       </main>
+
+      <footer className="relative flex items-center justify-center gap-2 px-5 pb-5 text-[11px] text-muted-foreground/80">
+        <ShieldCheck className="size-3.5" />
+        Uso interno · cada ingreso queda registrado
+      </footer>
     </div>
   );
 }
 
-function ConsolePanel({
-  health,
-  healthError,
-}: {
-  health?: Awaited<ReturnType<typeof api.system.health>>;
-  healthError: boolean;
-}) {
+/** Hora y fecha en vivo, con saludo según el momento del día. */
+function Reloj() {
   const now = useClock();
-  const marca = useMarca();
-  const online = !!health?.ok && !healthError;
-
+  const h = now?.getHours() ?? 12;
+  const saludo = h < 6 ? "Buenas noches" : h < 13 ? "Buen día" : h < 20 ? "Buenas tardes" : "Buenas noches";
+  const hh = now ? String(now.getHours()).padStart(2, "0") : "--";
+  const mm = now ? String(now.getMinutes()).padStart(2, "0") : "--";
+  const ss = now ? String(now.getSeconds()).padStart(2, "0") : "--";
   return (
-    <aside className="relative hidden overflow-hidden bg-sidebar text-sidebar-foreground lg:flex lg:flex-col lg:justify-between lg:p-10 xl:p-14">
-      <div className="pointer-events-none absolute inset-0 bg-grid [--grid-line:oklch(1_0_0/4.5%)]" />
-      <div className="pointer-events-none absolute -left-1/4 -top-1/4 size-[70%] rounded-full bg-[radial-gradient(circle,oklch(0.78_0.12_205/0.22),transparent_65%)] blur-2xl [animation:drift_18s_ease-in-out_infinite]" />
-      <div className="pointer-events-none absolute -bottom-1/3 -right-1/4 size-[65%] rounded-full bg-[radial-gradient(circle,oklch(0.6_0.13_250/0.2),transparent_65%)] blur-2xl [animation:drift_22s_ease-in-out_infinite_reverse]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-[oklch(0.78_0.12_205/0.07)] to-transparent [animation:scan_7s_linear_infinite]" />
-
-      <div className="relative">
-        <BrandLockup />
-      </div>
-
-      <div className="relative max-w-lg space-y-8">
-        <div className="space-y-4">
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-sidebar-primary">
-            Centro de operaciones
-          </p>
-          <h1 className="text-[2rem] font-semibold leading-[1.15] tracking-tight text-white xl:text-[2.35rem]">
-            Soporte, infraestructura y gestión técnica en un solo lugar.
-          </h1>
-          <p className="max-w-md text-sm leading-relaxed text-sidebar-foreground/55">
-            Tickets, inventario, tóners, guardias e instructivos del área, con trazabilidad completa de cada cambio.
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-white/8 bg-white/[0.03] p-5 backdrop-blur-sm">
-          <div className="flex items-end justify-between gap-4 border-b border-white/8 pb-4">
-            <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-sidebar-foreground/40">
-                Hora local
-              </p>
-              <p className="num mt-1 text-3xl font-medium text-white" suppressHydrationWarning>
-                {now ? now.toLocaleTimeString("es-AR", { hour12: false }) : "--:--:--"}
-              </p>
-            </div>
-            <p className="text-right text-xs text-sidebar-foreground/50 first-letter:uppercase" suppressHydrationWarning>
-              {now?.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
-            </p>
-          </div>
-          <dl className="mt-4 grid gap-2.5 text-[13px]">
-            <StatusRow
-              label="Servidor de aplicación"
-              tone={health ? (online ? "ok" : "crit") : healthError ? "crit" : "idle"}
-              value={health ? (online ? "En línea" : "Sin respuesta") : healthError ? "Sin respuesta" : "Verificando…"}
-            />
-            <StatusRow
-              label="Base de datos"
-              tone={health ? (health.database === false ? "crit" : "ok") : "idle"}
-              value={health ? (health.database === false ? "Sin conexión" : "Conectada") : "—"}
-            />
-            <StatusRow
-              label="Mantenimiento"
-              tone={health?.maintenance ? "warn" : health ? "ok" : "idle"}
-              value={health ? (health.maintenance ? "En curso" : "Sin tareas programadas") : "—"}
-            />
-            <StatusRow label="Versión" tone="info" value={health?.version ?? "—"} mono />
-          </dl>
-        </div>
-
-        <div className="flex flex-wrap gap-2 stagger">
-          {MODULOS.map((m) => (
-            <span
-              key={m.label}
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] px-2.5 py-1 text-xs text-sidebar-foreground/65"
-            >
-              <m.icon className="size-3.5 text-sidebar-primary" />
-              {m.label}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <p className="relative font-mono text-[10.5px] uppercase tracking-[0.14em] text-sidebar-foreground/30">
-        {marca.nombre} · {marca.area}
+    <section className="text-center lg:text-left" suppressHydrationWarning>
+      <p className="eyebrow text-primary">{saludo}</p>
+      <p className="num mt-2 flex items-baseline justify-center font-semibold leading-none tracking-tight text-foreground lg:justify-start">
+        <span className="text-[4.5rem] sm:text-[6rem] xl:text-[7.5rem]">{hh}</span>
+        <span className="reloj-dos-puntos mx-1 text-[4rem] text-primary sm:text-[5.5rem] xl:text-[7rem]">:</span>
+        <span className="text-[4.5rem] sm:text-[6rem] xl:text-[7.5rem]">{mm}</span>
+        <span key={ss} className="ml-3 w-[2ch] text-2xl text-muted-foreground animate-in fade-in slide-in-from-bottom-1 sm:text-3xl">
+          {ss}
+        </span>
       </p>
-    </aside>
-  );
-}
-
-function StatusRow({
-  label,
-  value,
-  tone,
-  mono,
-}: {
-  label: string;
-  value: ReactNode;
-  tone: "ok" | "warn" | "crit" | "info" | "idle";
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <dt className="flex items-center gap-2.5 text-sidebar-foreground/60">
-        <span className="led" data-tone={tone} data-pulse={tone === "ok" || tone === "crit"} />
-        {label}
-      </dt>
-      <dd className={cn("text-sidebar-foreground/90", mono && "num text-xs")}>{value}</dd>
-    </div>
+      <p className="mt-3 text-base text-muted-foreground first-letter:uppercase sm:text-lg">
+        {now?.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) ?? "\u00a0"}
+      </p>
+    </section>
   );
 }
 
@@ -272,12 +175,11 @@ function LoginForm({
 
   return (
     <div>
-      <p className="eyebrow text-primary">Acceso seguro</p>
-      <h2 className="mt-2 text-2xl font-semibold tracking-tight">Ingresá a tu cuenta</h2>
-      <p className="mt-1.5 text-sm text-muted-foreground">Usá tu usuario o correo del área.</p>
+      <h2 className="text-xl font-semibold tracking-tight">Ingresá</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Con tu usuario o correo del área.</p>
 
       <form
-        className={cn("mt-8 space-y-4", shaking && "shake")}
+        className={cn("mt-6 space-y-4", shaking && "shake")}
         onAnimationEnd={(e) => e.target === e.currentTarget && setShaking(false)}
         onSubmit={handle}
         noValidate
