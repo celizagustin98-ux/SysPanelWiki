@@ -52,7 +52,20 @@ export const EVENTOS_EXTERNOS = [
  * Aviso urgente fuera del sistema (Telegram). Se configura en Configuración → Bot Sistema;
  * si no está configurado o el evento está apagado, no hace nada. Nunca corta la operación que lo disparó.
  */
-export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "prueba", texto: string) {
+const escHtml = (t: unknown) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * Mensaje con el mismo formato que los avisos programados del bot: ícono y título en negrita,
+ * una línea en blanco y los datos con sangría. Los datos se escapan (vienen de lo que carga la gente).
+ */
+function mensajeBot(icono: string, titulo: string, renglones: (string | null | undefined | false)[]) {
+  const cuerpo = renglones.filter(Boolean).map((r) => `   ${escHtml(r)}`).join("\n");
+  const fecha = new Date().toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short", hourCycle: "h23" });
+  return `${icono} <b>${escHtml(titulo)}</b>${cuerpo ? `\n\n${cuerpo}` : ""}\n\n<i>Nodara · ${fecha}</i>`;
+}
+
+export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "prueba", icono: string, titulo: string, renglones: (string | null | undefined | false)[] = []) {
+  const texto = mensajeBot(icono, titulo, renglones);
   try {
     const cfg = await one<{ valor: { token?: string; chat_id?: string; eventos?: string[] } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`);
     const v = cfg?.valor;
@@ -62,7 +75,7 @@ export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "
     const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: v.chat_id, text: texto, disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: v.chat_id, text: texto, parse_mode: "HTML", disable_web_page_preview: true }),
       signal: AbortSignal.timeout(8000),
     });
     const p = r.ok ? null : ((await r.json().catch(() => null)) as { description?: string } | null);
@@ -71,7 +84,7 @@ export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "
     await query(`insert into bot_envios (clave, evento, texto, ok, error) values ($1, $2, $3, $4, $5) on conflict (clave) do nothing`, [
       `al-momento:${randomUUID()}`,
       evento,
-      texto.slice(0, 500),
+      [titulo, ...renglones.filter(Boolean)].join(" · ").slice(0, 500),
       r.ok,
       motivo || null,
     ]).catch(() => {});
@@ -99,7 +112,12 @@ export async function notificarCambios(
       const previo = new Map(antes.map((r) => [String(r.id), r]));
       for (const a of filas) {
         if (a.estado === "con_problemas" && previo.get(String(a.id))?.estado !== "con_problemas")
-          await avisoExterno("version_problemas", `⚠️ ${String(a.sistema)}${a.version ? ` v${String(a.version)}` : ""} quedó con problemas después de actualizar (marcado por ${actorNombre}).`);
+          await avisoExterno("version_problemas", "⚠️", "Versión con problemas", [
+            `Sistema: ${String(a.sistema)}${a.version ? ` v${String(a.version)}` : ""}`,
+            a.titulo ? `Cambio: ${String(a.titulo)}` : null,
+            `Lo marcó: ${actorNombre}`,
+            "Se abrió un ticket para seguirlo.",
+          ]);
       }
       return;
     }
@@ -108,7 +126,12 @@ export async function notificarCambios(
       if (accion === "insert")
         for (const t of filas)
           if (t.prioridad === "critica")
-            await avisoExterno("ticket_critico", `🔴 Ticket crítico ${ticketLabel(t)}: ${String(t.titulo ?? "")}${t.sector ? ` · ${String(t.sector)}` : ""} (cargó ${actorNombre})`);
+            await avisoExterno("ticket_critico", "🔴", `Ticket crítico ${ticketLabel(t)}`, [
+              String(t.titulo ?? ""),
+              t.sector ? `📍 ${String(t.sector)}` : null,
+              t.solicitante_nombre ? `👤 Pide: ${String(t.solicitante_nombre)}` : null,
+              `Cargó: ${actorNombre}`,
+            ]);
       const previo = new Map(antes.map((r) => [String(r.id), r]));
       const nuevas: Nueva[] = [];
       for (const t of filas) {
