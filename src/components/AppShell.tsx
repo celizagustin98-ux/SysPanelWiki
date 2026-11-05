@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   Printer,
   ScanLine,
-  Search,
   Settings2,
   ShieldCheck,
   Sun,
@@ -28,16 +27,6 @@ import { EscanerQR } from "@/components/activos/EscanerQR";
 import { useRoles } from "@/lib/roles";
 import { leerQr, marcarQrDesbloqueado } from "@/lib/qr";
 import { toast } from "sonner";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-  CommandShortcut,
-} from "@/components/ui/command";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api/client";
 import { getMarca, useMarca } from "@/lib/brand";
@@ -81,8 +70,6 @@ const ROLE_LABEL: Record<string, string> = {
 
 // "1" = menú contraído: solo íconos.
 const COLLAPSE_KEY = "syswiki.sidebar.collapsed";
-
-const sinAcentos = (text: string) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
 function useVisibleNav() {
   const { isAdmin, can } = useAuth();
@@ -143,7 +130,6 @@ export function AppShell() {
   const superpuesto = useMenuSuperpuesto();
   // En tablet arranca contraído siempre: abierto taparía el contenido.
   const [abiertoTablet, setAbiertoTablet] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [escaner, setEscaner] = useState(false);
   const contenidoRef = useRef<HTMLDivElement>(null);
   const { data: roles = [] } = useRoles();
@@ -168,10 +154,6 @@ export function AppShell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
         e.preventDefault();
         alternarMenu.current();
@@ -345,15 +327,6 @@ export function AppShell() {
             <div className="ml-auto flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setPaletteOpen(true)}
-                className="flex h-8 w-64 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-[12.5px] text-muted-foreground shadow-xs transition-colors hover:border-primary/40 hover:text-foreground"
-              >
-                <Search className="size-3.5" />
-                <span className="flex-1 text-left">Buscar módulo o acción…</span>
-                <span className="kbd">Ctrl K</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setEscaner(true)}
                 title="Escanear QR de un equipo"
                 aria-label="Escanear QR de un equipo"
@@ -371,9 +344,6 @@ export function AppShell() {
             <div className="flex items-center justify-between gap-2 px-3 py-2.5">
               <BrandLockup tone="default" subtitle={current?.label} />
               <div className="flex shrink-0 items-center gap-0.5">
-                <Button size="icon" variant="ghost" className="size-9" onClick={() => setPaletteOpen(true)} aria-label="Buscar">
-                  <Search className="size-4" />
-                </Button>
                 <Button size="icon" variant="ghost" className="size-9" onClick={() => setEscaner(true)} aria-label="Escanear QR">
                   <ScanLine className="size-4" />
                 </Button>
@@ -422,15 +392,6 @@ export function AppShell() {
         <Bienvenida />
         <EscanerQR open={escaner} onOpenChange={setEscaner} onResult={alEscanear} />
 
-        <CommandPalette
-          onScan={() => setEscaner(true)}
-          open={paletteOpen}
-          onOpenChange={setPaletteOpen}
-          nav={nav}
-          onToggleTheme={toggle}
-          onSignOut={handleSignOut}
-          theme={theme}
-        />
       </div>
     </TooltipProvider>
   );
@@ -492,78 +453,6 @@ function LiveClock() {
         {now.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
       </span>
     </div>
-  );
-}
-
-function CommandPalette({
-  open,
-  onOpenChange,
-  nav,
-  onToggleTheme,
-  onSignOut,
-  theme,
-  onScan,
-}: {
-  onScan: () => void;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  nav: NavItem[];
-  onToggleTheme: () => void;
-  onSignOut: () => void;
-  theme: string;
-}) {
-  const navigate = useNavigate();
-  const run = (fn: () => void) => {
-    onOpenChange(false);
-    fn();
-  };
-
-  return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Escribí un módulo o una acción…" />
-      <CommandList>
-        <CommandEmpty>Sin resultados.</CommandEmpty>
-        <CommandGroup heading="Ir a">
-          {nav.map((item) => (
-            <CommandItem
-              key={item.to}
-              value={`${item.label} ${item.hint} ${sinAcentos(`${item.label} ${item.hint}`)}`}
-              onSelect={() => run(() => navigate({ to: item.to }))}
-            >
-              <item.icon />
-              <span>{item.label}</span>
-              <span className="ml-2 truncate text-xs text-muted-foreground">{item.hint}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading="Acciones">
-          <CommandItem value="escanear qr etiqueta equipo activo camara" onSelect={() => run(onScan)}>
-            <ScanLine />
-            <span>Escanear QR de un equipo</span>
-          </CommandItem>
-          <CommandItem value="mi perfil foto contraseña datos cuenta" onSelect={() => run(() => navigate({ to: "/perfil" }))}>
-            <UserRound />
-            <span>Mi perfil</span>
-          </CommandItem>
-          <CommandItem value="cambiar tema claro oscuro" onSelect={() => run(onToggleTheme)}>
-            {theme === "dark" ? <Sun /> : <Moon />}
-            <span>{theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}</span>
-          </CommandItem>
-          <CommandItem value="cerrar sesion salir" onSelect={() => run(onSignOut)}>
-            <LogOut />
-            <span>Cerrar sesión</span>
-          </CommandItem>
-        </CommandGroup>
-      </CommandList>
-      <div className="flex items-center justify-between border-t px-3 py-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span className="kbd">↑</span>
-          <span className="kbd">↓</span> navegar <span className="kbd ml-1.5">Enter</span> abrir
-        </span>
-        <CommandShortcut>Ctrl K</CommandShortcut>
-      </div>
-    </CommandDialog>
   );
 }
 

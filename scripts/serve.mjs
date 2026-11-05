@@ -912,7 +912,7 @@ async function handleInstructivoPdf(req, res) {
   }
 }
 
-// Adjuntos de activos y tickets (facturas, fotos, garantías…). Solo usuarios con sesión.
+// Adjuntos de activos, tickets y actualizaciones de sistemas (facturas, fotos, garantías…). Solo usuarios con sesión.
 async function handleAdjunto(req, res) {
   if (req.method !== "GET" || !req.url?.startsWith("/api/adjuntos/")) return false;
   try {
@@ -924,7 +924,8 @@ async function handleAdjunto(req, res) {
       return true;
     }
     const row = await one(`select id, entidad, file_name, file_path, mime from adjuntos where id = $1`, [id]);
-    if (row && !(await puedeEnModulo(session, row.entidad === "ticket" ? "tareas" : "inventario"))) throw prohibido();
+    const modulo = row?.entidad === "ticket" ? "tareas" : row?.entidad === "actualizacion" ? "oficina" : "inventario";
+    if (row && !(await puedeEnModulo(session, modulo))) throw prohibido();
     if (!row) {
       sendJson(res, 404, { error: "Adjunto inexistente" });
       return true;

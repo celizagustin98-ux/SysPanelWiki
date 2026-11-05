@@ -69,7 +69,7 @@ async function abrir(a: Adjunto, descargar = false) {
 }
 
 /** Archivos adjuntos de un activo o un ticket (facturas, garantías, fotos, remitos…). */
-export function Adjuntos({ entidad, entidadId, canEdit, compacto }: { entidad: "activo" | "ticket"; entidadId: string; canEdit: boolean; compacto?: boolean }) {
+export function Adjuntos({ entidad, entidadId, canEdit, compacto }: { entidad: "activo" | "ticket" | "actualizacion"; entidadId: string; canEdit: boolean; compacto?: boolean }) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);

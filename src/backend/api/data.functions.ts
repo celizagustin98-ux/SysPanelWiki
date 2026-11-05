@@ -77,6 +77,7 @@ const TABLES = new Set([
   "tarea_subtareas",
   "tareas",
   "ticket_plantillas",
+  "sistema_actualizaciones",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -115,6 +116,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   roles: { modulo: "roles", fields: ["nombre", "clave"] },
   tareas: { modulo: "tareas", fields: ["numero", "titulo", "estado", "prioridad"] },
   ticket_plantillas: { modulo: "tareas", fields: ["nombre"] },
+  sistema_actualizaciones: { modulo: "oficina", fields: ["sistema", "version", "titulo"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -396,6 +398,7 @@ const MODULO_DE_TABLA: Record<string, string> = {
   insumos_pedidos: "oficina",
   insumos_pedido_eventos: "oficina",
   oficina_contactos: "oficina",
+  sistema_actualizaciones: "oficina",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
@@ -409,7 +412,12 @@ async function moduloAdjunto(filters: Filter[] | undefined, values?: Record<stri
     const id = filterValue(filters, "id");
     if (id) entidad = (await one<{ entidad: string }>(`select entidad from adjuntos where id = $1`, [id]))?.entidad;
   }
-  return entidad === "ticket" ? "tareas" : "inventario";
+  return moduloDeEntidad(entidad);
+}
+
+/** Módulo dueño de los adjuntos de cada entidad (ticket, activo o actualización de sistema). */
+function moduloDeEntidad(entidad: unknown) {
+  return entidad === "ticket" ? "tareas" : entidad === "actualizacion" ? "oficina" : "inventario";
 }
 
 /** Aplica la matriz de permisos del rol (Configuración → Roles y permisos). */
@@ -1448,7 +1456,7 @@ async function assertArchivo(userId: string, bucket: string, path: string, accio
     return;
   }
   if (bucket === "adjuntos") {
-    const modulo = String(path).startsWith("ticket/") ? "tareas" : "inventario";
+    const modulo = moduloDeEntidad(String(path).split("/")[0]);
     // Subir o quitar un adjunto es editar el ticket o el activo.
     const permiso = accion === "ver" ? "ver" : "editar";
     if (!(await hasModulePermission(userId, modulo, permiso))) throw new Error("Tu rol no tiene permiso para esos archivos");
