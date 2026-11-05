@@ -87,6 +87,7 @@ const contentTypes = {
   ".svg": "image/svg+xml; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
   ".webp": "image/webp",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
@@ -127,7 +128,9 @@ function trySendStatic(req, res) {
   res.statusCode = 200;
   setSecurityHeaders(req, res);
   res.setHeader("content-type", contentTypes[ext] || "application/octet-stream");
-  res.setHeader("cache-control", ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable");
+  // El service worker y el manifiesto se revisan siempre (si quedaran fijos en caché, la app instalada no se actualizaría).
+  const sinCache = ext === ".html" || ext === ".webmanifest" || filePath.endsWith("sw.js");
+  res.setHeader("cache-control", sinCache ? "no-cache" : "public, max-age=31536000, immutable");
   if (req.method === "HEAD") {
     res.end();
     return true;

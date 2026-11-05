@@ -58,7 +58,10 @@ export const Route = createFileRoute("/_app/oficina")({
       },
     ],
   }),
-  validateSearch: (s: Record<string, unknown>): { tab?: string } => (typeof s.tab === "string" ? { tab: s.tab } : {}),
+  validateSearch: (s: Record<string, unknown>): { tab?: string; nueva?: string } => ({
+    ...(typeof s.tab === "string" ? { tab: s.tab } : {}),
+    ...(s.nueva ? { nueva: String(s.nueva) } : {}),
+  }),
   component: OficinaPage,
 });
 
@@ -107,7 +110,7 @@ const EMPTY_FORM = {
 };
 
 function OficinaPage() {
-  const { tab: tabUrl } = Route.useSearch();
+  const { tab: tabUrl, nueva } = Route.useSearch();
   const [tab, setTab] = useState<TabKey>(() => (["telefonos", "insumos", "agenda", "actualizaciones"].includes(tabUrl ?? "") ? (tabUrl as TabKey) : "telefonos"));
 
   return (
@@ -141,7 +144,7 @@ function OficinaPage() {
       {tab === "telefonos" && <TelefonosPanel />}
       {tab === "insumos" && <PedidoInsumos />}
       {tab === "agenda" && <Agenda />}
-      {tab === "actualizaciones" && <Actualizaciones />}
+      {tab === "actualizaciones" && <Actualizaciones abrirNueva={!!nueva} />}
     </div>
   );
 }

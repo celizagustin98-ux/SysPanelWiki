@@ -80,7 +80,7 @@ function useActualizaciones() {
 }
 
 /** Oficina → registro mensual de las versiones de otros sistemas que sube el área. */
-export function Actualizaciones() {
+export function Actualizaciones({ abrirNueva }: { abrirNueva?: boolean } = {}) {
   const { puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("oficina");
   const { data: todas = [], isLoading } = useActualizaciones();
@@ -89,7 +89,7 @@ export function Actualizaciones() {
   const [sistema, setSistema] = useState("todos");
   const [q, setQ] = useState("");
   const [abierta, setAbierta] = useState<string | null>(null);
-  const [editando, setEditando] = useState<Actualizacion | "nueva" | null>(null);
+  const [editando, setEditando] = useState<Actualizacion | "nueva" | null>(() => (abrirNueva && canWrite ? "nueva" : null));
   const [base, setBase] = useState<Actualizacion | null>(null);
 
   const sistemas = useMemo(() => [...new Set(todas.map((a) => a.sistema))].sort((a, b) => a.localeCompare(b, "es")), [todas]);

@@ -102,7 +102,11 @@ export function GuardiasPage() {
   const { data: feriadosDb } = useFeriados();
   const [cellDialog, setCellDialog] = useState<null | { op: Operario; day: Date }>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
-  const [tab, setTab] = useState<"planilla" | "horarios" | "liquidacion">("planilla");
+  // Pestaña inicial desde la URL (?tab=horarios), por ejemplo desde los accesos rápidos.
+  const [tab, setTab] = useState<"planilla" | "horarios" | "liquidacion">(() => {
+    const t = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
+    return t === "horarios" || t === "liquidacion" ? t : "planilla";
+  });
   const [pdfTitulo, setPdfTitulo] = useState("Liquidación de guardias y horas extras");
   const [busy, setBusy] = useState(false);
 

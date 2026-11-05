@@ -37,7 +37,11 @@ async function lista(tabla: string, columnas: string, campo: string, desde: stri
 
 /** Reporte mensual del área: tickets, tóners, activos y compras. */
 export function ReporteMensual() {
-  const [mes, setMes] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  // Los primeros días del mes se abre el mes anterior, que es el que se presenta.
+  const [mes, setMes] = useState(() => {
+    const h = new Date();
+    return new Date(h.getFullYear(), h.getMonth() - (h.getDate() <= 7 ? 1 : 0), 1);
+  });
   const desde = new Date(mes.getFullYear(), mes.getMonth(), 1);
   const hasta = new Date(mes.getFullYear(), mes.getMonth() + 1, 1, 0, 0, 0, -1);
   const dIso = desde.toISOString();
@@ -48,7 +52,7 @@ export function ReporteMensual() {
   const { data, isLoading } = useQuery({
     queryKey: ["reporte-mensual", dFecha],
     queryFn: async () => {
-      const [abiertos, cerrados, movs, reps, controles, altas, pedidos, perfiles] = await Promise.all([
+      const [abiertos, cerrados, movs, reps, controles, altas, pedidos, perfiles, versiones, extras, itemsCompra] = await Promise.all([
         lista("tareas", "id, categoria, prioridad, sector", "created_at", dIso, hIso),
         lista("tareas", "id, numero, titulo, estado, categoria, asignado_a, created_at, resuelto_en, cerrado_en", "cerrado_en", dIso, hIso),
         lista("toner_movimientos", "id, modelo_id, tipo, cantidad, sector", "created_at", dIso, hIso),
@@ -57,6 +61,9 @@ export function ReporteMensual() {
         lista("inventario", "id, rubro", "created_at", dIso, hIso),
         lista("insumos_pedidos", "id, numero, estado, total_estimado", "created_at", dIso, hIso),
         api.rpc("directorio_usuarios").then((r) => ((r as { data: { id: string; full_name: string }[] | null }).data ?? [])),
+        lista("sistema_actualizaciones", "id, sistema, version, titulo, estado, fecha, cambios", "fecha", dFecha, hFecha),
+        lista("guardia_horas_extras", "id, operador_nombre, horas", "fecha", dFecha, hFecha),
+        lista("insumos_items", "id, pedido_id, precio_estimado, precio_real, cantidad_comprada, cancelado", "created_at", dIso, hIso),
       ]);
       const nombre = (id: unknown) => perfiles.find((p) => p.id === id)?.full_name ?? "Sin asignar";
       const resueltos = cerrados.filter((t) => CERRADOS.includes(String(t.estado)));
@@ -86,6 +93,15 @@ export function ReporteMensual() {
         altas: altas.length,
         pedidos,
         comprasTotal: pedidos.filter((p) => p.estado !== "rechazado").reduce((s, p) => s + (Number(p.total_estimado) || 0), 0),
+        comprasGastado: itemsCompra
+          .filter((i) => i.pedido_id && !i.cancelado)
+          .reduce((s, i) => s + (i.precio_real != null ? Number(i.precio_real) : Number(i.precio_estimado) || 0) * (Number(i.cantidad_comprada) || 0), 0),
+        versiones,
+        versionesProblemas: versiones.filter((v) => v.estado === "con_problemas" || v.estado === "revertido").length,
+        horasExtras: extras.reduce((s, e) => s + (Number(e.horas) || 0), 0),
+        horasPorEmpleado: [
+          ...extras.reduce((m, e) => m.set(String(e.operador_nombre), (m.get(String(e.operador_nombre)) ?? 0) + (Number(e.horas) || 0)), new Map<string, number>()),
+        ].sort((x, y) => y[1] - x[1]),
       };
     },
   });
@@ -107,6 +123,9 @@ export function ReporteMensual() {
         <div class="box"><label>Tóners instalados</label><div>${data.tonersTotal} (ingresaron ${data.tonersIngresos})</div></div>
         <div class="box"><label>Reparaciones · costo</label><div>${data.reparaciones.length} · ${pesos(data.reparacionesCosto)}</div></div>
         <div class="box"><label>Compras de insumos</label><div>${data.pedidos.length} pedidos · ${pesos(data.comprasTotal)}</div></div>
+        <div class="box"><label>Gastado en compras</label><div>${pesos(data.comprasGastado)}</div></div>
+        <div class="box"><label>Versiones de sistemas</label><div>${data.versiones.length}${data.versionesProblemas ? ` (${data.versionesProblemas} con problemas)` : ""}</div></div>
+        <div class="box"><label>Horas extras</label><div>${data.horasExtras.toLocaleString("es-AR")} h</div></div>
       </div>
       ${tabla("Tickets por categoría", data.porCategoria)}
       ${tabla("Tickets por sector", data.porSector)}
@@ -119,6 +138,17 @@ export function ReporteMensual() {
               .join("")}</tbody></table>`
           : ""
       }
+      ${
+        data.versiones.length
+          ? `<h2>Actualizaciones de sistemas</h2><table><thead><tr><th>Fecha</th><th>Sistema</th><th>Resumen</th><th class="r">Cambios</th></tr></thead><tbody>${data.versiones
+              .map(
+                (v) =>
+                  `<tr><td>${escHtml(String(v.fecha).slice(8, 10) + "/" + String(v.fecha).slice(5, 7))}</td><td>${escHtml(v.sistema)}${v.version ? ` v${escHtml(v.version)}` : ""}${v.estado === "con_problemas" ? " ⚠" : v.estado === "revertido" ? " ↺" : ""}</td><td>${escHtml(v.titulo)}</td><td class="r">${Array.isArray(v.cambios) ? v.cambios.length : 0}</td></tr>`,
+              )
+              .join("")}</tbody></table>`
+          : ""
+      }
+      ${tabla("Horas extras por empleado", data.horasPorEmpleado, "Horas")}
       <h2>Activos IT</h2><table><tbody>
         <tr><td>Altas de equipos</td><td class="r">${data.altas}</td></tr>
         <tr><td>Controles realizados</td><td class="r">${data.controles}</td></tr>

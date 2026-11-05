@@ -95,7 +95,10 @@ import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/
 
 export const Route = createFileRoute("/_app/inventario")({
   ssr: false,
-  validateSearch: (s: Record<string, unknown>) => ({ item: (s.item as string) || undefined }),
+  validateSearch: (s: Record<string, unknown>): { item?: string; rafaga?: string } => ({
+    item: (s.item as string) || undefined,
+    ...(s.rafaga ? { rafaga: String(s.rafaga) } : {}),
+  }),
   head: () => ({
     meta: [
       { title: "Activos IT · Nodara" },
@@ -1008,7 +1011,8 @@ function InventarioPage() {
   const [garantia, setGarantia] = useState("todos");
   // Mantenimiento preventivo: vencido, próximo (30 días) o sin plan.
   const [mant, setMant] = useState("todos");
-  const [rafaga, setRafaga] = useState(false);
+  const { rafaga: rafagaUrl } = Route.useSearch();
+  const [rafaga, setRafaga] = useState(!!rafagaUrl);
   const [moviendo, setMoviendo] = useState<string[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [page, setPage] = useState(1);

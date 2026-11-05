@@ -61,6 +61,7 @@ import { confirmar } from "@/components/Confirmar";
 
 export const Route = createFileRoute("/_app/toners")({
   ssr: false,
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => (typeof s.tab === "string" ? { tab: s.tab } : {}),
   head: () => ({
     meta: [
       { title: "Tóners · Nodara" },
@@ -134,7 +135,8 @@ function TonersPage() {
   const { profile, user, puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("toners");
   const qc = useQueryClient();
-  const [tab, setTab] = useState("deposito");
+  const { tab: tabUrl } = Route.useSearch();
+  const [tab, setTab] = useState(tabUrl ?? "deposito");
   const [stockQuery, setStockQuery] = useState("");
   const [stockEstado, setStockEstado] = useState<"todos" | "ok" | "critico">("todos");
   const [movQuery, setMovQuery] = useState("");

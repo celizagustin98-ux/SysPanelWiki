@@ -23,7 +23,7 @@ import {
 } from "@/backend/core/db";
 import { decryptSecret, encryptSecret, maskCredentialRow } from "@/backend/core/crypto-secrets";
 import { validarClave, validarNombreArchivo } from "@/backend/core/seguridad";
-import { alertasArea, notificar, notificarCambios } from "@/backend/core/notificaciones";
+import { EVENTOS_EXTERNOS, alertasArea, avisoExterno, notificar, notificarCambios } from "@/backend/core/notificaciones";
 import { proximaFecha, type Frecuencia } from "@/components/tickets/recurrencia";
 
 type Filter = { column: string; op: "eq" | "neq" | "gte" | "lte"; value: unknown };
@@ -586,13 +586,18 @@ export const apiMutate = createServerFn({ method: "POST" })
         const prevWhere = appendFilters(data.filters, prevValues);
         antes = (await query<Record<string, unknown>>(`select * from oficina_contactos${prevWhere}`, prevValues)).rows;
       }
+      if (table === "sistema_actualizaciones") {
+        const prevValues: unknown[] = [];
+        const prevWhere = appendFilters(data.filters, prevValues);
+        antes = (await query<Record<string, unknown>>(`select id, estado from sistema_actualizaciones${prevWhere}`, prevValues)).rows;
+      }
       if (table === "tareas") {
         const prevValues: unknown[] = [];
         const prevWhere = appendFilters(data.filters, prevValues);
         antes = (await query<Record<string, unknown>>(`select id, asignado_a, estado from tareas${prevWhere}`, prevValues)).rows;
       }
       const result = await query<Record<string, unknown>>(`update ${table} set ${assignments.join(", ")}${where} returning *`, values);
-      if (table === "tareas") await notificarCambios(table, "update", session.user.id, result.rows, antes);
+      if (table === "tareas" || table === "sistema_actualizaciones") await notificarCambios(table, "update", session.user.id, result.rows, antes);
       if (table === "oficina_contactos") await registrarHistorialContactos(session.user.id, antes, result.rows);
       await writeAudit(session.user.id, table, "editar", result.rows, { campos: Object.keys(payload).filter((k) => k !== "secreto") });
       return { data: null, count: result.rowCount ?? 0, error: null };
@@ -665,6 +670,78 @@ export const apiRpc = createServerFn({ method: "POST" })
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
     }
+    if (data.name === "mi_dia") {
+      // Resumen personal para el inicio: mis tickets, la guardia de hoy, mi próxima guardia y mis pedidos.
+      const uid = session.user.id;
+      const yo = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [uid]);
+      const nombre = (yo?.full_name ?? "").trim().toLowerCase();
+      const r: Record<string, unknown> = {};
+      if (await hasModulePermission(uid, "tareas", "ver")) {
+        r.tickets = await one(
+          `select count(*)::int abiertos,
+                  count(*) filter (where vence_el = current_date)::int vencen_hoy,
+                  count(*) filter (where vence_el < current_date)::int vencidos,
+                  count(*) filter (where prioridad in ('critica', 'alta'))::int urgentes
+             from tareas where asignado_a = $1 and estado not in ('resuelto', 'cerrado', 'cancelado')`,
+          [uid],
+        ).catch(() => null);
+      }
+      if (await hasModulePermission(uid, "guardias", "ver")) {
+        r.guardia_hoy = (
+          await one<{ operador_nombre: string }>(
+            `select operador_nombre from guardias where desde::date <= current_date and hasta::date > current_date and coalesce(notas, '') not ilike '%vacacion%' order by desde desc limit 1`,
+          ).catch(() => null)
+        )?.operador_nombre ?? null;
+        r.mi_proxima = nombre
+          ? ((await one<{ d: string }>(
+              `select to_char(desde::date, 'YYYY-MM-DD') d from guardias
+                where lower(trim(operador_nombre)) = $1 and desde::date >= current_date and coalesce(notas, '') not ilike '%vacacion%'
+                order by desde limit 1`,
+              [nombre],
+            ).catch(() => null))?.d ?? null)
+          : null;
+      }
+      if (await hasModulePermission(uid, "oficina", "ver")) {
+        r.pedidos = (
+          await one<{ n: number }>(
+            `select count(*)::int n from insumos_pedidos where (created_by = $1 or lower(trim(solicitante_nombre)) = $2) and estado in ('enviado', 'aprobado', 'en_compra', 'comprado')`,
+            [uid, nombre],
+          ).catch(() => null)
+        )?.n ?? 0;
+        r.versiones_pendientes = (await one<{ n: number }>(`select count(*)::int n from sistema_actualizaciones where estado = 'pendiente'`).catch(() => null))?.n ?? 0;
+      }
+      return { data: r, error: null };
+    }
+    if (data.name === "avisos_externos_leer") {
+      await assertAdmin(session.user.id);
+      const v = (await one<{ valor: { token?: string; chat_id?: string; eventos?: string[] } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
+      // El token nunca vuelve al navegador: solo se informa si está cargado.
+      return { data: { tiene_token: !!v?.token, chat_id: v?.chat_id ?? "", eventos: v?.eventos ?? [...EVENTOS_EXTERNOS] }, error: null };
+    }
+    if (data.name === "avisos_externos_guardar") {
+      await assertAdmin(session.user.id);
+      const previo = (await one<{ valor: { token?: string } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
+      const tokenNuevo = String(data.args?._token ?? "").trim();
+      if (tokenNuevo && !/^\d{5,}:[\w-]{20,}$/.test(tokenNuevo)) throw new Error("El token del bot no tiene el formato de Telegram (números:letras)");
+      const eventos = (Array.isArray(data.args?._eventos) ? data.args._eventos : []).filter((e: unknown) => (EVENTOS_EXTERNOS as readonly string[]).includes(String(e)));
+      const valor = {
+        token: data.args?._quitar_token ? undefined : tokenNuevo ? encryptSecret(tokenNuevo) : previo?.token,
+        chat_id: String(data.args?._chat_id ?? "").trim().slice(0, 40),
+        eventos,
+      };
+      await query(
+        `insert into ajustes (clave, valor, updated_at) values ('avisos_telegram', $1::jsonb, now()) on conflict (clave) do update set valor = excluded.valor, updated_at = now()`,
+        [JSON.stringify(valor)],
+      );
+      await writeAudit(session.user.id, "ajustes", "editar", [{ id: "avisos_telegram" }], { entidad_desc: "Avisos por Telegram" }, "configuracion");
+      return { data: true, error: null };
+    }
+    if (data.name === "avisos_externos_probar") {
+      await assertAdmin(session.user.id);
+      const r = await avisoExterno("prueba", "✅ Prueba de avisos de Nodara: si ves este mensaje, los avisos urgentes van a llegar a este chat.");
+      if (!r.ok) throw new Error(r.motivo);
+      return { data: true, error: null };
+    }
     if (data.name === "ajuste_leer") {
       // Solo ajustes que cualquiera puede ver; los de integraciones (tokens) quedan para el administrador.
       const clave = String(data.args?._clave ?? "");
@@ -721,6 +798,7 @@ export const apiRpc = createServerFn({ method: "POST" })
           actorNombre: actor?.full_name ?? "",
         })),
       );
+      await avisoExterno("version_pendiente", `🆕 Versión pendiente de subir: ${a.sistema}${a.version ? ` v${a.version}` : ""} (registró ${actor?.full_name ?? ""}).`);
       return { data: { avisados: destinos.rows.length }, error: null };
     }
     if (data.name === "generar_tickets_recurrentes") {

@@ -18,6 +18,7 @@ import { useZonaVisible } from "@/lib/zona-visible";
 import { ThemeProvider } from "@/lib/theme";
 import { tituloConMarca, useMarca } from "@/lib/brand";
 import { ConfirmarHost } from "@/components/Confirmar";
+import { registrarPwa } from "@/lib/pwa";
 
 function StatusFrame({
   title,
@@ -147,11 +148,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "theme-color", content: "#23272e" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Nodara" },
+      { name: "mobile-web-app-capable", content: "yes" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "shortcut icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
 
@@ -182,6 +188,7 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useZonaVisible();
+  useEffect(() => registrarPwa(), []);
 
   return (
     <QueryClientProvider client={queryClient}>

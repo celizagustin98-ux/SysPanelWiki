@@ -1,0 +1,22 @@
+{
+  "name": "Nodara · Área de Sistemas",
+  "short_name": "Nodara",
+  "description": "Tickets, activos, tóners, guardias e instructivos del área.",
+  "lang": "es-AR",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1b1f25",
+  "theme_color": "#23272e",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Nuevo ticket", "url": "/tareas?nuevo=1" },
+    { "name": "Tickets", "url": "/tareas" },
+    { "name": "Activos IT", "url": "/inventario" },
+    { "name": "Teléfonos", "url": "/oficina" }
+  ]
+}
