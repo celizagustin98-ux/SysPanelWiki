@@ -54,6 +54,7 @@ import { PageHeader } from "@/components/AppShell";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { ChecklistInstructivo } from "@/components/instructivos/Checklist";
 
 export const Route = createFileRoute("/_app/instructivos")({
   ssr: false,
@@ -77,6 +78,7 @@ type Doc = {
   title: string;
   descripcion: string | null;
   tags: string[];
+  pasos?: string[] | null;
   views: number;
   review_by?: string | null;
   created_at: string;
@@ -166,7 +168,7 @@ function InstructivosPage() {
     queryFn: async () => {
       const { data, error } = await api
         .from("wiki_docs")
-        .select("id, folder_id, title, descripcion, tags, views, review_by, created_at, updated_at")
+        .select("id, folder_id, title, descripcion, tags, pasos, views, review_by, created_at, updated_at")
         .order("title");
       if (error) throw error;
       return data as Doc[];
@@ -1488,6 +1490,8 @@ function DocViewer({
                   </div>
                 )}
               </div>
+
+              <ChecklistInstructivo docId={doc.id} titulo={doc.title} pasos={doc.pasos ?? []} canWrite={canWrite} onChanged={onChanged} />
 
               <dl className="grid grid-cols-2 gap-3 border-y border-border/70 py-4 text-[13px]">
                 <Meta label="Archivo" value={pdf?.file_name ?? "—"} wide />

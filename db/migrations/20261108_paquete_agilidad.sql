@@ -75,3 +75,25 @@ create table if not exists guardia_intercambios (
   created_at timestamptz not null default now()
 );
 create index if not exists guardia_intercambios_estado_idx on guardia_intercambios (estado, fecha);
+
+-- ── Instructivos: checklist ejecutable ──
+alter table wiki_docs add column if not exists pasos text[] not null default '{}';
+create table if not exists instructivo_ejecuciones (
+  id uuid primary key default gen_random_uuid(),
+  doc_id uuid not null references wiki_docs(id) on delete cascade,
+  doc_titulo text,
+  pasos jsonb not null default '[]'::jsonb,
+  completos integer not null default 0,
+  total integer not null default 0,
+  notas text,
+  tarea_id uuid references tareas(id) on delete set null,
+  ticket_numero integer,
+  ejecutado_por_nombre text,
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists instructivo_ejecuciones_doc_idx on instructivo_ejecuciones (doc_id, created_at desc);
+
+-- ── Credenciales: responsable y cada cuánto hay que cambiar la clave ──
+alter table credenciales add column if not exists responsable_id uuid references profiles(id) on delete set null;
+alter table credenciales add column if not exists rotar_cada_dias integer;

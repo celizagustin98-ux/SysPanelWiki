@@ -83,6 +83,7 @@ const TABLES = new Set([
   "ticket_recurrentes",
   "insumos_plantillas",
   "guardia_intercambios",
+  "instructivo_ejecuciones",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -126,6 +127,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   ticket_recurrentes: { modulo: "tareas", fields: ["titulo", "frecuencia"] },
   insumos_plantillas: { modulo: "oficina", fields: ["nombre"] },
   guardia_intercambios: { modulo: "guardias", fields: ["fecha", "de_nombre", "a_nombre", "estado"] },
+  instructivo_ejecuciones: { modulo: "instructivos", fields: ["doc_titulo", "completos", "total"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -412,6 +414,7 @@ const MODULO_DE_TABLA: Record<string, string> = {
   ticket_recurrentes: "tareas",
   insumos_plantillas: "oficina",
   guardia_intercambios: "guardias",
+  instructivo_ejecuciones: "instructivos",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;

@@ -118,6 +118,25 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
     });
   }
 
+  const claves = await seguro(() =>
+    query<{ servicio: string }>(
+      `select servicio from credenciales
+        where responsable_id = $1 and rotar_cada_dias is not null
+          and coalesce(last_rotated_at, updated_at, created_at) < now() - rotar_cada_dias * interval '1 day'
+        order by servicio limit 8`,
+      [userId],
+    ),
+  );
+  if (claves?.rows.length)
+    alertas.push({
+      id: "claves-rotar",
+      tipo: "clave",
+      tono: "warn",
+      titulo: `${claves.rows.length} clave${claves.rows.length === 1 ? "" : "s"} a tu cargo para cambiar`,
+      cuerpo: claves.rows.map((c) => c.servicio).join(", "),
+      link: "/credenciales",
+    });
+
   const esAdmin = await seguro(() => one<{ ok: boolean }>(`select exists(select 1 from user_roles where user_id = $1 and role = 'administrador') ok`, [userId]));
   if (esAdmin?.ok) {
     const intercambios = await seguro(() => one<{ n: number }>(`select count(*)::int n from guardia_intercambios where estado = 'pendiente'`));

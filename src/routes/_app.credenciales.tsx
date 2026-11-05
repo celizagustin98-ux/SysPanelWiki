@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
-import { ExternalLink, Lock, Pencil, Plus, Search, ShieldCheck, Trash2, Wand2 } from "lucide-react";
+import { ExternalLink, Lock, Pencil, Plus, Search, ShieldCheck, Trash2, Wand2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import {
 import { InputClave } from "@/components/InputClave";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FiltroChips, PieTabla, THEAD_CLASE, ThOrden, useOrden } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
@@ -67,7 +68,54 @@ type Cred = {
   notas: string | null;
   updated_at?: string | null;
   roles_permitidos?: string[] | null;
+  responsable_id?: string | null;
+  rotar_cada_dias?: number | null;
 };
+
+const ROTACION = [
+  ["90", "Cada 3 meses"],
+  ["180", "Cada 6 meses"],
+  ["365", "Cada año"],
+] as const;
+
+function usePerfiles() {
+  return useQuery({
+    queryKey: ["directorio_usuarios"],
+    staleTime: 5 * 60_000,
+    queryFn: async () => ((await api.rpc("directorio_usuarios")).data ?? []) as { id: string; full_name: string }[],
+  });
+}
+
+/**
+ * Copia el usuario y deja a mano la clave: el aviso tiene un botón para copiarla después de pegar
+ * el usuario. El portapapeles se limpia solo a los 45 segundos.
+ */
+async function copiarAcceso(c: Cred) {
+  const limpiar = (valor: string) =>
+    window.setTimeout(async () => {
+      try {
+        if ((await navigator.clipboard.readText()) === valor) await navigator.clipboard.writeText("");
+      } catch {
+        /* sin permiso para leer el portapapeles: se deja como está */
+      }
+    }, 45_000);
+  const copiarClave = async () => {
+    try {
+      const clave = await rpcRevelar("revelar_credencial", { _id: c.id, _via: "copiar" })();
+      await navigator.clipboard.writeText(clave);
+      limpiar(clave);
+      toast.success("Clave copiada (se borra del portapapeles en 45 s)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo copiar la clave");
+    }
+  };
+  if (!c.usuario) return copiarClave();
+  await navigator.clipboard.writeText(c.usuario);
+  toast.success(`Usuario copiado: pegalo y después copiá la clave`, {
+    duration: 20_000,
+    action: { label: "Copiar clave", onClick: () => void copiarClave() },
+  });
+}
 
 function CredencialesPage() {
   const { user, can } = useAuth();
@@ -260,7 +308,7 @@ function CredencialesPage() {
                       )}
                     </p>
                     {c.notas && <p className="max-w-[260px] truncate text-[11px] text-muted-foreground" title={c.notas}>{c.notas}</p>}
-                    <AvisosClave s={saludDe.get(c.id)} />
+                    <AvisosClave s={saludDe.get(c.id)} rotar={c.rotar_cada_dias} />
                   </td>
                   <td className="hidden px-3 py-2.5 md:table-cell">
                     <Badge variant="secondary" className="capitalize">{c.categoria}</Badge>
@@ -282,6 +330,16 @@ function CredencialesPage() {
                       compacto
                       fetcher={rpcRevelar("revelar_credencial", { _id: c.id, _via: "ver" })}
                     />
+                    {(c.has_secreto || c.secreto) && (
+                      <button
+                        type="button"
+                        onClick={() => void copiarAcceso(c)}
+                        className="ml-1 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 align-middle font-sans text-[10.5px] text-muted-foreground hover:border-primary/50 hover:text-primary"
+                        title="Copia el usuario y después la clave"
+                      >
+                        <KeyRound className="size-3" /> Acceso
+                      </button>
+                    )}
                   </td>
                   <td className="hidden px-3 py-2.5 text-xs lg:table-cell">
                     {c.ip && <span className="font-mono">{c.ip}</span>}
@@ -342,9 +400,10 @@ function CredencialesPage() {
 }
 
 /** Repetida, débil o sin cambiar hace mucho: avisos debajo del nombre del servicio. */
-function AvisosClave({ s }: { s?: Salud }) {
+function AvisosClave({ s, rotar }: { s?: Salud; rotar?: number | null }) {
   if (!s) return null;
   const avisos: string[] = [];
+  if (rotar && s.dias >= rotar) avisos.push("Toca cambiarla");
   if (s.repetida > 0) avisos.push(`Repetida en ${s.repetida} más`);
   if (s.debil) avisos.push("Débil");
   if (s.dias >= DIAS_CLAVE_VIEJA) avisos.push(`Sin cambiar hace ${s.dias >= 730 ? `${Math.floor(s.dias / 365)} años` : `${Math.floor(s.dias / 30)} meses`}`);
@@ -368,6 +427,9 @@ function CredDialog({
   const claveRef = useRef<HTMLInputElement>(null);
   const { data: roles = [] } = useRoles();
   const [permitidos, setPermitidos] = useState<string[]>(existing?.roles_permitidos ?? []);
+  const { data: perfiles = [] } = usePerfiles();
+  const [responsable, setResponsable] = useState(existing?.responsable_id ?? "none");
+  const [rotar, setRotar] = useState(existing?.rotar_cada_dias ? String(existing.rotar_cada_dias) : "none");
   const generar = async () => {
     const c = generarClave();
     if (claveRef.current) claveRef.current.value = c;
@@ -383,7 +445,11 @@ function CredDialog({
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (o) setPermitidos(existing?.roles_permitidos ?? []);
+        if (o) {
+          setPermitidos(existing?.roles_permitidos ?? []);
+          setResponsable(existing?.responsable_id ?? "none");
+          setRotar(existing?.rotar_cada_dias ? String(existing.rotar_cada_dias) : "none");
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -415,6 +481,8 @@ function CredDialog({
               url: String(fd.get("url") || ""),
               notas: String(fd.get("notas") || ""),
               roles_permitidos: permitidos.length ? permitidos : null,
+              responsable_id: responsable === "none" ? null : responsable,
+              rotar_cada_dias: rotar === "none" ? null : Number(rotar),
               created_by: userId ?? null,
             };
             if (isEdit) {
@@ -496,6 +564,41 @@ function CredDialog({
             <p className="text-[11px] text-muted-foreground">
               {permitidos.length ? "Solo estos roles (y los administradores) la ven, la revelan o la editan." : "Sin elegir: la ven todos los roles con acceso a Credenciales."}
             </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>Responsable</Label>
+              <Select value={responsable} onValueChange={setResponsable}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin responsable</SelectItem>
+                  {perfiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cambiar la clave</Label>
+              <Select value={rotar} onValueChange={setRotar}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin recordatorio</SelectItem>
+                  {ROTACION.map(([v, l]) => (
+                    <SelectItem key={v} value={v}>
+                      {l}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="col-span-2 text-[11px] text-muted-foreground">Cuando toque cambiarla, el responsable recibe el aviso en sus notificaciones.</p>
           </div>
           <DialogFooter>
             <Button type="submit">{isEdit ? "Guardar cambios" : "Guardar"}</Button>
