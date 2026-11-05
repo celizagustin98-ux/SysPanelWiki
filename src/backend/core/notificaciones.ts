@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { one, query } from "./db";
 import { decryptSecret } from "@/backend/core/crypto-secrets";
 
@@ -24,10 +25,31 @@ function ticketLabel(t: Record<string, unknown>) {
   return t.numero ? `TK-${t.numero}` : "Ticket";
 }
 
-export const EVENTOS_EXTERNOS = ["ticket_critico", "version_pendiente", "version_problemas"] as const;
+/** Avisos del Bot Sistema. Los tres primeros salen al momento desde la app; el resto los revisa scripts/bot.mjs cada minuto. */
+export const EVENTOS_EXTERNOS = [
+  "ticket_critico",
+  "version_pendiente",
+  "version_problemas",
+  "ticket_sin_asignar",
+  "ticket_sla",
+  "ticket_vencido",
+  "guardia_hoy",
+  "intercambio_guardia",
+  "toner_bajo",
+  "pedido_estado",
+  "mantenimiento",
+  "garantia",
+  "version_sin_subir",
+  "respaldo",
+  "disco",
+  "login_fallido",
+  "clave_rotar",
+  "resumen_diario",
+  "resumen_semanal",
+] as const;
 
 /**
- * Aviso urgente fuera del sistema (Telegram). Se configura en Configuración → Avisos externos;
+ * Aviso urgente fuera del sistema (Telegram). Se configura en Configuración → Bot Sistema;
  * si no está configurado o el evento está apagado, no hace nada. Nunca corta la operación que lo disparó.
  */
 export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "prueba", texto: string) {
@@ -43,11 +65,17 @@ export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "
       body: JSON.stringify({ chat_id: v.chat_id, text: texto, disable_web_page_preview: true }),
       signal: AbortSignal.timeout(8000),
     });
-    if (!r.ok) {
-      const p = (await r.json().catch(() => null)) as { description?: string } | null;
-      return { ok: false, motivo: p?.description ?? `Telegram respondió ${r.status}` };
-    }
-    return { ok: true, motivo: "" };
+    const p = r.ok ? null : ((await r.json().catch(() => null)) as { description?: string } | null);
+    const motivo = r.ok ? "" : (p?.description ?? `Telegram respondió ${r.status}`);
+    // Queda en el historial de envíos que se ve en Configuración → Bot Sistema.
+    await query(`insert into bot_envios (clave, evento, texto, ok, error) values ($1, $2, $3, $4, $5) on conflict (clave) do nothing`, [
+      `al-momento:${randomUUID()}`,
+      evento,
+      texto.slice(0, 500),
+      r.ok,
+      motivo || null,
+    ]).catch(() => {});
+    return { ok: r.ok, motivo };
   } catch (error) {
     console.error("No se pudo enviar el aviso externo", error);
     return { ok: false, motivo: error instanceof Error ? error.message : "Sin conexión con Telegram" };

@@ -714,9 +714,13 @@ export const apiRpc = createServerFn({ method: "POST" })
     }
     if (data.name === "avisos_externos_leer") {
       await assertAdmin(session.user.id);
-      const v = (await one<{ valor: { token?: string; chat_id?: string; eventos?: string[] } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
+      const v = (await one<{ valor: { token?: string; chat_id?: string; eventos?: string[]; opciones?: Record<string, unknown> } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
+      const envios = await query(`select clave, evento, texto, ok, error, enviado_at from bot_envios order by enviado_at desc limit 25`).catch(() => ({ rows: [] }));
       // El token nunca vuelve al navegador: solo se informa si está cargado.
-      return { data: { tiene_token: !!v?.token, chat_id: v?.chat_id ?? "", eventos: v?.eventos ?? [...EVENTOS_EXTERNOS] }, error: null };
+      return {
+        data: { tiene_token: !!v?.token, chat_id: v?.chat_id ?? "", eventos: v?.eventos ?? [...EVENTOS_EXTERNOS], opciones: v?.opciones ?? {}, envios: envios.rows },
+        error: null,
+      };
     }
     if (data.name === "avisos_externos_guardar") {
       await assertAdmin(session.user.id);
@@ -724,10 +728,23 @@ export const apiRpc = createServerFn({ method: "POST" })
       const tokenNuevo = String(data.args?._token ?? "").trim();
       if (tokenNuevo && !/^\d{5,}:[\w-]{20,}$/.test(tokenNuevo)) throw new Error("El token del bot no tiene el formato de Telegram (números:letras)");
       const eventos = (Array.isArray(data.args?._eventos) ? data.args._eventos : []).filter((e: unknown) => (EVENTOS_EXTERNOS as readonly string[]).includes(String(e)));
+      // Opciones del bot: solo las conocidas y con su tipo.
+      const o = (data.args?._opciones ?? {}) as Record<string, unknown>;
+      const hora = (v: unknown, d: string) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v)) ? String(v) : d);
+      const opciones = {
+        hora_resumen: hora(o.hora_resumen, "08:00"),
+        hora_guardia: hora(o.hora_guardia, "19:30"),
+        solo_habiles: o.solo_habiles !== false,
+        sin_asignar_horas: Math.min(Math.max(Number(o.sin_asignar_horas) || 2, 1), 72),
+        disco_pct: Math.min(Math.max(Number(o.disco_pct) || 90, 50), 99),
+        silencio_nocturno: o.silencio_nocturno !== false,
+        comandos: o.comandos !== false,
+      };
       const valor = {
         token: data.args?._quitar_token ? undefined : tokenNuevo ? encryptSecret(tokenNuevo) : previo?.token,
         chat_id: String(data.args?._chat_id ?? "").trim().slice(0, 40),
         eventos,
+        opciones,
       };
       await query(
         `insert into ajustes (clave, valor, updated_at) values ('avisos_telegram', $1::jsonb, now()) on conflict (clave) do update set valor = excluded.valor, updated_at = now()`,

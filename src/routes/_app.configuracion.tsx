@@ -45,7 +45,7 @@ const SECCIONES: {
     items: [
       { key: "general", label: "General", hint: "Versión, estado y escaneo QR", icon: Info },
       { key: "salud", label: "Salud y respaldos", hint: "Disco, base, respaldos diarios y sesiones abiertas", icon: HeartPulse },
-      { key: "avisos", label: "Avisos externos", hint: "Avisos urgentes por Telegram", icon: BellRing },
+      { key: "avisos", label: "Bot Sistema", hint: "Avisos y comandos por Telegram", icon: BellRing },
       {
         key: "feriados",
         label: "Feriados",

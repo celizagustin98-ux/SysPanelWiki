@@ -33,6 +33,7 @@ jobs:
           node --check scripts/init-db.mjs
           node --check scripts/recifrar-secretos.mjs
           node --check scripts/respaldos.mjs
+          node --check scripts/bot.mjs
           bash -n scripts/actualizar.sh deploy/instalar.sh deploy/reinstalar.sh deploy/https.sh deploy/proxmox/crear-lxc.sh deploy/docker/entrypoint.sh
 
       # Sin errores de tipos: si aparece uno nuevo, el PR no se puede mergear.

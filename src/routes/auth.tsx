@@ -9,8 +9,7 @@ import {
   Loader2,
   LockKeyhole,
   ShieldCheck,
-  UserRound,
-} from "lucide-react";
+  UserRound, Moon, MoonStar, Sun, Sunrise, Sunset } from "lucide-react";
 import { BrandLockup } from "@/components/brand/BrandMark";
 import { marcarBienvenida } from "@/components/Bienvenida";
 import { marcarQrDesbloqueado, olvidarQrDesbloqueo } from "@/lib/qr";
@@ -21,9 +20,14 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { EscenaHora, cieloOscuro, useMomento, type Momento } from "@/components/brand/EscenaHora";
 
 export const Route = createFileRoute("/auth")({
-  validateSearch: (s: Record<string, unknown>): { redirect?: string } => (typeof s.redirect === "string" ? { redirect: s.redirect } : {}),
+  validateSearch: (s: Record<string, unknown>): { redirect?: string; vista?: string } => ({
+    ...(typeof s.redirect === "string" ? { redirect: s.redirect } : {}),
+    // ?vista=1 muestra el ingreso aunque haya sesión (para revisar la pantalla sin cerrarla).
+    ...(s.vista ? { vista: String(s.vista) } : {}),
+  }),
   head: () => ({
     meta: [
       { title: "Acceso · Nodara" },
@@ -46,7 +50,7 @@ function useClock() {
 function AuthPage() {
   const { session, signIn, signUp } = useAuth();
   const navigate = useNavigate();
-  const { redirect } = Route.useSearch();
+  const { redirect, vista } = Route.useSearch();
   const [mode, setMode] = useState<"login" | "signup">("login");
 
   const health = useQuery({
@@ -57,11 +61,11 @@ function AuthPage() {
   });
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || vista) return;
     // Solo rutas internas: evita redirecciones a otros sitios.
     const destino = redirect && redirect.startsWith("/") && !redirect.startsWith("//") && !redirect.startsWith("/auth") ? redirect : "/dashboard";
     navigate({ href: destino, replace: true });
-  }, [session, navigate, redirect]);
+  }, [session, navigate, redirect, vista]);
 
   const setupRequired = !!health.data?.setupRequired;
   const signupEnabled = !!health.data?.signupEnabled;
@@ -71,13 +75,12 @@ function AuthPage() {
   }, [setupRequired]);
 
   const online = !!health.data?.ok && !health.isError;
+  const momento = useMomento();
 
   return (
-    <div className="relative flex min-h-[var(--av)] flex-col overflow-hidden bg-background">
-      {/* Fondo: grilla suave y dos luces que se mueven despacio. */}
-      <div className="pointer-events-none absolute inset-0 bg-grid opacity-60 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
-      <div className="pointer-events-none absolute -left-40 -top-40 size-[34rem] rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_22%,transparent),transparent_65%)] blur-2xl [animation:drift_20s_ease-in-out_infinite]" />
-      <div className="pointer-events-none absolute -bottom-48 -right-40 size-[30rem] rounded-full bg-[radial-gradient(circle,oklch(0.6_0.13_250/0.18),transparent_65%)] blur-2xl [animation:drift_24s_ease-in-out_infinite_reverse]" />
+    <div className={cn("relative flex min-h-[var(--av)] flex-col overflow-hidden bg-background text-foreground", cieloOscuro(momento) && "dark")}>
+      {/* Escena animada según la hora: día, atardecer, noche… */}
+      <EscenaHora momento={momento} />
 
       <header className="relative flex items-center justify-between gap-3 px-5 py-4 sm:px-8">
         <BrandLockup tone="default" />
@@ -91,7 +94,7 @@ function AuthPage() {
       </header>
 
       <main className="relative mx-auto grid w-full max-w-5xl flex-1 items-center gap-10 px-5 pb-10 sm:px-8 lg:grid-cols-[1.1fr_minmax(0,400px)] lg:gap-16">
-        <Reloj />
+        <Reloj momento={momento} />
 
         <div className="w-full rounded-2xl border border-border bg-card/85 p-6 shadow-xl backdrop-blur-md rise-in sm:p-8 lg:justify-self-end">
           {mode === "login" ? <LoginForm onSubmit={signIn} /> : <SignupForm setupRequired={setupRequired} onSubmit={signUp} />}
@@ -115,8 +118,10 @@ function AuthPage() {
   );
 }
 
+const ICONO_MOMENTO = { madrugada: MoonStar, amanecer: Sunrise, dia: Sun, atardecer: Sunset, noche: Moon } as const;
+
 /** Hora y fecha en vivo, con saludo según el momento del día. */
-function Reloj() {
+function Reloj({ momento }: { momento: Momento | null }) {
   const now = useClock();
   const h = now?.getHours() ?? 12;
   const saludo = h < 6 ? "Buenas noches" : h < 13 ? "Buen día" : h < 20 ? "Buenas tardes" : "Buenas noches";
@@ -125,7 +130,13 @@ function Reloj() {
   const ss = now ? String(now.getSeconds()).padStart(2, "0") : "--";
   return (
     <section className="text-center lg:text-left" suppressHydrationWarning>
-      <p className="eyebrow text-primary">{saludo}</p>
+      <p className="eyebrow inline-flex items-center gap-1.5 text-primary">
+        {(() => {
+          const Icono = ICONO_MOMENTO[momento ?? "dia"];
+          return <Icono aria-hidden className="size-4" />;
+        })()}
+        {saludo}
+      </p>
       <p className="num mt-2 flex items-baseline justify-center font-semibold leading-none tracking-tight text-foreground lg:justify-start">
         <span className="text-[4.5rem] sm:text-[6rem] xl:text-[7.5rem]">{hh}</span>
         <span className="reloj-dos-puntos mx-1 text-[4rem] text-primary sm:text-[5.5rem] xl:text-[7rem]">:</span>
