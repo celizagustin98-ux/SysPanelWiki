@@ -92,6 +92,11 @@ function detalleLegible(detalle: unknown) {
 }
 
 /** Registro de auditoría: sección de Configuración (antes era un módulo aparte). */
+/** Los identificadores internos (uuid) se muestran cortos: completos ocupan varias líneas y no le dicen nada a nadie. */
+function acortarIds(texto: string | null | undefined) {
+  return (texto ?? "").replace(/([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "$1…");
+}
+
 export function Auditoria() {
   const { can } = useAuth();
   const isAdmin = can("auditoria", "view");
@@ -398,7 +403,7 @@ export function Auditoria() {
                         </Badge>
                       </td>
                       <td className="px-3 py-1.5">
-                        <p>{r.entidad_desc || "—"}</p>
+                        <p className="break-words" title={r.entidad_desc || undefined}>{acortarIds(r.entidad_desc) || "—"}</p>
                         {detalleLegible(r.detalle) ? (
                           <p className="mt-0.5 text-xs text-muted-foreground">
                             {detalleLegible(r.detalle)}
@@ -414,7 +419,7 @@ export function Auditoria() {
                   <div key={r.id} className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium">{r.entidad_desc || labelModulo(r.modulo)}</p>
+                        <p className="break-words text-sm font-medium">{acortarIds(r.entidad_desc) || labelModulo(r.modulo)}</p>
                         <p className="text-xs text-muted-foreground">
                           {new Date(r.created_at).toLocaleString("es-AR")}
                         </p>
