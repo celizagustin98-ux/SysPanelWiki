@@ -81,6 +81,7 @@ const TABLES = new Set([
   "sistema_actualizaciones",
   "ticket_respuestas",
   "ticket_recurrentes",
+  "insumos_plantillas",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -122,6 +123,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   sistema_actualizaciones: { modulo: "oficina", fields: ["sistema", "version", "titulo"] },
   ticket_respuestas: { modulo: "tareas", fields: ["titulo"] },
   ticket_recurrentes: { modulo: "tareas", fields: ["titulo", "frecuencia"] },
+  insumos_plantillas: { modulo: "oficina", fields: ["nombre"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -406,6 +408,7 @@ const MODULO_DE_TABLA: Record<string, string> = {
   sistema_actualizaciones: "oficina",
   ticket_respuestas: "tareas",
   ticket_recurrentes: "tareas",
+  insumos_plantillas: "oficina",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
@@ -655,6 +658,45 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "mis_preferencias") {
+      const fila = await one<{ preferencias: Record<string, unknown> }>(`select coalesce(preferencias, '{}'::jsonb) preferencias from profiles where id = $1`, [session.user.id]).catch(() => null);
+      return { data: fila?.preferencias ?? {}, error: null };
+    }
+    if (data.name === "guardar_preferencias") {
+      // Cada usuario guarda solo las suyas; se fusionan con las que ya tenía.
+      const cambios = data.args?._preferencias;
+      if (!cambios || typeof cambios !== "object" || Array.isArray(cambios)) throw new Error("Preferencias inválidas");
+      if (JSON.stringify(cambios).length > 20_000) throw new Error("Preferencias demasiado grandes");
+      const fila = await one<{ preferencias: Record<string, unknown> }>(
+        `update profiles set preferencias = coalesce(preferencias, '{}'::jsonb) || $2::jsonb where id = $1 returning preferencias`,
+        [session.user.id, JSON.stringify(cambios)],
+      );
+      return { data: fila?.preferencias ?? {}, error: null };
+    }
+    if (data.name === "avisar_actualizacion_pendiente") {
+      // Aviso al resto del área de que hay una versión para subir.
+      if (!(await hasModulePermission(session.user.id, "oficina", "editar"))) throw new Error("Tu rol no tiene permiso en Oficina");
+      const a = await one<{ sistema: string; version: string | null }>(`select sistema, version from sistema_actualizaciones where id = $1`, [data.args?._id]);
+      if (!a) throw new Error("Actualización inexistente");
+      const actor = await one<{ full_name: string }>(`select full_name from profiles where id = $1`, [session.user.id]);
+      const destinos = await query<{ id: string }>(
+        `select distinct p.id from profiles p join user_roles ur on ur.user_id = p.id
+           left join app_users au on au.id = p.id
+          where p.id <> $1 and coalesce(au.activo, true) and ur.role in ('administrador', 'tecnico')`,
+        [session.user.id],
+      ).catch(() => ({ rows: [] as { id: string }[] }));
+      await notificar(
+        destinos.rows.map((d) => ({
+          userId: d.id,
+          tipo: "actualizacion",
+          titulo: `Versión pendiente de subir: ${a.sistema}${a.version ? ` v${a.version}` : ""}`,
+          cuerpo: "Registrada en Oficina → Actualizaciones de sistemas.",
+          link: "/oficina?tab=actualizaciones",
+          actorNombre: actor?.full_name ?? "",
+        })),
+      );
+      return { data: { avisados: destinos.rows.length }, error: null };
     }
     if (data.name === "generar_tickets_recurrentes") {
       // Crea los tickets periódicos que ya tocan. Es idempotente: cada recurrente se "reserva"

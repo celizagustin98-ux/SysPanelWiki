@@ -171,6 +171,30 @@ export const subtotalItem = (i: ItemPedido) => n(i.precio_estimado) * n(i.cantid
 const gastoReal = (i: ItemPedido) =>
   (i.precio_real != null ? n(i.precio_real) : n(i.precio_estimado)) * n(i.cantidad_comprada);
 
+/** Lo que se pagó contra lo estimado, solo en ítems comprados con precio real y estimado. */
+export function desvioPrecios(items: ItemPedido[]) {
+  const con = items.filter((i) => !i.cancelado && i.precio_real != null && n(i.precio_estimado) > 0 && n(i.cantidad_comprada) > 0);
+  const estimado = con.reduce((s, i) => s + n(i.precio_estimado) * n(i.cantidad_comprada), 0);
+  const real = con.reduce((s, i) => s + n(i.precio_real) * n(i.cantidad_comprada), 0);
+  return { items: con.length, estimado, real, diferencia: real - estimado, porcentaje: estimado ? ((real - estimado) / estimado) * 100 : 0 };
+}
+
+function ChipDesvio({ d }: { d: ReturnType<typeof desvioPrecios> }) {
+  if (!d.items) return null;
+  const p = Math.round(d.porcentaje);
+  return (
+    <span
+      title={`Estimado ${pesos(d.estimado)} · pagado ${pesos(d.real)} (${d.items} ítems con precio real)`}
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+        Math.abs(p) < 5 ? "bg-muted text-muted-foreground" : p > 0 ? "bg-crit/12 text-crit" : "bg-ok/14 text-ok",
+      )}
+    >
+      {p === 0 ? "igual a lo estimado" : `${p > 0 ? "+" : ""}${p}% vs. estimado`}
+    </span>
+  );
+}
+
 export function estadoItem(i: ItemPedido): EstadoItem {
   if (i.cancelado) return "cancelado";
   const total = n(i.cantidad);
@@ -342,6 +366,7 @@ export function PedidosHistorico() {
   const itsMes = validos.flatMap((p) => itemsDe(p.id)).filter((i) => !i.cancelado);
   const totalMes = validos.reduce((s, p) => s + n(p.total_estimado), 0);
   const gastadoMes = itsMes.reduce((s, i) => s + gastoReal(i), 0);
+  const desvioMes = desvioPrecios(itsMes);
   const faltaComprar = itsMes.filter((i) => n(i.cantidad_comprada) < n(i.cantidad)).length;
   const faltaRecibir = itsMes.filter((i) => n(i.cantidad_recibida) < n(i.cantidad)).length;
 
@@ -412,8 +437,8 @@ export function PedidosHistorico() {
           <StatTile
             label="Gastado"
             value={pesos(gastadoMes)}
-            hint="según lo comprado"
-            tone={gastadoMes ? "info" : "neutral"}
+            hint={desvioMes.items ? `${desvioMes.porcentaje > 0 ? "+" : ""}${Math.round(desvioMes.porcentaje)}% vs. estimado` : "según lo comprado"}
+            tone={desvioMes.items && desvioMes.porcentaje > 10 ? "warn" : gastadoMes ? "info" : "neutral"}
           />
           <StatTile
             label="Falta comprar"
@@ -719,6 +744,7 @@ function PedidoDetalle({
             <DialogTitle className="flex flex-wrap items-center gap-2.5">
               <span className="num">{numeroPedidoInsumos(pedido.numero)}</span>
               <Chip className={est.chip}>{est.label}</Chip>
+              <ChipDesvio d={desvioPrecios(items)} />
             </DialogTitle>
             <DialogDescription>
               {formatFecha(pedido.created_at, { day: "2-digit", month: "long", year: "numeric" })} ·{" "}

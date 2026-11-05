@@ -8,9 +8,11 @@ import {
   GitBranch,
   Pencil,
   Phone,
+  PhoneCall,
   Plus,
   Search,
   ShoppingCart,
+  Star,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -37,6 +39,7 @@ import {
 import { BotonCsv, exportarCsv } from "@/components/tabla/Tabla";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
+import { usePreferencias } from "@/lib/preferencias";
 import { cn } from "@/lib/utils";
 import { PedidoInsumos } from "@/components/oficina/PedidoInsumos";
 import { Agenda } from "@/components/oficina/Agenda";
@@ -55,6 +58,7 @@ export const Route = createFileRoute("/_app/oficina")({
       },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => (typeof s.tab === "string" ? { tab: s.tab } : {}),
   component: OficinaPage,
 });
 
@@ -103,7 +107,8 @@ const EMPTY_FORM = {
 };
 
 function OficinaPage() {
-  const [tab, setTab] = useState<TabKey>("telefonos");
+  const { tab: tabUrl } = Route.useSearch();
+  const [tab, setTab] = useState<TabKey>(() => (["telefonos", "insumos", "agenda", "actualizaciones"].includes(tabUrl ?? "") ? (tabUrl as TabKey) : "telefonos"));
 
   return (
     <div className="space-y-3.5">
@@ -141,6 +146,24 @@ function OficinaPage() {
   );
 }
 
+/** Interno: en el celular se toca para llamar; en la PC se copia. */
+function BotonInterno({ interno, tactil, onCopiar }: { interno: string; tactil: boolean; onCopiar: (i: string) => Promise<void> }) {
+  const clase = "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-0.5 font-mono text-[13px] font-semibold tabular-nums hover:bg-muted";
+  if (tactil)
+    return (
+      <a href={`tel:${interno.replace(/[^\d+*#]/g, "")}`} className={cn(clase, "border-primary/30 text-primary")} title="Llamar">
+        <PhoneCall className="size-3" />
+        {interno}
+      </a>
+    );
+  return (
+    <button type="button" onClick={() => void onCopiar(interno)} className={clase} title="Copiar interno">
+      {interno}
+      <Copy className="size-3 opacity-60" />
+    </button>
+  );
+}
+
 function TelefonosPanel() {
   const { puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("oficina");
@@ -150,6 +173,12 @@ function TelefonosPanel() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Telefono | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const { prefs, guardar } = usePreferencias();
+  const favoritos = prefs.telefonos_favoritos ?? [];
+  // En celular o tablet el interno se toca para llamar; en la PC se copia.
+  const [tactil] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  const alternarFavorito = (id: string) =>
+    void guardar({ telefonos_favoritos: favoritos.includes(id) ? favoritos.filter((x) => x !== id) : [...favoritos, id] });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["oficina_telefonos"],
@@ -368,6 +397,31 @@ function TelefonosPanel() {
         <p className="text-sm text-muted-foreground">Cargando teléfonos…</p>
       )}
 
+      {favoritos.length > 0 && !q.trim() && sectorFilter === "todos" && (
+        <section className="panel overflow-hidden border-warn/30">
+          <header className="flex items-center gap-2 border-b border-border/60 bg-warn/6 px-3.5 py-2">
+            <Star className="size-4 fill-warn text-warn" />
+            <h3 className="flex-1 text-sm font-semibold">Mis favoritos</h3>
+          </header>
+          <ul className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3">
+            {rows
+              .filter((r) => favoritos.includes(r.id))
+              .map((row) => (
+                <li key={row.id} className="flex items-center gap-2 border-b border-border/40 px-3.5 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium">{row.nombre}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">{row.sector}</p>
+                  </div>
+                  <BotonInterno interno={row.interno} tactil={tactil} onCopiar={copyInterno} />
+                  <button type="button" onClick={() => alternarFavorito(row.id)} className="rounded p-1 text-warn hover:bg-muted" aria-label="Quitar de favoritos">
+                    <Star className="size-3.5 fill-current" />
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
+
       {!isLoading && filtered.length === 0 && (
         <Card className="panel">
           <CardContent className="flex items-center gap-3 py-10 text-muted-foreground">
@@ -396,13 +450,14 @@ function TelefonosPanel() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => void copyInterno(row.interno)}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-0.5 font-mono text-[13px] font-semibold tabular-nums hover:bg-muted"
-                    title="Copiar interno"
+                    onClick={() => alternarFavorito(row.id)}
+                    className={cn("shrink-0 rounded p-1 transition-opacity hover:bg-muted", favoritos.includes(row.id) ? "text-warn" : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-60")}
+                    aria-label={favoritos.includes(row.id) ? "Quitar de favoritos" : "Agregar a favoritos"}
+                    title={favoritos.includes(row.id) ? "Quitar de favoritos" : "Agregar a favoritos"}
                   >
-                    {row.interno}
-                    <Copy className="size-3 opacity-60" />
+                    <Star className={cn("size-3.5", favoritos.includes(row.id) && "fill-current")} />
                   </button>
+                  <BotonInterno interno={row.interno} tactil={tactil} onCopiar={copyInterno} />
                   {canWrite && (
                     <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <Button type="button" size="icon" variant="ghost" className="size-7" aria-label="Editar" onClick={() => openEdit(row)}>

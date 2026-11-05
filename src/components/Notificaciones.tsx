@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, BellRing, BookOpen, Boxes, CheckCheck, KeyRound, MessageSquare, Printer, ShoppingCart, Ticket } from "lucide-react";
+import { AlertTriangle, Bell, BellRing, BookOpen, Boxes, CheckCheck, KeyRound, MessageSquare, Printer, ShoppingCart, Ticket, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { api } from "@/lib/api/client";
@@ -19,6 +19,7 @@ const ICONO: Record<string, typeof Bell> = {
   doc: BookOpen,
   pedido: ShoppingCart,
   clave: KeyRound,
+  actualizacion: GitBranch,
 };
 
 function hace(iso: string) {

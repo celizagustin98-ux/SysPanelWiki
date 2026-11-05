@@ -40,3 +40,14 @@ create index if not exists inventario_mant_proximo_idx on inventario (mant_proxi
 alter table inventario add column if not exists toner_modelo_id uuid references toner_modelos(id) on delete set null;
 alter table toner_movimientos add column if not exists activo_id uuid references inventario(id) on delete set null;
 create index if not exists toner_movimientos_activo_idx on toner_movimientos (activo_id, created_at desc) where activo_id is not null;
+
+-- ── Oficina: plantillas de pedidos frecuentes ──
+create table if not exists insumos_plantillas (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique,
+  lineas text not null,
+  created_at timestamptz not null default now()
+);
+
+-- ── Preferencias de cada usuario (favoritos, accesos rápidos) ──
+alter table profiles add column if not exists preferencias jsonb not null default '{}'::jsonb;

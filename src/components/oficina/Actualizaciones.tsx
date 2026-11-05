@@ -677,6 +677,11 @@ function FormActualizacion({
     if (r.error) return toast.error(r.error.message);
     await qc.invalidateQueries({ queryKey: ["sistema_actualizaciones"] });
     toast.success(a ? "Registro actualizado" : "Actualización registrada");
+    // Una versión nueva pendiente de subir se avisa al resto del área.
+    if (!a && f.estado === "pendiente") {
+      const id = (r.data as { id?: string } | null)?.id;
+      if (id) void api.rpc("avisar_actualizacion_pendiente", { _id: id });
+    }
     onGuardada(a?.id ?? (r.data as { id: string }).id, payload.fecha);
   };
 

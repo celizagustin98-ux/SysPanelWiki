@@ -118,6 +118,22 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
     });
   }
 
+  const versiones = await seguro(() =>
+    query<{ sistema: string; version: string | null; dias: number }>(
+      `select sistema, version, (current_date - coalesce(aviso_fecha, fecha))::int dias from sistema_actualizaciones
+        where estado = 'pendiente' and coalesce(aviso_fecha, fecha) <= current_date - 2 order by fecha limit 5`,
+    ),
+  );
+  if (versiones?.rows.length)
+    alertas.push({
+      id: "versiones",
+      tipo: "actualizacion",
+      tono: "warn",
+      titulo: `${versiones.rows.length} versión${versiones.rows.length === 1 ? "" : "es"} sin subir hace más de 2 días`,
+      cuerpo: versiones.rows.map((v) => `${v.sistema}${v.version ? ` v${v.version}` : ""} (${v.dias} d)`).join(", "),
+      link: "/oficina?tab=actualizaciones",
+    });
+
   const mant = await seguro(() =>
     one<{ n: number; vencidos: number }>(
       `select count(*)::int n, count(*) filter (where mant_proximo < current_date)::int vencidos from inventario where mant_proximo is not null and mant_proximo <= current_date + 7`,
