@@ -476,7 +476,7 @@ export function PageHeader({
   const Icon = item?.icon;
   return (
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-      <div className="flex min-w-0 flex-1 items-start gap-3.5">
+      <div className="flex min-w-0 flex-[1_1_20rem] items-start gap-3.5">
         {Icon && (
           <div className="hidden size-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-primary shadow-xs sm:grid">
             <Icon className="size-5" />
@@ -490,7 +490,7 @@ export function PageHeader({
           ) : null}
         </div>
       </div>
-      {right ? <div className="responsive-actions w-full sm:w-auto">{right}</div> : null}
+      {right ? <div className="responsive-actions w-full min-w-0 sm:w-auto sm:max-w-full">{right}</div> : null}
     </div>
   );
 }
