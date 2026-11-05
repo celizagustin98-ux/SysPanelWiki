@@ -5,6 +5,7 @@ import {
   BookUser,
   Building2,
   Copy,
+  GitBranch,
   Pencil,
   Phone,
   Plus,
@@ -39,6 +40,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PedidoInsumos } from "@/components/oficina/PedidoInsumos";
 import { Agenda } from "@/components/oficina/Agenda";
+import { Actualizaciones } from "@/components/oficina/Actualizaciones";
 import { ImportarTelefonos } from "@/components/oficina/ImportarTelefonos";
 import { confirmar } from "@/components/Confirmar";
 
@@ -56,7 +58,7 @@ export const Route = createFileRoute("/_app/oficina")({
   component: OficinaPage,
 });
 
-type TabKey = "telefonos" | "insumos" | "agenda";
+type TabKey = "telefonos" | "insumos" | "agenda" | "actualizaciones";
 
 type Telefono = {
   id: string;
@@ -105,7 +107,7 @@ function OficinaPage() {
 
   return (
     <div className="space-y-3.5">
-      <PageHeader title="Oficina" description="Herramientas del día a día: teléfonos internos, pedidos de compra y la agenda de proveedores y correos." />
+      <PageHeader title="Oficina" description="Herramientas del día a día: teléfonos internos, pedidos de compra, la agenda de proveedores y el historial de actualizaciones de sistemas." />
 
       <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 shadow-xs">
         {(
@@ -113,6 +115,7 @@ function OficinaPage() {
             ["telefonos", "Teléfonos internos", Phone],
             ["insumos", "Pedido de compra", ShoppingCart],
             ["agenda", "Agenda", BookUser],
+            ["actualizaciones", "Actualizaciones de sistemas", GitBranch],
           ] as const
         ).map(([k, label, Icono]) => (
           <button
@@ -133,6 +136,7 @@ function OficinaPage() {
       {tab === "telefonos" && <TelefonosPanel />}
       {tab === "insumos" && <PedidoInsumos />}
       {tab === "agenda" && <Agenda />}
+      {tab === "actualizaciones" && <Actualizaciones />}
     </div>
   );
 }

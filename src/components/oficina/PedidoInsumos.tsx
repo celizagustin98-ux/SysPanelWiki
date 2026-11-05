@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
-import { ChevronRight, ExternalLink, FileText, Flame, ListPlus, Loader2, PackageCheck, Pencil, Plus, Send, ShoppingCart, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
+import { ChevronRight, ClipboardList, ExternalLink, FileText, Flame, History, ListPlus, Loader2, PackageCheck, Pencil, Plus, Send, ShoppingCart, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { pesos } from "@/lib/imprimir";
 import { imprimirPedidoInsumos, numeroPedidoInsumos } from "@/lib/insumos-pdf";
 import { cn } from "@/lib/utils";
+import { leerLineaInsumo } from "./insumos-texto";
 import { PedidosHistorico, PendientesCompra, usePedidos } from "./PedidosSeguimiento";
 
 type Item = {
@@ -299,7 +300,61 @@ function ListaActual({ onGenerado }: { onGenerado: () => void }) {
   );
 }
 
+const normalizar = (t: string) =>
+  t
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+type Sugerencia = {
+  descripcion: string;
+  unidad: string;
+  precio: number | null;
+  link: string | null;
+  sector: string | null;
+  fecha: string;
+  numero: number | null;
+  veces: number;
+};
+
+/** Lo que ya se pidió alguna vez (para autocompletar), los sectores usados y lo que todavía está en camino. */
+function useCatalogoInsumos() {
+  const { data } = usePedidos();
+  const { data: lista = [] } = useListaActual();
+  return useMemo(() => {
+    const pedidos = data?.pedidos ?? [];
+    const historico = data?.items ?? [];
+    const numero = new Map(pedidos.map((p) => [p.id, p.numero]));
+    const estado = new Map(pedidos.map((p) => [p.id, p.estado]));
+    const porClave = new Map<string, Sugerencia>();
+    // Vienen ordenados por fecha: el último pisa al anterior, así queda el precio más reciente.
+    for (const i of historico) {
+      const k = normalizar(i.descripcion);
+      const prev = porClave.get(k);
+      porClave.set(k, {
+        descripcion: i.descripcion,
+        unidad: i.unidad || prev?.unidad || "u.",
+        precio: i.precio_real != null ? Number(i.precio_real) : i.precio_estimado != null ? Number(i.precio_estimado) : (prev?.precio ?? null),
+        link: i.link || prev?.link || null,
+        sector: i.sector || prev?.sector || null,
+        fecha: i.created_at ? new Date(i.created_at).toISOString() : (prev?.fecha ?? ""),
+        numero: (i.pedido_id ? numero.get(i.pedido_id) : undefined) ?? prev?.numero ?? null,
+        veces: (prev?.veces ?? 0) + 1,
+      });
+    }
+    const sectores = [...new Set([...historico, ...lista].map((i) => i.sector?.trim()).filter((s): s is string => !!s))].sort((a, b) => a.localeCompare(b, "es"));
+    // Ítems de pedidos abiertos que todavía no llegaron completos.
+    const enCamino = historico.filter(
+      (i) => i.pedido_id && ["enviado", "aprobado", "en_compra", "comprado"].includes(estado.get(i.pedido_id) ?? "") && !i.cancelado && Number(i.cantidad_recibida ?? 0) < Number(i.cantidad),
+    );
+    return { sugerencias: [...porClave.values()], sectores, lista, enCamino, numero, pedidos, historico };
+  }, [data, lista]);
+}
+
 function ItemForm({ item, autor, onDone, onCancel }: { item: Item | null; autor: string | null; onDone: () => void; onCancel: () => void }) {
+  const catalogo = useCatalogoInsumos();
   const [f, setF] = useState(() => ({
     descripcion: item?.descripcion ?? "",
     cantidad: item ? String(Number(item.cantidad)) : "1",
@@ -312,9 +367,42 @@ function ItemForm({ item, autor, onDone, onCancel }: { item: Item | null; autor:
   }));
   const [mas, setMas] = useState(!!(item?.link || item?.notas));
   const [saving, setSaving] = useState(false);
+  const [verSugerencias, setVerSugerencias] = useState(false);
+  const [rapida, setRapida] = useState(false);
+  const descRef = useRef<HTMLInputElement>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const cant = Math.max(0, Number(f.cantidad.replace(",", ".")) || 0);
-  const precio = Number(f.precio.replace(/\./g, "").replace(",", ".")) || 0;
+  const cant = Math.max(0, aNumero(f.cantidad));
+  const precio = aNumero(f.precio);
+
+  const clave = normalizar(f.descripcion);
+  const sugerencias = useMemo(() => {
+    if (clave.length < 2) return [];
+    const palabras = clave.split(" ");
+    return catalogo.sugerencias
+      .filter((s) => {
+        const n = normalizar(s.descripcion);
+        return n !== clave && palabras.every((p) => n.includes(p));
+      })
+      .sort((a, b) => b.veces - a.veces || b.fecha.localeCompare(a.fecha))
+      .slice(0, 6);
+  }, [clave, catalogo.sugerencias]);
+  const conocido = catalogo.sugerencias.find((s) => normalizar(s.descripcion) === clave);
+  // Avisos de duplicado: ya está en la lista o ya está pedido y no llegó.
+  const yaEnLista = clave && !item ? catalogo.lista.find((i) => normalizar(i.descripcion) === clave) : undefined;
+  const yaEnCamino = clave ? catalogo.enCamino.find((i) => normalizar(i.descripcion) === clave) : undefined;
+
+  const usar = (s: Sugerencia) => {
+    setF((x) => ({
+      ...x,
+      descripcion: s.descripcion,
+      unidad: s.unidad,
+      precio: s.precio != null ? String(s.precio) : x.precio,
+      link: s.link ?? x.link,
+      sector: x.sector || s.sector || "",
+    }));
+    if (s.link) setMas(true);
+    setVerSugerencias(false);
+  };
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -337,22 +425,69 @@ function ItemForm({ item, autor, onDone, onCancel }: { item: Item | null; autor:
     setSaving(false);
     if (error) return toast.error(error.message);
     toast.success(item ? "Ítem actualizado" : `«${descripcion}» agregado a la lista`);
-    if (!item) setF((x) => ({ ...x, descripcion: "", cantidad: "1", precio: "", link: "", notas: "", urgente: false }));
+    // El sector queda puesto: lo normal es cargar varias cosas para el mismo lugar.
+    if (!item) {
+      setF((x) => ({ ...x, descripcion: "", cantidad: "1", unidad: "u.", precio: "", link: "", notas: "", urgente: false }));
+      setMas(false);
+      descRef.current?.focus();
+    }
     onDone();
   };
 
-  const paso = (d: number) => setF((x) => ({ ...x, cantidad: String(Math.max(1, (Number(x.cantidad.replace(",", ".")) || 0) + d)) }));
+  const paso = (d: number) => setF((x) => ({ ...x, cantidad: String(Math.max(1, (aNumero(x.cantidad) || 0) + d)) }));
 
   return (
     <form onSubmit={submit} className={cn("panel space-y-3 p-4", item && "ring-2 ring-primary/40")}>
-      <p className="flex items-center gap-2 text-sm font-semibold">
-        {item ? <Pencil className="size-4 text-primary" /> : <Plus className="size-4 text-primary" />}
-        {item ? "Editar ítem" : "Agregar a la lista"}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          {item ? <Pencil className="size-4 text-primary" /> : <Plus className="size-4 text-primary" />}
+          {item ? "Editar ítem" : "Agregar a la lista"}
+        </p>
+        {!item && (
+          <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setRapida(true)}>
+            <ClipboardList className="size-3.5" /> Carga rápida
+          </Button>
+        )}
+      </div>
       <div className="grid gap-3 sm:grid-cols-12">
-        <div className="space-y-1 sm:col-span-6">
+        <div className="relative space-y-1 sm:col-span-6">
           <Label className="text-xs">¿Qué hace falta? *</Label>
-          <Input value={f.descripcion} onChange={set("descripcion")} placeholder="Ej.: Cable UTP Cat6 caja 305 m" className="h-9" autoFocus={!!item} />
+          <Input
+            ref={descRef}
+            value={f.descripcion}
+            onChange={(e) => {
+              set("descripcion")(e);
+              setVerSugerencias(true);
+            }}
+            onFocus={() => setVerSugerencias(true)}
+            onBlur={() => window.setTimeout(() => setVerSugerencias(false), 150)}
+            onKeyDown={(e) => e.key === "Escape" && setVerSugerencias(false)}
+            placeholder="Escribí y elegí algo ya pedido, o uno nuevo"
+            className="h-9"
+            autoComplete="off"
+            autoFocus={!!item}
+          />
+          {verSugerencias && sugerencias.length > 0 && (
+            <ul className="absolute inset-x-0 top-full z-30 mt-1 overflow-hidden rounded-lg border border-border bg-popover shadow-lg animate-in fade-in slide-in-from-top-1">
+              <li className="border-b border-border/60 px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Ya pedido antes</li>
+              {sugerencias.map((s) => (
+                <li key={s.descripcion}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => usar(s)}
+                    className="fila-clic flex w-full items-center gap-2 px-3 py-2 text-left text-[13px]"
+                  >
+                    <History className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{s.descripcion}</span>
+                    <span className="num shrink-0 text-xs text-muted-foreground">
+                      {s.precio ? pesos(s.precio) : "sin precio"} · {s.veces}×
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div className="space-y-1 sm:col-span-3">
           <Label className="text-xs">Cantidad</Label>
@@ -370,14 +505,48 @@ function ItemForm({ item, autor, onDone, onCancel }: { item: Item | null; autor:
           <Label className="text-xs">Unidad</Label>
           <Input value={f.unidad} onChange={set("unidad")} list="unidades-insumo" className="h-9" />
           <datalist id="unidades-insumo">
-            {["u.", "caja", "bolsa", "pack", "metro", "rollo", "resma", "litro"].map((u) => (
+            {UNIDADES.map((u) => (
               <option key={u} value={u} />
             ))}
           </datalist>
         </div>
+
+        {(conocido || yaEnLista || yaEnCamino) && (
+          <div className="space-y-1 text-xs sm:col-span-12">
+            {conocido && (
+              <p className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+                <History className="size-3.5" />
+                Última vez{conocido.numero ? ` en ${numeroPedidoInsumos(conocido.numero)}` : ""}
+                {conocido.fecha ? ` (${new Date(conocido.fecha).toLocaleDateString("es-AR")})` : ""}
+                {conocido.precio ? `: ${pesos(conocido.precio)} c/u` : ""}
+                {conocido.precio != null && String(conocido.precio) !== f.precio && (
+                  <button type="button" className="text-primary hover:underline" onClick={() => setF((x) => ({ ...x, precio: String(conocido.precio) }))}>
+                    usar ese precio
+                  </button>
+                )}
+              </p>
+            )}
+            {yaEnLista && (
+              <p className="flex items-center gap-1.5 text-warn">
+                <TriangleAlert className="size-3.5" /> Ya está en la lista ({Number(yaEnLista.cantidad)} {yaEnLista.unidad}). Si lo agregás queda repetido; mejor editá el que está.
+              </p>
+            )}
+            {yaEnCamino && (
+              <p className="flex items-center gap-1.5 text-warn">
+                <TriangleAlert className="size-3.5" /> Ya está pedido en {yaEnCamino.pedido_id ? numeroPedidoInsumos(catalogo.numero.get(yaEnCamino.pedido_id) ?? 0) : "otro pedido"} y todavía no llegó.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="space-y-1 sm:col-span-4">
           <Label className="text-xs">Para qué sector</Label>
-          <Input value={f.sector} onChange={set("sector")} placeholder="Sistemas, Guardia…" className="h-9" />
+          <Input value={f.sector} onChange={set("sector")} placeholder="Sistemas, Guardia…" className="h-9" list="sectores-insumo" />
+          <datalist id="sectores-insumo">
+            {catalogo.sectores.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
         <div className="space-y-1 sm:col-span-4">
           <Label className="text-xs">Precio estimado c/u</Label>
@@ -414,7 +583,7 @@ function ItemForm({ item, autor, onDone, onCancel }: { item: Item | null; autor:
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
-        <p className="num text-xs text-muted-foreground">{cant && precio ? `Subtotal estimado ${pesos(cant * precio)}` : "Tip: Enter agrega el ítem"}</p>
+        <p className="num text-xs text-muted-foreground">{cant && precio ? `Subtotal estimado ${pesos(cant * precio)}` : "Tip: Enter agrega el ítem y el sector queda puesto para el próximo"}</p>
         <div className="flex gap-2">
           {item && (
             <Button type="button" variant="ghost" onClick={onCancel}>
@@ -426,7 +595,125 @@ function ItemForm({ item, autor, onDone, onCancel }: { item: Item | null; autor:
           </Button>
         </div>
       </div>
+      {rapida && <CargaRapida catalogo={catalogo} autor={autor} sectorInicial={f.sector} onClose={() => setRapida(false)} onDone={onDone} />}
     </form>
+  );
+}
+
+const UNIDADES = ["u.", "caja", "bolsa", "pack", "metro", "rollo", "resma", "litro"];
+
+/** Pegar varios ítems de una (uno por renglón) o traer los de un pedido anterior. */
+function CargaRapida({
+  catalogo,
+  autor,
+  sectorInicial,
+  onClose,
+  onDone,
+}: {
+  catalogo: ReturnType<typeof useCatalogoInsumos>;
+  autor: string | null;
+  sectorInicial: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [texto, setTexto] = useState("");
+  const [sector, setSector] = useState(sectorInicial);
+  const [busy, setBusy] = useState(false);
+  const recientes = catalogo.pedidos.filter((p) => p.estado !== "rechazado").slice(0, 15);
+
+  const lineas = texto
+    .split(/\r?\n/)
+    .map(leerLineaInsumo)
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .map((l) => {
+      const previo = catalogo.sugerencias.find((s) => normalizar(s.descripcion) === normalizar(l.descripcion));
+      return { ...l, unidad: l.unidad === "u." && previo ? previo.unidad : l.unidad, precio: previo?.precio ?? null, link: previo?.link ?? null };
+    });
+
+  const traer = (pedidoId: string) => {
+    const its = catalogo.historico.filter((i) => i.pedido_id === pedidoId && !i.cancelado);
+    const nuevas = its.map((i) => `${Number(i.cantidad)} ${i.unidad && i.unidad !== "u." ? `${i.unidad} ` : "x "}${i.descripcion}`).join("\n");
+    setTexto((t) => (t.trim() ? `${t.trim()}\n${nuevas}` : nuevas));
+  };
+
+  const agregar = async () => {
+    if (!lineas.length) return toast.error("No hay ítems para agregar");
+    setBusy(true);
+    const { error } = await api.from("insumos_items").insert(
+      lineas.map((l) => ({
+        descripcion: l.descripcion,
+        cantidad: l.cantidad,
+        unidad: l.unidad,
+        precio_estimado: l.precio,
+        link: l.link,
+        sector: sector.trim() || null,
+        prioridad: "normal",
+        created_by_nombre: autor,
+      })),
+    );
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success(`${lineas.length} ítem(s) agregados a la lista`);
+    onDone();
+    onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Carga rápida</DialogTitle>
+          <DialogDescription>
+            Un ítem por renglón, por ejemplo «3 x Mouse USB» o «2 cajas de Cable UTP». Si algo ya se pidió antes, toma la unidad y el último precio.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {recientes.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Repetir un pedido anterior</Label>
+              <Select onValueChange={traer}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Elegí un pedido para traer sus ítems…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {recientes.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {numeroPedidoInsumos(p.numero)} · {new Date(p.created_at).toLocaleDateString("es-AR")} · {catalogo.historico.filter((i) => i.pedido_id === p.id).length} ítems
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <Textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={7} placeholder={"3 x Mouse USB\nTeclado USB x2\n1 caja de Cable UTP Cat6"} className="font-mono text-[13px]" autoFocus />
+          <div className="space-y-1.5">
+            <Label className="text-xs">Para qué sector (todos)</Label>
+            <Input value={sector} onChange={(e) => setSector(e.target.value)} list="sectores-insumo" placeholder="Opcional" className="h-9" />
+          </div>
+          {lineas.length > 0 && (
+            <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 p-2 text-xs">
+              {lineas.map((l, i) => (
+                <li key={i} className="flex justify-between gap-2">
+                  <span className="truncate">{l.descripcion}</span>
+                  <span className="num shrink-0 text-muted-foreground">
+                    {l.cantidad} {l.unidad}
+                    {l.precio ? ` · ${pesos(l.precio)}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={() => void agregar()} disabled={busy || !lineas.length}>
+            {busy ? <Loader2 className="animate-spin" /> : <ListPlus />} Agregar {lineas.length || ""} a la lista
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

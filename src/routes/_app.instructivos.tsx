@@ -482,7 +482,7 @@ function InstructivosPage() {
           </div>
 
           {!loading && !searchResults && !currentFolderId && (
-            <MasConsultados docs={docs} onOpen={openDoc} canWrite={canWrite} onIndexado={refreshAll} />
+            <AvisosInicio docs={docs} onOpen={openDoc} canWrite={canWrite} onIndexado={refreshAll} />
           )}
 
           {loading ? (
@@ -772,9 +772,8 @@ function FolderCard({
   );
 }
 
-/** Inicio: los instructivos más abiertos, los que toca revisar y el indexado del texto de los PDF. */
-function MasConsultados({ docs, onOpen, canWrite, onIndexado }: { docs: Doc[]; onOpen: (d: Doc) => void; canWrite: boolean; onIndexado: () => Promise<void> }) {
-  const top = useMemo(() => [...docs].filter((d) => d.views > 0).sort((a, b) => b.views - a.views).slice(0, 6), [docs]);
+/** Inicio: los instructivos que toca revisar y el indexado del texto de los PDF. */
+function AvisosInicio({ docs, onOpen, canWrite, onIndexado }: { docs: Doc[]; onOpen: (d: Doc) => void; canWrite: boolean; onIndexado: () => Promise<void> }) {
   const aRevisar = useMemo(() => docs.filter(porRevisar), [docs]);
   const { data: pendientes = [], refetch } = useQuery({
     queryKey: ["instructivos_sin_texto"],
@@ -806,28 +805,10 @@ function MasConsultados({ docs, onOpen, canWrite, onIndexado }: { docs: Doc[]; o
     await onIndexado();
   };
 
-  if (!top.length && !aRevisar.length && !(canWrite && pendientes.length)) return null;
+  if (!aRevisar.length && !(canWrite && pendientes.length)) return null;
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-      {top.length > 0 && (
-        <div className="panel p-3.5">
-          <p className="eyebrow mb-2 flex items-center gap-1.5">
-            <Eye className="size-3.5" /> Más consultados
-          </p>
-          <ol className="grid gap-1 sm:grid-cols-2">
-            {top.map((d, i) => (
-              <li key={d.id}>
-                <button type="button" onClick={() => onOpen(d)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-muted">
-                  <span className="num w-4 text-xs text-muted-foreground">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate font-medium">{d.title}</span>
-                  <span className="num shrink-0 text-xs text-muted-foreground">{d.views}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      <div className="space-y-3">
+    <div className="grid gap-3 lg:grid-cols-2">
+      <>
         {aRevisar.length > 0 && (
           <div className="panel border-crit/30 p-3.5">
             <p className="eyebrow mb-2 text-crit">Para revisar ({aRevisar.length})</p>
@@ -854,7 +835,7 @@ function MasConsultados({ docs, onOpen, canWrite, onIndexado }: { docs: Doc[]; o
             </Button>
           </div>
         )}
-      </div>
+      </>
     </div>
   );
 }

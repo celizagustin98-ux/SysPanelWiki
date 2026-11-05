@@ -63,6 +63,7 @@ export type ItemPedido = {
   proveedor?: string | null;
   precio_real?: number | string | null;
   nota_compra?: string | null;
+  created_at?: string;
 };
 
 export type PedidoCompra = {
