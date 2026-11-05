@@ -51,3 +51,27 @@ create table if not exists insumos_plantillas (
 
 -- ── Preferencias de cada usuario (favoritos, accesos rápidos) ──
 alter table profiles add column if not exists preferencias jsonb not null default '{}'::jsonb;
+
+-- ── Ajustes generales del sistema (clave → valor) ──
+create table if not exists ajustes (
+  clave text primary key,
+  valor jsonb,
+  updated_at timestamptz not null default now()
+);
+
+-- ── Guardias: intercambios entre compañeros con aprobación ──
+create table if not exists guardia_intercambios (
+  id uuid primary key default gen_random_uuid(),
+  fecha date not null,
+  de_nombre text not null,
+  a_nombre text not null,
+  devuelve_fecha date,
+  motivo text,
+  estado text not null default 'pendiente' check (estado in ('pendiente', 'aprobado', 'rechazado', 'cancelado')),
+  pedido_por uuid references profiles(id) on delete set null,
+  pedido_por_nombre text,
+  resuelto_por_nombre text,
+  resuelto_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists guardia_intercambios_estado_idx on guardia_intercambios (estado, fecha);

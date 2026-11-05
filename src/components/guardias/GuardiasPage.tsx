@@ -51,6 +51,7 @@ import { api } from "@/lib/api/client";
 import { abrirPdfLiquidacion } from "@/lib/guardia-liquidacion-pdf";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { CopiarPlanilla, IntercambiosPendientes, PedirIntercambio } from "./Agilidad";
 import {
   type Guardia,
   type Operario,
@@ -553,14 +554,21 @@ export function GuardiasPage() {
         </Card>
       </div>
 
+      <IntercambiosPendientes operarios={operarios} onAplicar={(op, dia) => assignCell(op, dia, "guardia")} />
+
       <Card className="panel overflow-hidden">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-sm">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
             <CalendarRange className="size-4 text-primary" />
             Planilla {periodLabel(period.desde, period.hasta)}
             {canWrite && (
               <span className="ml-2 text-xs font-normal text-muted-foreground">
                 · clic en celda para asignar o quitar
+              </span>
+            )}
+            {canWrite && huecos.length > 0 && (
+              <span className="ml-auto">
+                <CopiarPlanilla dias={days} guardias={guardias} onDone={refresh} />
               </span>
             )}
           </CardTitle>
@@ -962,6 +970,9 @@ export function GuardiasPage() {
                     tono="crit"
                   />
                 </div>
+                {actualCelda.kind === "code" && (
+                  <PedirIntercambio de={cellDialog.op.nombre} dia={cellDialog.day} operarios={operarios} onListo={() => setCellDialog(null)} />
+                )}
               </div>
             );
           })()}

@@ -82,6 +82,7 @@ const TABLES = new Set([
   "ticket_respuestas",
   "ticket_recurrentes",
   "insumos_plantillas",
+  "guardia_intercambios",
   "toner_modelos",
   "toner_movimientos",
   "toner_pedido_items",
@@ -124,6 +125,7 @@ const AUDIT_META: Record<string, { modulo: string; fields: string[] }> = {
   ticket_respuestas: { modulo: "tareas", fields: ["titulo"] },
   ticket_recurrentes: { modulo: "tareas", fields: ["titulo", "frecuencia"] },
   insumos_plantillas: { modulo: "oficina", fields: ["nombre"] },
+  guardia_intercambios: { modulo: "guardias", fields: ["fecha", "de_nombre", "a_nombre", "estado"] },
   tarea_comentarios: { modulo: "tareas", fields: ["contenido"] },
   tarea_instructivos: { modulo: "tareas", fields: ["tarea_id", "doc_id"] },
   tarea_subtareas: { modulo: "tareas", fields: ["titulo"] },
@@ -409,6 +411,7 @@ const MODULO_DE_TABLA: Record<string, string> = {
   ticket_respuestas: "tareas",
   ticket_recurrentes: "tareas",
   insumos_plantillas: "oficina",
+  guardia_intercambios: "guardias",
 };
 
 const ACCION_PERMISO = { select: "ver", insert: "crear", update: "editar", delete: "eliminar" } as const;
@@ -658,6 +661,25 @@ export const apiRpc = createServerFn({ method: "POST" })
       await query(`update oficina_contactos set last_revealed_at = now() where id = $1`, [id]);
       await writeAudit(session.user.id, "oficina_contactos", "revelar", [row], { via: String(data.args?._via ?? "ui") });
       return { data: { id: row.id, secreto }, error: null };
+    }
+    if (data.name === "ajuste_leer") {
+      // Solo ajustes que cualquiera puede ver; los de integraciones (tokens) quedan para el administrador.
+      const clave = String(data.args?._clave ?? "");
+      const publicos = ["tope_horas_extras"];
+      if (!publicos.includes(clave)) await assertAdmin(session.user.id);
+      const fila = await one<{ valor: unknown }>(`select valor from ajustes where clave = $1`, [clave]).catch(() => null);
+      return { data: fila?.valor ?? null, error: null };
+    }
+    if (data.name === "ajuste_guardar") {
+      await assertAdmin(session.user.id);
+      const clave = String(data.args?._clave ?? "");
+      if (!/^[a-z_]{3,40}$/.test(clave)) throw new Error("Ajuste inválido");
+      await query(
+        `insert into ajustes (clave, valor, updated_at) values ($1, $2::jsonb, now()) on conflict (clave) do update set valor = excluded.valor, updated_at = now()`,
+        [clave, JSON.stringify(data.args?._valor ?? null)],
+      );
+      await writeAudit(session.user.id, "ajustes", "editar", [{ id: clave }], { entidad_desc: clave }, "configuracion");
+      return { data: true, error: null };
     }
     if (data.name === "mis_preferencias") {
       const fila = await one<{ preferencias: Record<string, unknown> }>(`select coalesce(preferencias, '{}'::jsonb) preferencias from profiles where id = $1`, [session.user.id]).catch(() => null);

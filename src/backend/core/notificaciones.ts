@@ -118,6 +118,20 @@ export async function alertasArea(userId: string): Promise<Alerta[]> {
     });
   }
 
+  const esAdmin = await seguro(() => one<{ ok: boolean }>(`select exists(select 1 from user_roles where user_id = $1 and role = 'administrador') ok`, [userId]));
+  if (esAdmin?.ok) {
+    const intercambios = await seguro(() => one<{ n: number }>(`select count(*)::int n from guardia_intercambios where estado = 'pendiente'`));
+    if (intercambios?.n)
+      alertas.push({
+        id: "intercambios",
+        tipo: "guardia",
+        tono: "info",
+        titulo: `${intercambios.n} intercambio${intercambios.n === 1 ? "" : "s"} de guardia para aprobar`,
+        cuerpo: "Pedidos entre compañeros esperando tu aprobación.",
+        link: "/guardias",
+      });
+  }
+
   const versiones = await seguro(() =>
     query<{ sistema: string; version: string | null; dias: number }>(
       `select sistema, version, (current_date - coalesce(aviso_fecha, fecha))::int dias from sistema_actualizaciones

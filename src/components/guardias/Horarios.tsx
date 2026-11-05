@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { Clock, Copy, Loader2, Pencil, Plus, Timer, Trash2 } from "lucide-react";
+import { AlertTriangle, Clock, Copy, Loader2, Pencil, Plus, Timer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
+import { useTopeHorasExtras } from "./Agilidad";
+import { useAuth } from "@/lib/auth";
 import {
   DIAS_SEMANA,
   type HoraExtra,
@@ -318,6 +320,10 @@ export function HorasExtras({
   const resumen = useMemo(() => resumirExtras(extras, operarios).filter((r) => r.total > 0), [extras, operarios]);
   const visibles = filtro === "todos" ? extras : extras.filter((e) => normalizeName(e.operador_nombre) === filtro);
   const totalHoras = resumen.reduce((s, r) => s + r.total, 0);
+  const { isAdmin } = useAuth();
+  const { tope, guardar: guardarTope } = useTopeHorasExtras();
+  const [editTope, setEditTope] = useState<string | null>(null);
+  const pasados = tope ? resumen.filter((r) => r.total > tope) : [];
   const opDe = (nombre: string) => operarios.find((o) => normalizeName(o.nombre) === normalizeName(nombre)) ?? { nombre, code: "—", color: "" };
 
   const eliminar = async (e: HoraExtra) => {
@@ -360,6 +366,43 @@ export function HorasExtras({
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>Tope por empleado: {tope ? <strong className="num text-foreground">{formatHoras(tope)}</strong> : "sin tope"}</span>
+          {isAdmin &&
+            (editTope === null ? (
+              <button type="button" className="text-primary hover:underline" onClick={() => setEditTope(String(tope ?? ""))}>
+                {tope ? "cambiar" : "fijar tope"}
+              </button>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Input value={editTope} onChange={(e) => setEditTope(e.target.value)} inputMode="numeric" className="num h-7 w-20 text-xs" placeholder="horas" autoFocus />
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    const h = Number(editTope.replace(",", "."));
+                    void guardarTope(h > 0 ? h : null);
+                    setEditTope(null);
+                  }}
+                >
+                  Guardar
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditTope(null)}>
+                  Cancelar
+                </Button>
+              </span>
+            ))}
+        </div>
+
+        {pasados.length > 0 && (
+          <p className="flex items-start gap-2 rounded-lg border border-crit/35 bg-crit/8 px-3 py-2 text-sm text-crit">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Superan el tope de {formatHoras(tope ?? 0)}: {pasados.map((r) => `${r.operario.nombre} (${formatHoras(r.total)})`).join(", ")}.
+            </span>
+          </p>
+        )}
+
         {resumen.length > 0 && (
           <div className="flex flex-wrap gap-2">
             <button
@@ -379,6 +422,7 @@ export function HorasExtras({
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-3 text-xs",
                     filtro === clave ? "border-primary/50 bg-primary/12 text-primary" : "border-border text-muted-foreground hover:text-foreground",
+                    tope && r.total > tope && "border-crit/50 text-crit",
                   )}
                 >
                   <Codigo op={r.operario} className="size-5 rounded-full text-[10px]" />
