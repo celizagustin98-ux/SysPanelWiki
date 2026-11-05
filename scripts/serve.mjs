@@ -7,6 +7,7 @@ import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import pg from "pg";
 import { disco, estadoRespaldos, hacerRespaldo, iniciarRespaldoDiario, streamRespaldo } from "./respaldos.mjs";
+import { iniciarBot } from "./bot.mjs";
 
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
@@ -1133,6 +1134,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   iniciarRespaldoDiario();
+  iniciarBot({ one, query });
   console.log(`Nodara listening on http://${host}:${port}`);
   if (maintenanceEnabled()) {
     console.warn("MAINTENANCE_MODE activo — sirviendo página de mantenimiento");
