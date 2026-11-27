@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Bot, CheckCircle2, Loader2, Send, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, Clock, Loader2, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { InputClave } from "@/components/InputClave";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,8 @@ const GRUPOS: { titulo: string; eventos: Evento[] }[] = [
 const TODOS = GRUPOS.flatMap((g) => g.eventos.map((e) => e.value));
 
 const COMANDOS = [
+  ["/ticket texto", "Crea un ticket (\"urgente\" adelante = prioridad alta)"],
+  ["/mis", "Tus tickets abiertos (cuenta vinculada)"],
   ["/estado", "Resumen del área en ese momento"],
   ["/tickets", "Tickets abiertos más urgentes"],
   ["/guardia", "Próximas guardias"],
@@ -76,12 +78,13 @@ const COMANDOS = [
   ["/ayuda", "Lista de comandos"],
 ] as const;
 
-type Opciones = { hora_resumen: string; hora_guardia: string; solo_habiles: boolean; sin_asignar_horas: number; disco_pct: number; silencio_nocturno: boolean; comandos: boolean };
-type Envio = { clave: string; evento: string; texto: string | null; ok: boolean | null; error: string | null; enviado_at: string };
-type Config = { tiene_token: boolean; chat_id: string; eventos: string[]; opciones: Partial<Opciones>; envios: Envio[] };
+type Opciones = { hora_desde: string; hora_hasta: string; hora_resumen: string; hora_guardia: string; solo_habiles: boolean; sin_asignar_horas: number; disco_pct: number; comandos: boolean };
+type Envio = { clave: string; evento: string; texto: string | null; ok: boolean | null; error: string | null; pendiente?: boolean; enviado_at: string };
+type Vinculado = { full_name: string; telegram_usuario: string | null; avisos_personales: boolean };
+type Config = { tiene_token: boolean; chat_id: string; eventos: string[]; opciones: Partial<Opciones>; envios: Envio[]; vinculados: Vinculado[] };
 
-const OPCIONES: Opciones = { hora_resumen: "08:00", hora_guardia: "19:30", solo_habiles: true, sin_asignar_horas: 2, disco_pct: 90, silencio_nocturno: true, comandos: true };
-const nombreEvento = (v: string) => GRUPOS.flatMap((g) => g.eventos).find((e) => e.value === v)?.label ?? (v === "prueba" ? "Prueba" : v);
+const OPCIONES: Opciones = { hora_desde: "09:00", hora_hasta: "22:00", hora_resumen: "09:00", hora_guardia: "19:30", solo_habiles: true, sin_asignar_horas: 2, disco_pct: 90, comandos: true };
+const nombreEvento = (v: string) => GRUPOS.flatMap((g) => g.eventos).find((e) => e.value === v)?.label ?? (v === "prueba" ? "Prueba" : v === "personal" ? "Aviso personal (privado)" : v);
 
 /** Bot Sistema: avisos por Telegram al grupo del área y respuesta a comandos. */
 export function AvisosExternos() {
@@ -203,6 +206,15 @@ export function AvisosExternos() {
           <CardTitle className="text-sm">Horarios y umbrales</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-2.5 sm:col-span-2">
+            <Label>Horario de envío automático</Label>
+            <div className="flex items-center gap-2">
+              <Input type="time" value={op.hora_desde} onChange={(e) => set("hora_desde", e.target.value)} className="[color-scheme:light] dark:[color-scheme:dark]" />
+              <span className="text-muted-foreground">a</span>
+              <Input type="time" value={op.hora_hasta} onChange={(e) => set("hora_hasta", e.target.value)} className="[color-scheme:light] dark:[color-scheme:dark]" />
+            </div>
+            <p className="text-xs text-muted-foreground">Fuera de este horario el bot no manda nada solo: lo que surja (aunque sea urgente) queda en cola y sale al empezar. Los comandos y botones responden siempre.</p>
+          </div>
           <div className="space-y-1.5">
             <Label>Hora del resumen</Label>
             <Input type="time" value={op.hora_resumen} onChange={(e) => set("hora_resumen", e.target.value)} className="[color-scheme:light] dark:[color-scheme:dark]" />
@@ -226,13 +238,6 @@ export function AvisosExternos() {
               <span className="block text-xs text-muted-foreground">Sábados y domingos no se manda el resumen del día.</span>
             </span>
           </label>
-          <label className="flex items-start gap-2.5 sm:col-span-2">
-            <Checkbox className="mt-0.5" checked={op.silencio_nocturno} onCheckedChange={(v) => set("silencio_nocturno", v === true)} />
-            <span>
-              <span className="font-medium">Silencio de 22 a 7 h</span>
-              <span className="block text-xs text-muted-foreground">De noche solo llegan los urgentes (críticos, respaldo, disco, seguridad, guardia); el resto sale a la mañana.</span>
-            </span>
-          </label>
         </CardContent>
       </Card>
 
@@ -248,6 +253,9 @@ export function AvisosExternos() {
               <span className="block text-xs text-muted-foreground">Cualquiera del grupo puede consultar el estado escribiendo un comando. Fuera de ese grupo el bot no responde.</span>
             </span>
           </label>
+          <p className="text-xs text-muted-foreground">
+            En los avisos de tickets aparecen los botones <b>🙋 Lo tomo</b> y <b>✅ Resuelto</b>: funcionan para quien tenga su cuenta vinculada y permiso en Tickets.
+          </p>
           <ul className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
             {COMANDOS.map(([c, d]) => (
               <li key={c} className="rounded-lg border border-border/70 px-2.5 py-1.5">
@@ -256,6 +264,30 @@ export function AvisosExternos() {
               </li>
             ))}
           </ul>
+        </CardContent>
+      </Card>
+
+      <Card className="panel">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Avisos personales por privado</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Cada uno vincula su Telegram desde <b>Mi perfil → Telegram</b> y recibe por privado solo lo suyo: tickets asignados o resueltos, pedidos y demás notificaciones. También respetan el horario de envío.
+          </p>
+          {data.vinculados.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nadie vinculó su cuenta todavía.</p>
+          ) : (
+            <ul className="flex flex-wrap gap-1.5">
+              {data.vinculados.map((v) => (
+                <li key={v.full_name} className={cn("rounded-full border px-2.5 py-1 text-xs", v.avisos_personales ? "border-ok/40 text-foreground" : "border-border text-muted-foreground")}>
+                  {v.full_name}
+                  {v.telegram_usuario ? <span className="text-muted-foreground"> · @{v.telegram_usuario}</span> : null}
+                  {!v.avisos_personales && <span className="text-muted-foreground"> · avisos pausados</span>}
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
 
@@ -284,10 +316,10 @@ export function AvisosExternos() {
             <ul className="divide-y divide-border/60">
               {data.envios.map((e) => (
                 <li key={e.clave} className="flex items-start gap-2.5 py-2 text-sm">
-                  {e.ok === false ? <XCircle className="mt-0.5 size-4 shrink-0 text-crit" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-ok" />}
+                  {e.pendiente ? <Clock className="mt-0.5 size-4 shrink-0 text-info" /> : e.ok === false ? <XCircle className="mt-0.5 size-4 shrink-0 text-crit" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-ok" />}
                   <span className="min-w-0 flex-1">
                     <span className="font-medium">{nombreEvento(e.evento)}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">{new Date(e.enviado_at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{e.pendiente ? "en cola · sale al empezar el horario" : new Date(e.enviado_at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}</span>
                     {e.texto && <span className="block truncate text-xs text-muted-foreground">{e.texto.split("\n")[0]}</span>}
                     {e.error && <span className="block text-xs text-crit">{e.error}</span>}
                   </span>

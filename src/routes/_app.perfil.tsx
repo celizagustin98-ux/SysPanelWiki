@@ -26,6 +26,7 @@ import { useAuth } from "@/lib/auth";
 import { useRoles } from "@/lib/roles";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { TelegramVinculo } from "@/components/TelegramVinculo";
 
 export const Route = createFileRoute("/_app/perfil")({
   head: () => ({
@@ -232,6 +233,7 @@ function PerfilPage() {
           <div className="grid gap-4 xl:grid-cols-2">
             <CambiarClave usuario={perfil.username} />
             <Preferencias />
+            <TelegramVinculo />
           </div>
         </div>
       </div>

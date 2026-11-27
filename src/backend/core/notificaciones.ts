@@ -2,7 +2,16 @@ import { randomUUID } from "node:crypto";
 import { one, query } from "./db";
 import { decryptSecret } from "@/backend/core/crypto-secrets";
 
-type Nueva = { userId: string; tipo: string; titulo: string; cuerpo?: string | null; link?: string | null; actorNombre?: string | null };
+type Nueva = {
+  userId: string;
+  tipo: string;
+  titulo: string;
+  cuerpo?: string | null;
+  link?: string | null;
+  actorNombre?: string | null;
+  /** Botones del mensaje por privado en Telegram (ej. "Resuelto" en un ticket asignado). */
+  botones?: { text: string; callback_data: string }[][];
+};
 
 /** Crea notificaciones personales. Nunca rompe la operación que la dispara. */
 export async function notificar(items: Nueva[]) {
@@ -16,6 +25,8 @@ export async function notificar(items: Nueva[]) {
       return `($${k - 5}, $${k - 4}, $${k - 3}, $${k - 2}, $${k - 1}, $${k})`;
     });
     await query(`insert into notificaciones (user_id, tipo, titulo, cuerpo, link, actor_nombre) values ${tuples.join(", ")}`, values);
+    // En segundo plano: Telegram puede tardar y no tiene que frenar lo que hizo el usuario.
+    void avisosPersonales(validos);
   } catch (error) {
     console.error("No se pudo crear la notificación", error);
   }
@@ -64,34 +75,107 @@ function mensajeBot(icono: string, titulo: string, renglones: (string | null | u
   return `${icono} <b>${escHtml(titulo)}</b>${cuerpo ? `\n\n${cuerpo}` : ""}\n\n<i>Nodara · ${fecha}</i>`;
 }
 
-export async function avisoExterno(evento: (typeof EVENTOS_EXTERNOS)[number] | "prueba", icono: string, titulo: string, renglones: (string | null | undefined | false)[] = []) {
-  const texto = mensajeBot(icono, titulo, renglones);
+type BotonTelegram = { text: string; callback_data: string };
+type ConfigBot = { token?: string; chat_id?: string; eventos?: string[]; opciones?: { hora_desde?: string; hora_hasta?: string } };
+
+/** Botones "Lo tomo" / "Resuelto" de un ticket (los atiende el bot en scripts/bot.mjs). */
+export const botonesTicket = (id: unknown): BotonTelegram[][] => [
+  [
+    { text: "🙋 Lo tomo", callback_data: `tomar:${String(id)}` },
+    { text: "✅ Resuelto", callback_data: `resolver:${String(id)}` },
+  ],
+];
+
+/** Horario de envío automático (por defecto 9 a 22 h). Fuera de horario los avisos quedan en cola. */
+function enHorario(cfg: ConfigBot, ahora = new Date()) {
+  const min = (h: string | undefined, d: string) => {
+    const [hh, mm] = String(h && /^\d{2}:\d{2}$/.test(h) ? h : d).split(":").map(Number);
+    return hh * 60 + mm;
+  };
+  const actual = ahora.getHours() * 60 + ahora.getMinutes();
+  return actual >= min(cfg.opciones?.hora_desde, "09:00") && actual < min(cfg.opciones?.hora_hasta, "22:00");
+}
+
+/**
+ * Envía (o deja en cola si está fuera de horario) un mensaje del bot a un chat.
+ * `inmediato` es para lo que alguien pidió en el momento (prueba): no respeta el horario.
+ */
+async function enviarTelegram(cfg: ConfigBot, destino: string, evento: string, html: string, resumen: string, botones?: BotonTelegram[][], inmediato = false) {
+  const clave = `al-momento:${randomUUID()}`;
+  if (!inmediato && !enHorario(cfg)) {
+    await query(`insert into bot_envios (clave, evento, texto, destino, html, botones, pendiente) values ($1, $2, $3, $4, $5, $6::jsonb, true)`, [
+      clave,
+      evento,
+      resumen.slice(0, 500),
+      destino,
+      html,
+      botones ? JSON.stringify(botones) : null,
+    ]).catch(() => {});
+    return { ok: true, motivo: "En cola: sale cuando empiece el horario de envío" };
+  }
+  const r = await fetch(`https://api.telegram.org/bot${decryptSecret(cfg.token!)}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: destino, text: html, parse_mode: "HTML", disable_web_page_preview: true, ...(botones ? { reply_markup: { inline_keyboard: botones } } : {}) }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const p = r.ok ? null : ((await r.json().catch(() => null)) as { description?: string } | null);
+  const motivo = r.ok ? "" : (p?.description ?? `Telegram respondió ${r.status}`);
+  // Queda en el historial de envíos que se ve en Configuración → Bot Sistema.
+  await query(`insert into bot_envios (clave, evento, texto, destino, ok, error) values ($1, $2, $3, $4, $5, $6) on conflict (clave) do nothing`, [
+    clave,
+    evento,
+    resumen.slice(0, 500),
+    destino,
+    r.ok,
+    motivo || null,
+  ]).catch(() => {});
+  return { ok: r.ok, motivo };
+}
+
+async function configBot() {
+  const v = (await one<{ valor: ConfigBot | null }>(`select valor from ajustes where clave = 'avisos_telegram'`))?.valor;
+  return v?.token ? v : null;
+}
+
+export async function avisoExterno(
+  evento: (typeof EVENTOS_EXTERNOS)[number] | "prueba",
+  icono: string,
+  titulo: string,
+  renglones: (string | null | undefined | false)[] = [],
+  botones?: BotonTelegram[][],
+) {
   try {
-    const cfg = await one<{ valor: { token?: string; chat_id?: string; eventos?: string[] } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`);
-    const v = cfg?.valor;
+    const v = await configBot();
     if (!v?.token || !v.chat_id) return { ok: false, motivo: "Falta configurar el bot y el chat" };
     if (evento !== "prueba" && Array.isArray(v.eventos) && !v.eventos.includes(evento)) return { ok: false, motivo: "Evento apagado" };
-    const token = decryptSecret(v.token);
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: v.chat_id, text: texto, parse_mode: "HTML", disable_web_page_preview: true }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const p = r.ok ? null : ((await r.json().catch(() => null)) as { description?: string } | null);
-    const motivo = r.ok ? "" : (p?.description ?? `Telegram respondió ${r.status}`);
-    // Queda en el historial de envíos que se ve en Configuración → Bot Sistema.
-    await query(`insert into bot_envios (clave, evento, texto, ok, error) values ($1, $2, $3, $4, $5) on conflict (clave) do nothing`, [
-      `al-momento:${randomUUID()}`,
-      evento,
-      [titulo, ...renglones.filter(Boolean)].join(" · ").slice(0, 500),
-      r.ok,
-      motivo || null,
-    ]).catch(() => {});
-    return { ok: r.ok, motivo };
+    return await enviarTelegram(v, v.chat_id, evento, mensajeBot(icono, titulo, renglones), [titulo, ...renglones.filter(Boolean)].join(" · "), botones, evento === "prueba");
   } catch (error) {
     console.error("No se pudo enviar el aviso externo", error);
     return { ok: false, motivo: error instanceof Error ? error.message : "Sin conexión con Telegram" };
+  }
+}
+
+const ICONO_PERSONAL: Record<string, string> = { ticket: "🎫", comentario: "💬", pedido: "🛒", clave: "🔑", actualizacion: "🆕", guardia: "🌙", toner: "🖨️", activo: "🖥️", doc: "📘" };
+
+/** Copia por privado en Telegram de las notificaciones de cada usuario que vinculó su cuenta. */
+async function avisosPersonales(items: Nueva[]) {
+  try {
+    const ids = [...new Set(items.map((n) => n.userId).filter(Boolean))];
+    if (!ids.length) return;
+    const v = await configBot();
+    if (!v?.token) return;
+    const vinc = await query<{ user_id: string; telegram_id: string }>(`select user_id, telegram_id from telegram_vinculos where avisos_personales and user_id = any($1::uuid[])`, [ids]);
+    if (!vinc.rows.length) return;
+    const destino = new Map(vinc.rows.map((r) => [r.user_id, r.telegram_id]));
+    for (const n of items) {
+      const chat = destino.get(n.userId);
+      if (!chat) continue;
+      const html = mensajeBot(ICONO_PERSONAL[n.tipo] ?? "🔔", n.titulo, [n.cuerpo, n.actorNombre && `Por: ${n.actorNombre}`]);
+      await enviarTelegram(v, chat, "personal", html, `${n.titulo}${n.cuerpo ? ` · ${n.cuerpo}` : ""}`, n.botones);
+    }
+  } catch (error) {
+    console.error("No se pudo enviar el aviso personal", error);
   }
 }
 
@@ -112,7 +196,7 @@ export async function notificarCambios(
       const previo = new Map(antes.map((r) => [String(r.id), r]));
       for (const a of filas) {
         if (a.estado === "con_problemas" && previo.get(String(a.id))?.estado !== "con_problemas")
-          await avisoExterno("version_problemas", "⚠️", "Versión con problemas", [
+          void avisoExterno("version_problemas", "⚠️", "Versión con problemas", [
             `Sistema: ${String(a.sistema)}${a.version ? ` v${String(a.version)}` : ""}`,
             a.titulo ? `Cambio: ${String(a.titulo)}` : null,
             `Lo marcó: ${actorNombre}`,
@@ -126,12 +210,12 @@ export async function notificarCambios(
       if (accion === "insert")
         for (const t of filas)
           if (t.prioridad === "critica")
-            await avisoExterno("ticket_critico", "🔴", `Ticket crítico ${ticketLabel(t)}`, [
+            void avisoExterno("ticket_critico", "🔴", `Ticket crítico ${ticketLabel(t)}`, [
               String(t.titulo ?? ""),
               t.sector ? `📍 ${String(t.sector)}` : null,
               t.solicitante_nombre ? `👤 Pide: ${String(t.solicitante_nombre)}` : null,
               `Cargó: ${actorNombre}`,
-            ]);
+            ], botonesTicket(t.id));
       const previo = new Map(antes.map((r) => [String(r.id), r]));
       const nuevas: Nueva[] = [];
       for (const t of filas) {
@@ -146,6 +230,7 @@ export async function notificarCambios(
             cuerpo: `${String(t.titulo ?? "")}${t.prioridad ? ` · prioridad ${t.prioridad}` : ""}`,
             link: "/tareas",
             actorNombre,
+            botones: [[{ text: "✅ Marcar resuelto", callback_data: `resolver:${String(t.id)}` }]],
           });
         }
         // Avisar al creador cuando su ticket se resuelve o se cierra.

@@ -712,13 +712,40 @@ export const apiRpc = createServerFn({ method: "POST" })
       }
       return { data: r, error: null };
     }
+    if (data.name === "telegram_mi_vinculo") {
+      const v = await one<{ telegram_usuario: string | null; avisos_personales: boolean; created_at: string }>(
+        `select telegram_usuario, avisos_personales, created_at from telegram_vinculos where user_id = $1`,
+        [session.user.id],
+      ).catch(() => null);
+      const bot = await one<{ ok: boolean }>(`select (valor->>'token') is not null ok from ajustes where clave = 'avisos_telegram'`).catch(() => null);
+      return { data: { vinculado: !!v, ...(v ?? {}), bot_configurado: !!bot?.ok }, error: null };
+    }
+    if (data.name === "telegram_generar_codigo") {
+      // Código corto de un solo uso: el usuario se lo manda al bot por privado con /vincular.
+      const letras = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const codigo = Array.from(randomUUID().replace(/-/g, "").slice(0, 6), (c) => letras[parseInt(c, 16) % letras.length]).join("");
+      await query(`delete from telegram_codigos where user_id = $1 or expira < now()`, [session.user.id]);
+      await query(`insert into telegram_codigos (codigo, user_id, expira) values ($1, $2, now() + interval '10 minutes')`, [codigo, session.user.id]);
+      return { data: { codigo }, error: null };
+    }
+    if (data.name === "telegram_desvincular") {
+      await query(`delete from telegram_vinculos where user_id = $1`, [session.user.id]);
+      return { data: true, error: null };
+    }
+    if (data.name === "telegram_avisos_personales") {
+      await query(`update telegram_vinculos set avisos_personales = $2 where user_id = $1`, [session.user.id, data.args?._activo !== false]);
+      return { data: true, error: null };
+    }
     if (data.name === "avisos_externos_leer") {
       await assertAdmin(session.user.id);
       const v = (await one<{ valor: { token?: string; chat_id?: string; eventos?: string[]; opciones?: Record<string, unknown> } | null }>(`select valor from ajustes where clave = 'avisos_telegram'`).catch(() => null))?.valor;
-      const envios = await query(`select clave, evento, texto, ok, error, enviado_at from bot_envios order by enviado_at desc limit 25`).catch(() => ({ rows: [] }));
+      const envios = await query(`select clave, evento, texto, ok, error, pendiente, enviado_at from bot_envios order by enviado_at desc limit 25`).catch(() => ({ rows: [] }));
+      const vinculados = await query(
+        `select p.full_name, v.telegram_usuario, v.avisos_personales from telegram_vinculos v join profiles p on p.id = v.user_id order by p.full_name`,
+      ).catch(() => ({ rows: [] }));
       // El token nunca vuelve al navegador: solo se informa si está cargado.
       return {
-        data: { tiene_token: !!v?.token, chat_id: v?.chat_id ?? "", eventos: v?.eventos ?? [...EVENTOS_EXTERNOS], opciones: v?.opciones ?? {}, envios: envios.rows },
+        data: { tiene_token: !!v?.token, chat_id: v?.chat_id ?? "", eventos: v?.eventos ?? [...EVENTOS_EXTERNOS], opciones: v?.opciones ?? {}, envios: envios.rows, vinculados: vinculados.rows },
         error: null,
       };
     }
@@ -732,12 +759,14 @@ export const apiRpc = createServerFn({ method: "POST" })
       const o = (data.args?._opciones ?? {}) as Record<string, unknown>;
       const hora = (v: unknown, d: string) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v)) ? String(v) : d);
       const opciones = {
-        hora_resumen: hora(o.hora_resumen, "08:00"),
+        // Horario de envío automático: fuera de esta franja no sale nada solo (queda en cola).
+        hora_desde: hora(o.hora_desde, "09:00"),
+        hora_hasta: hora(o.hora_hasta, "22:00"),
+        hora_resumen: hora(o.hora_resumen, "09:00"),
         hora_guardia: hora(o.hora_guardia, "19:30"),
         solo_habiles: o.solo_habiles !== false,
         sin_asignar_horas: Math.min(Math.max(Number(o.sin_asignar_horas) || 2, 1), 72),
         disco_pct: Math.min(Math.max(Number(o.disco_pct) || 90, 50), 99),
-        silencio_nocturno: o.silencio_nocturno !== false,
         comandos: o.comandos !== false,
       };
       const valor = {
