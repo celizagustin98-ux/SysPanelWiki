@@ -196,7 +196,8 @@ function RootComponent() {
         <AuthProvider>
           <Outlet />
           <TituloConMarca />
-          <Toaster richColors position="top-right" closeButton offset={{ top: 64, right: 16 }} />
+          {/* Carteles cortos (2,5 s) y como mucho 3 a la vez: antes quedaban 4 s o más y había que cerrarlos a mano. */}
+          <Toaster richColors position="top-right" closeButton duration={2500} visibleToasts={3} offset={{ top: 64, right: 16 }} />
           <ConfirmarHost />
         </AuthProvider>
       </ThemeProvider>

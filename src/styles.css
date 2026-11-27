@@ -475,32 +475,30 @@
   }
 }
 
+/* Entrada de cada pantalla: corta para que el sistema se sienta ágil (antes 0,45 s). */
 @utility rise-in {
-  animation: rise-in 0.45s var(--ease-out-expo) both;
+  animation: rise-in 0.2s var(--ease-out-expo) both;
 }
 
 /* Hijos que entran escalonados (listas, grillas de tarjetas) */
 @utility stagger {
   & > * {
-    animation: rise-in 0.45s var(--ease-out-expo) both;
+    animation: rise-in 0.22s var(--ease-out-expo) both;
   }
   & > *:nth-child(2) {
-    animation-delay: 40ms;
+    animation-delay: 20ms;
   }
   & > *:nth-child(3) {
-    animation-delay: 80ms;
+    animation-delay: 40ms;
   }
   & > *:nth-child(4) {
-    animation-delay: 120ms;
+    animation-delay: 60ms;
   }
   & > *:nth-child(5) {
-    animation-delay: 160ms;
+    animation-delay: 80ms;
   }
-  & > *:nth-child(6) {
-    animation-delay: 200ms;
-  }
-  & > *:nth-child(n + 7) {
-    animation-delay: 240ms;
+  & > *:nth-child(n + 6) {
+    animation-delay: 100ms;
   }
 }
 
@@ -758,7 +756,7 @@
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -823,7 +821,7 @@
 /* Historial / línea de tiempo: los eventos entran escalonados y el punto "aparece". */
 @utility linea-tiempo {
   & > * {
-    animation: rise-in 0.4s var(--ease-out-expo) both;
+    animation: rise-in 0.25s var(--ease-out-expo) both;
   }
   & > li > span:first-child {
     animation: pop-in 0.35s var(--ease-out-expo) both;

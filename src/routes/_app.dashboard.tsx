@@ -247,9 +247,13 @@ function Dashboard() {
 
       const [tareas, toners, guardias, misTareas] = await Promise.all([
         safeList<TareaLite>(
+          // Solo los abiertos: los números del inicio no usan el historial (antes se traían todos los tickets).
           api
             .from("tareas")
-            .select("id, titulo, estado, prioridad, vence_el, asignado_a"),
+            .select("id, titulo, estado, prioridad, vence_el, asignado_a")
+            .neq("estado", "cerrado")
+            .neq("estado", "cancelado")
+            .neq("estado", "resuelto"),
         ),
         safeList<TonerRow>(
           api.from("toner_modelos").select("id, nombre, stock, stock_minimo"),
