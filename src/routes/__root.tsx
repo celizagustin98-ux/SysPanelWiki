@@ -19,6 +19,7 @@ import { ThemeProvider } from "@/lib/theme";
 import { tituloConMarca, useMarca } from "@/lib/brand";
 import { ConfirmarHost } from "@/components/Confirmar";
 import { registrarPwa } from "@/lib/pwa";
+import { BarraCarga } from "@/components/BarraCarga";
 
 function StatusFrame({
   title,
@@ -199,6 +200,7 @@ function RootComponent() {
           {/* Carteles cortos (2,5 s) y como mucho 3 a la vez: antes quedaban 4 s o más y había que cerrarlos a mano. */}
           <Toaster richColors position="top-right" closeButton duration={2500} visibleToasts={3} offset={{ top: 64, right: 16 }} />
           <ConfirmarHost />
+          <BarraCarga />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

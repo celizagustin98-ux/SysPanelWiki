@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, queryOptions } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   addDays,
@@ -94,6 +94,22 @@ function asText(v: unknown, fallback = "") {
   return fallback;
 }
 
+/** Guardias cargadas (la usa también la precarga del menú). */
+export const consultaGuardias = queryOptions({
+  queryKey: ["guardias"],
+  queryFn: async () => {
+    const { data, error } = await api.from("guardias").select("*").order("desde");
+    if (error) throw error;
+    return ((data ?? []) as any[]).map((g) => ({
+      ...g,
+      operador_nombre: asText(g.operador_nombre),
+      desde: asText(g.desde),
+      hasta: asText(g.hasta),
+      notas: g.notas == null ? null : asText(g.notas),
+    })) as Guardia[];
+  },
+});
+
 export function GuardiasPage() {
   const { puedeEscribir, isAdmin } = useAuth();
   const puedeEditarModulo = puedeEscribir("guardias");
@@ -186,20 +202,7 @@ export function GuardiasPage() {
       }));
   }, [operarioRows]);
 
-  const { data: guardias = [], isLoading } = useQuery({
-    queryKey: ["guardias"],
-    queryFn: async () => {
-      const { data, error } = await api.from("guardias").select("*").order("desde");
-      if (error) throw error;
-      return ((data ?? []) as any[]).map((g) => ({
-        ...g,
-        operador_nombre: asText(g.operador_nombre),
-        desde: asText(g.desde),
-        hasta: asText(g.hasta),
-        notas: g.notas == null ? null : asText(g.notas),
-      })) as Guardia[];
-    },
-  });
+  const { data: guardias = [], isLoading } = useQuery({ ...consultaGuardias });
 
   const periodGuardias = useMemo(() => {
     const a = startOfDay(period.desde).getTime();

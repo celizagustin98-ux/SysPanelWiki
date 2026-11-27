@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, queryOptions } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   BookUser,
@@ -48,6 +48,10 @@ import { ImportarTelefonos } from "@/components/oficina/ImportarTelefonos";
 import { confirmar } from "@/components/Confirmar";
 
 export const Route = createFileRoute("/_app/oficina")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaTelefonos);
+  },
   ssr: false,
   head: () => ({
     meta: [
@@ -108,6 +112,21 @@ const EMPTY_FORM = {
   notas: "",
   orden: 0,
 };
+
+/** Consultas principales del módulo (las comparten la pantalla y la precarga del menú). */
+const consultaTelefonos = queryOptions({
+  queryKey: ["oficina_telefonos"],
+  queryFn: async () => {
+    const { data, error } = await api
+      .from("oficina_telefonos")
+      .select("id, sector, nombre, interno, notas, orden, activo")
+      .order("sector")
+      .order("orden")
+      .order("nombre");
+    if (error) throw error;
+    return ((data ?? []) as Telefono[]).filter((r) => r.activo !== false);
+  },
+});
 
 function OficinaPage() {
   const { tab: tabUrl, nueva } = Route.useSearch();
@@ -183,19 +202,7 @@ function TelefonosPanel() {
   const alternarFavorito = (id: string) =>
     void guardar({ telefonos_favoritos: favoritos.includes(id) ? favoritos.filter((x) => x !== id) : [...favoritos, id] });
 
-  const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["oficina_telefonos"],
-    queryFn: async () => {
-      const { data, error } = await api
-        .from("oficina_telefonos")
-        .select("id, sector, nombre, interno, notas, orden, activo")
-        .order("sector")
-        .order("orden")
-        .order("nombre");
-      if (error) throw error;
-      return ((data ?? []) as Telefono[]).filter((r) => r.activo !== false);
-    },
-  });
+  const { data: rows = [], isLoading } = useQuery({ ...consultaTelefonos });
 
   const sectores = useMemo(() => {
     const set = new Set<string>();

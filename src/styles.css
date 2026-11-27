@@ -1039,3 +1039,65 @@
     translate: calc(100vw + 4rem) 0;
   }
 }
+
+/* ── Cambio de pantalla con View Transitions: fundido corto, solo el contenido (el menú queda quieto). ── */
+.pantalla {
+  view-transition-name: pantalla;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+::view-transition-old(pantalla) {
+  animation: vt-sale 120ms ease-out both;
+}
+::view-transition-new(pantalla) {
+  animation: vt-entra 180ms var(--ease-out-expo) both;
+}
+@keyframes vt-sale {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-entra {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(pantalla),
+  ::view-transition-new(pantalla) {
+    animation: none;
+  }
+}
+
+/* ── Barra de carga superior ── */
+.barra-carga {
+  width: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, transparent, var(--color-primary), color-mix(in oklab, var(--color-primary) 60%, white));
+  box-shadow: 0 0 8px var(--color-primary);
+  animation: barra-avanza 8s cubic-bezier(0.1, 0.7, 0.2, 1) both;
+}
+.barra-carga-fin {
+  width: 100%;
+  background: var(--color-primary);
+  animation: barra-termina 0.35s ease-out both;
+}
+@keyframes barra-avanza {
+  from {
+    transform: scaleX(0.05);
+  }
+  to {
+    transform: scaleX(0.92);
+  }
+}
+@keyframes barra-termina {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}

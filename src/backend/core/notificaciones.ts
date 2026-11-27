@@ -275,8 +275,25 @@ export async function notificarCambios(
 
 export type Alerta = { id: string; tipo: string; tono: "crit" | "warn" | "info"; titulo: string; cuerpo: string; link: string };
 
+// Caché corta por usuario: la campanita las pide cada minuto en cada pestaña y cada cálculo son ~20 consultas.
+const cacheAlertas = new Map<string, { hasta: number; alertas: Promise<Alerta[]> }>();
+
+/** Alertas del área (se recalculan como mucho cada 30 s por usuario). */
+export function alertasArea(userId: string): Promise<Alerta[]> {
+  const ahora = Date.now();
+  const c = cacheAlertas.get(userId);
+  if (c && c.hasta > ahora) return c.alertas;
+  const alertas = calcularAlertas(userId).catch((e) => {
+    cacheAlertas.delete(userId);
+    throw e;
+  });
+  if (cacheAlertas.size > 500) cacheAlertas.clear();
+  cacheAlertas.set(userId, { hasta: ahora + 30_000, alertas });
+  return alertas;
+}
+
 /** Alertas del área calculadas en el momento (no se guardan). */
-export async function alertasArea(userId: string): Promise<Alerta[]> {
+async function calcularAlertas(userId: string): Promise<Alerta[]> {
   const alertas: Alerta[] = [];
   const seguro = async <T>(fn: () => Promise<T>) => {
     try {

@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { GuardiasPage } from "@/components/guardias/GuardiasPage";
+import { GuardiasPage, consultaGuardias } from "@/components/guardias/GuardiasPage";
 
 export const Route = createFileRoute("/_app/guardias")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaGuardias);
+  },
   validateSearch: (s: Record<string, unknown>): { tab?: "planilla" | "horarios" | "liquidacion" } =>
     s.tab === "horarios" || s.tab === "liquidacion" || s.tab === "planilla" ? { tab: s.tab } : {},
   ssr: false,

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, queryOptions, keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BarChart3, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, PenLine, Search, Timer } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
 import { Recurrentes, useGenerarRecurrentes } from "@/components/tickets/Recurrentes";
+import { aplicarEnTickets } from "@/components/tickets/optimista";
 import { clicDeFila } from "@/lib/fila-clic";
 import {
   type Ticket as TicketT,
@@ -38,6 +39,10 @@ import { NuevoTicket } from "@/components/tickets/NuevoTicket";
 import { SLA_HORAS, calcularSla } from "@/components/tickets/sla";
 
 export const Route = createFileRoute("/_app/tareas")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaTicketsActivos);
+  },
   ssr: false,
   validateSearch: (s: Record<string, unknown>): { ticket?: string; nuevo?: string } => ({
     ...(typeof s.ticket === "string" ? { ticket: s.ticket } : {}),
@@ -88,6 +93,22 @@ function formatDay(iso?: string | null) {
   return formatFecha(iso, { day: "2-digit", month: "short" });
 }
 
+/** Consultas principales del módulo (las comparten la pantalla y la precarga del menú). */
+const consultaTicketsActivos = queryOptions({
+  queryKey: ["tareas"],
+  queryFn: async () => {
+    // Solo los activos: el historial se consulta por mes (antes se traía todo el historial siempre).
+    const { data, error } = await api
+      .from("tareas")
+      .select("*")
+      .neq("estado", "cerrado")
+      .neq("estado", "cancelado")
+      .order("updated_at", { ascending: false });
+    if (error) throw error;
+    return data as TicketT[];
+  },
+});
+
 function TicketsPage() {
   const { user, profile, puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("tareas");
@@ -119,20 +140,7 @@ function TicketsPage() {
   }, [ticketParam]);
   const [reopenId, setReopenId] = useState<string | null>(null);
 
-  const { data: tickets = [], isLoading } = useQuery({
-    queryKey: ["tareas"],
-    queryFn: async () => {
-      // Solo los activos: el historial se consulta por mes (antes se traía todo el historial siempre).
-      const { data, error } = await api
-        .from("tareas")
-        .select("*")
-        .neq("estado", "cerrado")
-        .neq("estado", "cancelado")
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return data as TicketT[];
-    },
-  });
+  const { data: tickets = [], isLoading } = useQuery({ ...consultaTicketsActivos });
 
   const { data: perfiles = [] } = useQuery({
     queryKey: ["profiles-directorio"],
@@ -153,6 +161,8 @@ function TicketsPage() {
   const mesKey = `${mes.getFullYear()}-${String(mes.getMonth() + 1).padStart(2, "0")}`;
   const { data: historyTickets = [], isLoading: loadingHist } = useQuery({
     queryKey: ["tareas", "historial", mesKey],
+    // Al cambiar de mes se ve el anterior hasta que llega el nuevo (sin parpadeo en blanco).
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const desde = new Date(mes.getFullYear(), mes.getMonth(), 1);
       const hasta = new Date(mes.getFullYear(), mes.getMonth() + 1, 1, 0, 0, 0, -1);
@@ -314,7 +324,9 @@ function TicketsPage() {
     if (values.estado === "resuelto") extra.resuelto_en = ahora;
     if (values.estado === "cerrado" || values.estado === "cancelado") extra.cerrado_en = ahora;
     if ("asignado_a" in values && values.asignado_a) extra.estado = "asignado";
+    const deshacer = ids.map((id) => aplicarEnTickets(qc, id, { ...extra, ...values }));
     const r = await Promise.all(ids.map((id) => api.from("tareas").update({ ...extra, ...values }).eq("id", id)));
+    if (r.every((x) => x.error)) deshacer.forEach((f) => f());
     const fallas = r.filter((x) => x.error).length;
     if (fallas) toast.error(`${fallas} no se pudieron cambiar`);
     toast.success(`${msg} (${ids.length - fallas})`);
@@ -323,8 +335,11 @@ function TicketsPage() {
   };
 
   const patchTicket = async (id: string, values: Record<string, unknown>, msg?: string) => {
+    // Se ve al instante; si el servidor lo rechaza, vuelve como estaba.
+    const deshacer = aplicarEnTickets(qc, id, { ...values, updated_at: new Date().toISOString() });
     const { error } = await api.from("tareas").update(values).eq("id", id);
     if (error) {
+      deshacer();
       toast.error(error.message);
       return;
     }

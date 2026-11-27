@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, queryOptions } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useId, useMemo, useState } from "react";
 import { strToU8, zipSync } from "fflate";
 import {
@@ -94,6 +94,10 @@ import { ACTIVO_COLUMNAS_SQL, ActivoDialog, ControlDialog, type Activo } from "@
 import { FichaActivo, badgeVariant, iconoCategoria } from "@/components/activos/FichaActivo";
 
 export const Route = createFileRoute("/_app/inventario")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaInventario);
+  },
   ssr: false,
   validateSearch: (s: Record<string, unknown>): { item?: string; rafaga?: string } => ({
     item: (s.item as string) || undefined,
@@ -985,6 +989,21 @@ function FilterSelect({
   );
 }
 
+/** Consultas principales del módulo (las comparten la pantalla y la precarga del menú). */
+const consultaInventario = queryOptions({
+  queryKey: ["inventario"],
+  queryFn: async () => {
+    const { data, error } = await api
+      .from("inventario")
+      .select(ACTIVO_COLUMNAS_SQL)
+      .order("updated_at", { ascending: false })
+      .limit(5000);
+    if (error) throw error;
+    return (data as Item[]).map(normalizeItem);
+  },
+  staleTime: 30_000,
+});
+
 function InventarioPage() {
   const { isAdmin, can, puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("inventario");
@@ -1020,19 +1039,7 @@ function InventarioPage() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const deferredQ = useDeferredValue(q);
 
-  const { data = [], isFetching } = useQuery({
-    queryKey: ["inventario"],
-    queryFn: async () => {
-      const { data, error } = await api
-        .from("inventario")
-        .select(ACTIVO_COLUMNAS_SQL)
-        .order("updated_at", { ascending: false })
-        .limit(5000);
-      if (error) throw error;
-      return (data as Item[]).map(normalizeItem);
-    },
-    staleTime: 30_000,
-  });
+  const { data = [], isFetching } = useQuery({ ...consultaInventario });
 
   const deleteInventoryItem = async (id: string) => {
     const controls = await api.from("inventario_controles").delete().eq("inventario_id", id);
