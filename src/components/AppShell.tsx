@@ -383,7 +383,8 @@ export function AppShell() {
           </header>
 
           <main className="page-content min-w-0 flex-1 overflow-x-clip px-3 py-3.5 sm:px-4 md:px-6 md:py-5 lg:px-7">
-            <div key={pathname} className="rise-in">
+            {/* El cambio de pantalla lo anima el navegador (View Transitions); sin soporte, cambia directo. */}
+            <div key={pathname} className="pantalla">
               <Outlet />
             </div>
           </main>

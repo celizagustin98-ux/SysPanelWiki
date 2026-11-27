@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, FileDown, Loader2 } from "lucide-react";
 import { StatTile } from "@/components/StatTile";
@@ -51,6 +51,7 @@ export function ReporteMensual() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["reporte-mensual", dFecha],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const [abiertos, cerrados, movs, reps, controles, altas, pedidos, perfiles, versiones, extras, itemsCompra] = await Promise.all([
         lista("tareas", "id, categoria, prioridad, sector", "created_at", dIso, hIso),

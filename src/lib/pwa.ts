@@ -7,7 +7,13 @@ const avisos = new Set<() => void>();
 
 /** Registra el service worker (solo en HTTPS o localhost, como exige el navegador) y guarda el aviso de instalación. */
 export function registrarPwa() {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !window.isSecureContext) return;
+  if (typeof window === "undefined") return;
+  // Navegar muy rápido corta la transición anterior: el navegador lo informa como error, pero es esperable.
+  window.addEventListener("unhandledrejection", (e) => {
+    const r = e.reason as { name?: string; message?: string } | undefined;
+    if (r?.name === "AbortError" && /transition/i.test(r.message ?? "")) e.preventDefault();
+  });
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
   void navigator.serviceWorker.register("/sw.js").catch(() => {
     /* sin service worker la app funciona igual, solo no se puede instalar */
   });

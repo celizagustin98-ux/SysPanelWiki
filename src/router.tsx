@@ -24,6 +24,9 @@ export const getRouter = () => {
     // Precarga el código de la pantalla al pasar el mouse por el menú.
     defaultPreload: "intent",
     defaultPreloadStaleTime: 30_000,
+    // Precarga apenas el mouse se apoya (antes esperaba 50 ms) y fundido nativo entre pantallas.
+    defaultPreloadDelay: 0,
+    defaultViewTransition: true,
   });
 
   return router;

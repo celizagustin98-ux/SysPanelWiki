@@ -39,6 +39,7 @@ import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
 import { RespuestasGuardadas } from "./RespuestasGuardadas";
 import { ChecklistTicket, useChecklist } from "./ChecklistTicket";
+import { aplicarEnTickets } from "./optimista";
 import { AvisoEquipoReciente, InstructivosSugeridos } from "./Sugerencias";
 import { pasoAnimado } from "@/lib/fila-clic";
 import {
@@ -123,16 +124,25 @@ export function TicketDetail({
   };
 
   const patch = async (values: Record<string, unknown>, okMsg?: string) => {
+    const deshacer = aplicarEnTickets(qc, ticket.id, values);
     const { error } = await api.from("tareas").update(values).eq("id", ticket.id);
-    if (error) return toast.error(error.message);
+    if (error) {
+      deshacer();
+      return toast.error(error.message);
+    }
     if (okMsg) toast.success(okMsg);
     onRefresh();
   };
 
   /** Cambia el estado y deja constancia en la actividad del ticket. */
   const cambiarEstado = async (estado: string, extra: Record<string, unknown> = {}, okMsg?: string) => {
+    // La barra de avance y los botones cambian al instante; el servidor confirma en segundo plano.
+    const deshacer = aplicarEnTickets(qc, ticket.id, { estado, ...extra });
     const { error } = await api.from("tareas").update({ estado, ...extra }).eq("id", ticket.id);
-    if (error) return toast.error(error.message);
+    if (error) {
+      deshacer();
+      return toast.error(error.message);
+    }
     if (userId) {
       await api.from("tarea_comentarios").insert({
         tarea_id: ticket.id,

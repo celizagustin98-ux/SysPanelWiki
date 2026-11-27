@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, queryOptions } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { ExternalLink, Lock, Pencil, Plus, Search, ShieldCheck, Trash2, Wand2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
@@ -44,6 +44,10 @@ const DIAS_CLAVE_VIEJA = 365;
 type Salud = { id: string; repetida: number; dias: number; debil: boolean };
 
 export const Route = createFileRoute("/_app/credenciales")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaCredenciales);
+  },
   ssr: false,
   head: () => ({
     meta: [
@@ -117,6 +121,16 @@ async function copiarAcceso(c: Cred) {
   });
 }
 
+/** Consultas principales del módulo (las comparten la pantalla y la precarga del menú). */
+const consultaCredenciales = queryOptions({
+  queryKey: ["credenciales"],
+  queryFn: async () => {
+    const { data, error } = await api.from("credenciales").select("*").order("servicio");
+    if (error) throw error;
+    return data as Cred[];
+  },
+});
+
 function CredencialesPage() {
   const { user, can } = useAuth();
   const puedeVer = can("credenciales", "view");
@@ -132,15 +146,7 @@ function CredencialesPage() {
   const { data: roles = [] } = useRoles();
   const nombreRol = (clave: string) => roles.find((r) => r.clave === clave)?.nombre ?? clave;
 
-  const { data = [], isError, isLoading } = useQuery({
-    queryKey: ["credenciales"],
-    enabled: puedeVer,
-    queryFn: async () => {
-      const { data, error } = await api.from("credenciales").select("*").order("servicio");
-      if (error) throw error;
-      return data as Cred[];
-    },
-  });
+  const { data = [], isError, isLoading } = useQuery({ ...consultaCredenciales, enabled: puedeVer, });
 
   const { data: salud = [] } = useQuery({
     queryKey: ["credenciales", "salud"],

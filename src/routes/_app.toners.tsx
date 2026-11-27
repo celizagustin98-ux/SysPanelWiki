@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, queryOptions } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -60,6 +60,10 @@ import { StatTile } from "@/components/StatTile";
 import { confirmar } from "@/components/Confirmar";
 
 export const Route = createFileRoute("/_app/toners")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaModelosToner);
+  },
   ssr: false,
   validateSearch: (s: Record<string, unknown>): { tab?: string } => (typeof s.tab === "string" ? { tab: s.tab } : {}),
   head: () => ({
@@ -131,6 +135,16 @@ type PedidoItem = {
   toner_modelos: { nombre: string } | null;
 };
 
+/** Consultas principales del módulo (las comparten la pantalla y la precarga del menú). */
+const consultaModelosToner = queryOptions({
+  queryKey: ["toner_modelos"],
+  queryFn: async () => {
+    const { data, error } = await api.from("toner_modelos").select("*").order("nombre");
+    if (error) throw error;
+    return data as Modelo[];
+  },
+});
+
 function TonersPage() {
   const { profile, user, puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("toners");
@@ -148,14 +162,7 @@ function TonersPage() {
   const [modeloSel, setModeloSel] = useState("");
   const [generados, setGenerados] = useState<string[]>([]);
 
-  const { data: modelos = [] } = useQuery({
-    queryKey: ["toner_modelos"],
-    queryFn: async () => {
-      const { data, error } = await api.from("toner_modelos").select("*").order("nombre");
-      if (error) throw error;
-      return data as Modelo[];
-    },
-  });
+  const { data: modelos = [] } = useQuery({ ...consultaModelosToner });
 
   const { data: movimientos = [] } = useQuery({
     queryKey: ["toner_movimientos", movPeriodo],

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, queryOptions } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import {
   ArrowLeft,
@@ -57,6 +57,10 @@ import { cn } from "@/lib/utils";
 import { ChecklistInstructivo } from "@/components/instructivos/Checklist";
 
 export const Route = createFileRoute("/_app/instructivos")({
+  // Precarga los datos al pasar el mouse por el menú (preload "intent"): la pantalla abre ya cargada.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(consultaCarpetas); void context.queryClient.prefetchQuery(consultaDocs); void context.queryClient.prefetchQuery(consultaAdjuntosDocs);
+  },
   ssr: false,
   validateSearch: (s: Record<string, unknown>) => ({
     doc: (s.doc as string) || undefined,
@@ -122,6 +126,40 @@ function parseTags(text: string) {
 
 const porNombre = new Intl.Collator("es", { numeric: true, sensitivity: "base" });
 
+/** Consultas principales del módulo (las comparten la pantalla y la precarga del menú). */
+const consultaCarpetas = queryOptions({
+  queryKey: ["wiki_folders"],
+  queryFn: async () => {
+    const { data, error } = await api.from("wiki_folders").select("id, name, parent_id, created_at").order("name");
+    if (error) throw error;
+    return data as Carpeta[];
+  },
+});
+
+const consultaDocs = queryOptions({
+  queryKey: ["wiki_docs"],
+  queryFn: async () => {
+    const { data, error } = await api
+      .from("wiki_docs")
+      .select("id, folder_id, title, descripcion, tags, pasos, views, review_by, created_at, updated_at")
+      .order("title");
+    if (error) throw error;
+    return data as Doc[];
+  },
+});
+
+const consultaAdjuntosDocs = queryOptions({
+  queryKey: ["wiki_attachments"],
+  queryFn: async () => {
+    const { data, error } = await api
+      .from("wiki_attachments")
+      .select("id, doc_id, file_name, file_path, file_size, created_at")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data as Adjunto[];
+  },
+});
+
 function InstructivosPage() {
   const { user, puedeEscribir } = useAuth();
   const canWrite = puedeEscribir("instructivos");
@@ -151,42 +189,15 @@ function InstructivosPage() {
     }
   }, [view]);
 
-  const { data: carpetasRaw = [], isLoading: loadingFolders } = useQuery({
-    queryKey: ["wiki_folders"],
-    queryFn: async () => {
-      const { data, error } = await api.from("wiki_folders").select("id, name, parent_id, created_at").order("name");
-      if (error) throw error;
-      return data as Carpeta[];
-    },
-  });
+  const { data: carpetasRaw = [], isLoading: loadingFolders } = useQuery({ ...consultaCarpetas });
 
   // Orden alfabético real (sin distinguir mayúsculas ni acentos, "Carpeta 2" antes que "Carpeta 10").
   const carpetas = useMemo(() => [...carpetasRaw].sort((a, b) => porNombre.compare(a.name, b.name)), [carpetasRaw]);
 
-  const { data: docsRaw = [], isLoading: loadingDocs } = useQuery({
-    queryKey: ["wiki_docs"],
-    queryFn: async () => {
-      const { data, error } = await api
-        .from("wiki_docs")
-        .select("id, folder_id, title, descripcion, tags, pasos, views, review_by, created_at, updated_at")
-        .order("title");
-      if (error) throw error;
-      return data as Doc[];
-    },
-  });
+  const { data: docsRaw = [], isLoading: loadingDocs } = useQuery({ ...consultaDocs });
   const docs = useMemo(() => [...docsRaw].sort((a, b) => porNombre.compare(a.title, b.title)), [docsRaw]);
 
-  const { data: adjuntos = [] } = useQuery({
-    queryKey: ["wiki_attachments"],
-    queryFn: async () => {
-      const { data, error } = await api
-        .from("wiki_attachments")
-        .select("id, doc_id, file_name, file_path, file_size, created_at")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as Adjunto[];
-    },
-  });
+  const { data: adjuntos = [] } = useQuery({ ...consultaAdjuntosDocs });
 
   const term = q.trim();
   const { data: contentMatches = [] } = useQuery({
