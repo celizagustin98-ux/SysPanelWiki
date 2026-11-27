@@ -10,13 +10,20 @@ import { disco, estadoRespaldos } from "./respaldos.mjs";
 const SLA_RESOLUCION = { critica: 4, alta: 24, media: 72, baja: 168 };
 
 const OPCIONES_DEFECTO = {
-  hora_resumen: "08:00",
+  // Horario de envío automático: fuera de esta franja el bot no manda nada solo (lo que surja sale al empezar).
+  hora_desde: "09:00",
+  hora_hasta: "22:00",
+  hora_resumen: "09:00",
   hora_guardia: "19:30",
   solo_habiles: true,
   sin_asignar_horas: 2,
   disco_pct: 90,
-  silencio_nocturno: true,
   comandos: true,
+};
+
+const minutos = (h) => {
+  const [hh, mm] = String(h || "00:00").split(":").map(Number);
+  return (hh || 0) * 60 + (mm || 0);
 };
 
 // ── Descifrado del token (mismo esquema que src/backend/core/crypto-secrets.ts) ──
@@ -104,11 +111,14 @@ export function iniciarBot({ one, query }) {
     return r.rows.map((x) => x.clave);
   }
 
-  /** Manda un aviso si el evento está prendido y no se mandó antes (por su clave). Fuera de horario solo pasan los urgentes. */
-  async function avisar(evento, clave, texto, { urgente = false } = {}) {
-    if (!cfg.eventos.has(evento)) return false;
-    const h = new Date().getHours();
-    if (cfg.op.silencio_nocturno && !urgente && (h >= 22 || h < 7)) return false;
+  /** Manda un aviso si el evento está prendido, está dentro del horario de envío y no se mandó antes (por su clave). */
+  function enHorario(ahora = new Date()) {
+    const m = ahora.getHours() * 60 + ahora.getMinutes();
+    return m >= minutos(cfg.op.hora_desde) && m < minutos(cfg.op.hora_hasta);
+  }
+
+  async function avisar(evento, clave, texto) {
+    if (!cfg.eventos.has(evento) || !enHorario()) return false;
     const [ok] = await nuevas(evento, [clave], texto);
     if (!ok) return false;
     try {
@@ -122,15 +132,15 @@ export function iniciarBot({ one, query }) {
 
   /** Avisa una sola vez por elemento, agrupando en un mensaje los que aparecen juntos. */
   async function avisarGrupo(evento, filas, clave, titulo, fmt, opciones) {
-    if (!cfg.eventos.has(evento) || !filas.length) return;
-    const h = new Date().getHours();
-    if (cfg.op.silencio_nocturno && !opciones?.urgente && (h >= 22 || h < 7)) return;
+    if (!cfg.eventos.has(evento) || !filas.length || !enHorario()) return;
     const nuevasClaves = new Set(await nuevas(evento, filas.map(clave)));
     const aMandar = filas.filter((f) => nuevasClaves.has(clave(f)));
     if (!aMandar.length) return;
     const texto = `${titulo(aMandar.length)}${SEP}${lista(aMandar, fmt)}`;
+    // Botones "Tomar" para los primeros tickets del aviso (los que se pueden atender desde el chat).
+    const botones = opciones?.botones ? aMandar.slice(0, 5).map(opciones.botones) : null;
     try {
-      await telegram("sendMessage", { chat_id: cfg.chat, text: texto + pie() });
+      await telegram("sendMessage", { chat_id: cfg.chat, text: texto + pie(), ...(botones ? { reply_markup: { inline_keyboard: botones } } : {}) });
       await query(`update bot_envios set ok = true, texto = $2 where clave = any($1::text[])`, [[...nuevasClaves], sinHtml(texto).slice(0, 500)]);
     } catch (e) {
       await query(`update bot_envios set ok = false, error = $2 where clave = any($1::text[])`, [[...nuevasClaves], String(e.message).slice(0, 300)]);
@@ -179,16 +189,31 @@ export function iniciarBot({ one, query }) {
     return partes.join(SEP);
   }
 
+  /** Envía lo que quedó en cola (avisos que surgieron fuera del horario). */
+  async function enviarCola() {
+    const filas = (await query(`select clave, destino, html, botones from bot_envios where pendiente order by enviado_at limit 20`).catch(() => ({ rows: [] }))).rows;
+    for (const f of filas) {
+      try {
+        await telegram("sendMessage", { chat_id: f.destino || cfg.chat, text: f.html, ...(f.botones ? { reply_markup: { inline_keyboard: f.botones } } : {}) });
+        await query(`update bot_envios set pendiente = false, ok = true, enviado_at = now() where clave = $1`, [f.clave]);
+      } catch (e) {
+        await query(`update bot_envios set pendiente = false, ok = false, error = $2 where clave = $1`, [f.clave, String(e.message).slice(0, 300)]);
+      }
+    }
+  }
+
   // ── Revisión periódica ──
   async function revisar() {
     const ahora = new Date();
+    if (!enHorario(ahora)) return;
+    await enviarCola();
     const dia = hoyIso(ahora);
     const habil = ahora.getDay() !== 0 && ahora.getDay() !== 6;
 
     // Resumen diario (y el semanal los lunes) a la hora elegida.
     if (enVentana(ahora, cfg.op.hora_resumen) && (habil || !cfg.op.solo_habiles)) {
       if (cfg.eventos.has("resumen_diario") && !(await one(`select 1 from bot_envios where clave = $1`, [`resumen:${dia}`])))
-        await avisar("resumen_diario", `resumen:${dia}`, textoResumen(await resumenHoy(), `☀️ Buen día · ${ahora.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}`), { urgente: true });
+        await avisar("resumen_diario", `resumen:${dia}`, textoResumen(await resumenHoy(), `☀️ Buen día · ${ahora.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}`));
       if (ahora.getDay() === 1) {
         const s = await one(
           `select (select count(*) from tareas where created_at >= current_date - 7 and created_at < current_date)::int creados,
@@ -210,7 +235,6 @@ export function iniciarBot({ one, query }) {
               bloque("🆕", "Sistemas", [`Versiones subidas: <b>${s.versiones}</b>`]),
               bloque("⏱️", "Horas extras", [`<b>${Number(s.horas).toLocaleString("es-AR")} h</b>`]),
             ].join(SEP),
-            { urgente: true },
           );
       }
     }
@@ -218,7 +242,7 @@ export function iniciarBot({ one, query }) {
     // Guardia de esta noche.
     if (enVentana(ahora, cfg.op.hora_guardia, 2)) {
       const g = await one(`select operador_nombre from guardias where desde::date = current_date and coalesce(notas,'') not ilike '%vacacion%' order by desde limit 1`).catch(() => null);
-      await avisar("guardia_hoy", `guardia:${dia}`, g ? `🌙 <b>Guardia de esta noche</b>${SEP}   👤 <b>${esc(g.operador_nombre)}</b>\n   🕗 20:00 a 08:00` : `⚠️ <b>Guardia de esta noche</b>${SEP}   No hay nadie asignado.`, { urgente: true });
+      await avisar("guardia_hoy", `guardia:${dia}`, g ? `🌙 <b>Guardia de esta noche</b>${SEP}   👤 <b>${esc(g.operador_nombre)}</b>\n   🕗 20:00 a 08:00` : `⚠️ <b>Guardia de esta noche</b>${SEP}   No hay nadie asignado.`);
     }
 
     // Tickets.
@@ -229,7 +253,9 @@ export function iniciarBot({ one, query }) {
         [Math.max(1, Number(cfg.op.sin_asignar_horas) || 2)],
       ).catch(() => ({ rows: [] }))
     ).rows;
-    await avisarGrupo("ticket_sin_asignar", sinAsignar, (t) => `sinasignar:${t.id}`, (n) => `🕒 <b>${n} ticket${n === 1 ? "" : "s"} sin tomar</b>\n<i>Hace más de ${cfg.op.sin_asignar_horas} h sin responsable</i>`, (t) => `${ticket(t)}\n   ${PRIORIDAD[t.prioridad] ?? esc(t.prioridad)}`);
+    await avisarGrupo("ticket_sin_asignar", sinAsignar, (t) => `sinasignar:${t.id}`, (n) => `🕒 <b>${n} ticket${n === 1 ? "" : "s"} sin tomar</b>\n<i>Hace más de ${cfg.op.sin_asignar_horas} h sin responsable</i>`, (t) => `${ticket(t)}\n   ${PRIORIDAD[t.prioridad] ?? esc(t.prioridad)}`, {
+      botones: (t) => [{ text: `🙋 Tomo TK-${t.numero}`, callback_data: `tomar:${t.id}` }],
+    });
 
     const fueraSla = (
       await query(
@@ -279,11 +305,11 @@ export function iniciarBot({ one, query }) {
     const rs = estadoRespaldos();
     const ultimo = rs.respaldos?.[0]?.fecha ? new Date(rs.respaldos[0].fecha) : null;
     if (rs.ultimoError || !ultimo || ahora - ultimo > 26 * 3600_000)
-      await avisar("respaldo", `respaldo:${dia}`, `💾 <b>Respaldo de la base</b>${SEP}   ${rs.ultimoError ? `❌ Falló: ${esc(rs.ultimoError.mensaje)}` : ultimo ? `⚠️ El último es de hace ${Math.round((ahora - ultimo) / 3600_000)} h` : "⚠️ Todavía no hay ninguno"}`, { urgente: true });
+      await avisar("respaldo", `respaldo:${dia}`, `💾 <b>Respaldo de la base</b>${SEP}   ${rs.ultimoError ? `❌ Falló: ${esc(rs.ultimoError.mensaje)}` : ultimo ? `⚠️ El último es de hace ${Math.round((ahora - ultimo) / 3600_000)} h` : "⚠️ Todavía no hay ninguno"}`);
     const d = disco();
     if (d && d.total) {
       const uso = Math.round((1 - d.libre / d.total) * 100);
-      if (uso >= (Number(cfg.op.disco_pct) || 90)) await avisar("disco", `disco:${dia}`, `🧱 <b>Disco del servidor casi lleno</b>${SEP}   Uso: <b>${uso}%</b>\n   Libre: ${(d.libre / 1024 ** 3).toFixed(1)} GB`, { urgente: true });
+      if (uso >= (Number(cfg.op.disco_pct) || 90)) await avisar("disco", `disco:${dia}`, `🧱 <b>Disco del servidor casi lleno</b>${SEP}   Uso: <b>${uso}%</b>\n   Libre: ${(d.libre / 1024 ** 3).toFixed(1)} GB`);
     }
 
     // Seguridad.
@@ -293,7 +319,7 @@ export function iniciarBot({ one, query }) {
           where accion = 'login_fallido' and created_at > now() - interval '15 minutes' group by 1 having count(*) >= 5`,
       ).catch(() => ({ rows: [] }))
     ).rows;
-    for (const x of intentos) await avisar("login_fallido", `login:${x.usuario}:${dia}:${ahora.getHours()}`, `🔐 <b>Intentos de ingreso fallidos</b>${SEP}   Usuario: <b>${esc(x.usuario)}</b>\n   ${x.n} intentos en los últimos 15 minutos`, { urgente: true });
+    for (const x of intentos) await avisar("login_fallido", `login:${x.usuario}:${dia}:${ahora.getHours()}`, `🔐 <b>Intentos de ingreso fallidos</b>${SEP}   Usuario: <b>${esc(x.usuario)}</b>\n   ${x.n} intentos en los últimos 15 minutos`);
 
     const clavesRotar = (
       await query(
@@ -304,16 +330,160 @@ export function iniciarBot({ one, query }) {
   }
 
   // ── Comandos del grupo: /estado, /tickets, /guardia, /toners, /pendientes, /ayuda ──
+  async function vinculoDe(telegramId) {
+    return one(
+      `select v.user_id, p.full_name from telegram_vinculos v join profiles p on p.id = v.user_id where v.telegram_id = $1`,
+      [String(telegramId)],
+    ).catch(() => null);
+  }
+
+  /** Puede atender tickets: administrador o rol con permiso de editar Tickets. */
+  async function puedeEditarTickets(userId) {
+    const r = await one(
+      `select exists(select 1 from user_roles where user_id = $1 and role = 'administrador')
+           or exists(select 1 from user_roles ur join role_permissions rp on rp.role = ur.role where ur.user_id = $1 and rp.modulo = 'tareas' and rp.can_edit) ok`,
+      [userId],
+    ).catch(() => null);
+    return !!r?.ok;
+  }
+
+  /** /ticket texto: crea el ticket (renglón 1 = título, el resto = descripción; "urgente" adelante = prioridad alta). */
+  async function crearTicket(texto, from, vinculo) {
+    let cuerpo = texto.replace(/^\/ticket(@\w+)?\s*/i, "").trim();
+    if (!cuerpo) return { error: "Escribí qué pasa después del comando, por ejemplo:\n<code>/ticket PC lenta en Guardia</code>" };
+    let prioridad = "media";
+    if (/^urgente\b[:\s-]*/i.test(cuerpo)) {
+      prioridad = "alta";
+      cuerpo = cuerpo.replace(/^urgente\b[:\s-]*/i, "");
+    }
+    const [primera, ...resto] = cuerpo.split(/\r?\n/);
+    const titulo = primera.trim().slice(0, 140);
+    if (titulo.length < 3) return { error: "El título es muy corto." };
+    const quien = vinculo?.full_name || `${from.first_name ?? "Telegram"}${from.username ? ` (@${from.username})` : ""}`;
+    const num = await one(`select nextval('ticket_numero_seq')::int n`).catch(() => null);
+    const t = await one(
+      `insert into tareas (titulo, descripcion, tipo, prioridad, categoria, estado, canal, solicitante_nombre, solicitante_id, created_by, numero)
+       values ($1, $2, 'pedido', $3, 'Otro', 'nuevo', 'telegram', $4, $5, $5, $6) returning id, numero, titulo, prioridad`,
+      [titulo, resto.join("\n").trim() || `Cargado desde Telegram por ${quien}.`, prioridad, quien, vinculo?.user_id ?? null, num?.n ?? null],
+    );
+    await query(
+      `insert into audit_log (actor_id, actor_nombre, actor_email, modulo, accion, entidad_id, entidad_desc, detalle) values ($1, $2, '', 'tareas', 'crear', $3, $4, '{"origen":"telegram"}'::jsonb)`,
+      [vinculo?.user_id ?? null, quien, t.id, `TK-${t.numero} ${t.titulo}`],
+    ).catch(() => {});
+    return { t };
+  }
+
+  /** Botón "Lo tomo" / "Resuelto" de un aviso. Solo para cuentas vinculadas con permiso en Tickets. */
+  async function atenderBoton(cb) {
+    const responder = (text, alerta = false) => telegram("answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: alerta }).catch(() => {});
+    const [accion, id] = String(cb.data || "").split(":");
+    if (!/^[0-9a-f-]{36}$/i.test(id || "") || !["tomar", "resolver"].includes(accion)) return responder("Botón inválido");
+    const vinculo = await vinculoDe(cb.from.id);
+    if (!vinculo) return responder("Primero vinculá tu cuenta: en Nodara entrá a Mi perfil → Telegram.", true);
+    if (!(await puedeEditarTickets(vinculo.user_id))) return responder("Tu rol no puede modificar tickets.", true);
+    const t = await one(`select id, numero, titulo, estado, asignado_a from tareas where id = $1`, [id]);
+    if (!t) return responder("El ticket ya no existe.", true);
+    if (["resuelto", "cerrado", "cancelado"].includes(t.estado)) return responder(`TK-${t.numero} ya está ${t.estado}.`, true);
+    const chat = cb.message?.chat?.id;
+    if (accion === "tomar") {
+      if (t.asignado_a && t.asignado_a !== vinculo.user_id) {
+        const otro = await one(`select full_name from profiles where id = $1`, [t.asignado_a]).catch(() => null);
+        return responder(`Ya lo tomó ${otro?.full_name ?? "otra persona"}.`, true);
+      }
+      await query(`update tareas set asignado_a = $2, estado = case when estado = 'nuevo' then 'asignado' else estado end, updated_at = now() where id = $1`, [id, vinculo.user_id]);
+      await query(`insert into tarea_comentarios (tarea_id, autor_id, contenido) values ($1, $2, '↻ Tomado desde Telegram')`, [id, vinculo.user_id]).catch(() => {});
+      await responder(`Tomaste TK-${t.numero}`);
+      if (chat) await telegram("sendMessage", { chat_id: chat, text: `🙋 <b>${esc(vinculo.full_name)}</b> tomó <b>TK-${t.numero}</b> ${esc(t.titulo)}`, reply_to_message_id: cb.message.message_id }).catch(() => {});
+    } else {
+      await query(
+        `update tareas set estado = 'resuelto', resuelto_en = now(), asignado_a = coalesce(asignado_a, $2), resolucion = coalesce(nullif(resolucion, ''), $3), updated_at = now() where id = $1`,
+        [id, vinculo.user_id, `Resuelto desde Telegram por ${vinculo.full_name}.`],
+      );
+      await query(`insert into tarea_comentarios (tarea_id, autor_id, contenido) values ($1, $2, $3)`, [id, vinculo.user_id, `↻ ${t.estado === "nuevo" ? "Pendiente" : "En curso"} → Resuelto (desde Telegram)`]).catch(() => {});
+      await responder(`TK-${t.numero} marcado como resuelto`);
+      if (chat) await telegram("sendMessage", { chat_id: chat, text: `✅ <b>${esc(vinculo.full_name)}</b> resolvió <b>TK-${t.numero}</b> ${esc(t.titulo)}`, reply_to_message_id: cb.message.message_id }).catch(() => {});
+    }
+  }
+
   async function comandos() {
-    const updates = await telegram("getUpdates", { offset, timeout: 0, allowed_updates: ["message"] }).catch(() => []);
+    const updates = await telegram("getUpdates", { offset, timeout: 0, allowed_updates: ["message", "callback_query"] }).catch(() => []);
     for (const u of updates) {
       offset = u.update_id + 1;
+      if (u.callback_query) {
+        await atenderBoton(u.callback_query).catch((e) => console.error("[bot] botón:", e.message));
+        continue;
+      }
       const msg = u.message;
-      // Solo se responde en el chat configurado: nadie de afuera puede consultar datos del área.
-      if (!msg?.text || String(msg.chat?.id) !== cfg.chat) continue;
+      if (!msg?.text) continue;
+      const enGrupo = String(msg.chat?.id) === cfg.chat;
+      const privado = msg.chat?.type === "private";
       const cmd = msg.text.trim().split(/[\s@]/)[0].toLowerCase();
+      // Solo se responde en el grupo del área o por privado a cuentas vinculadas (para vincularse alcanza /vincular).
+      const vinculo = privado ? await vinculoDe(msg.from?.id) : null;
+      if (!enGrupo && !privado) continue;
+      if (privado && !vinculo && cmd !== "/vincular") {
+        await telegram("sendMessage", { chat_id: msg.chat.id, text: "🔒 Para usar el bot por privado vinculá tu cuenta: en Nodara entrá a <b>Mi perfil → Telegram</b>, generá el código y mandámelo así:\n<code>/vincular CÓDIGO</code>" }).catch(() => {});
+        continue;
+      }
+      const responder = (texto, extra = {}) => telegram("sendMessage", { chat_id: msg.chat.id, text: texto + pie(), reply_to_message_id: msg.message_id, ...extra }).catch(() => {});
+      if (cmd === "/vincular") {
+        if (!privado) {
+          await responder("🔒 Mandame <code>/vincular CÓDIGO</code> por <b>privado</b>, no en el grupo.");
+          continue;
+        }
+        const codigo = (msg.text.trim().split(/\s+/)[1] || "").toUpperCase();
+        const c = codigo ? await one(`delete from telegram_codigos where codigo = $1 and expira > now() returning user_id`, [codigo]).catch(() => null) : null;
+        if (!c) {
+          await responder("❌ Código inválido o vencido. Generá uno nuevo en Mi perfil → Telegram (dura 10 minutos).");
+          continue;
+        }
+        await query(`delete from telegram_vinculos where telegram_id = $1`, [String(msg.from.id)]);
+        await query(
+          `insert into telegram_vinculos (user_id, telegram_id, telegram_usuario) values ($1, $2, $3)
+           on conflict (user_id) do update set telegram_id = excluded.telegram_id, telegram_usuario = excluded.telegram_usuario, created_at = now()`,
+          [c.user_id, String(msg.from.id), msg.from.username ?? msg.from.first_name ?? null],
+        );
+        const p = await one(`select full_name from profiles where id = $1`, [c.user_id]).catch(() => null);
+        await responder(`✅ <b>Cuenta vinculada</b>${SEP}   Hola ${esc(p?.full_name ?? "")}: desde ahora te llegan por acá tus avisos (tickets asignados, resueltos, pedidos) y podés usar los botones "Lo tomo" y "Resuelto".${SEP}   Escribí /ayuda para ver los comandos.`);
+        continue;
+      }
+      if (cmd === "/desvincular" && vinculo) {
+        await query(`delete from telegram_vinculos where user_id = $1`, [vinculo.user_id]);
+        await responder("👋 Listo, tu cuenta quedó desvinculada. No vas a recibir más avisos por acá.");
+        continue;
+      }
+      if (cmd === "/ticket") {
+        const v = vinculo ?? (await vinculoDe(msg.from?.id));
+        const r = await crearTicket(msg.text, msg.from ?? {}, v);
+        if (r.error) await responder(`⚠️ ${r.error}`);
+        else
+          await responder(
+            `🎫 <b>Ticket creado: TK-${r.t.numero}</b>${SEP}   ${esc(r.t.titulo)}\n   ${PRIORIDAD[r.t.prioridad] ?? esc(r.t.prioridad)}${v ? "" : `\n   <i>Cargado como ${esc(msg.from?.first_name ?? "Telegram")}</i>`}`,
+            { reply_markup: { inline_keyboard: [[{ text: "🙋 Lo tomo", callback_data: `tomar:${r.t.id}` }, { text: "✅ Resuelto", callback_data: `resolver:${r.t.id}` }]] } },
+          );
+        continue;
+      }
+      if (cmd === "/mis") {
+        const v = vinculo ?? (await vinculoDe(msg.from?.id));
+        if (!v) {
+          await responder("🔒 Vinculá tu cuenta para ver tus tickets: Mi perfil → Telegram.");
+          continue;
+        }
+        const filas = (
+          await query(
+            `select id, numero, titulo, prioridad from tareas where asignado_a = $1 and estado not in ('resuelto','cerrado','cancelado')
+              order by case prioridad when 'critica' then 0 when 'alta' then 1 when 'media' then 2 else 3 end, created_at limit 10`,
+            [v.user_id],
+          ).catch(() => ({ rows: [] }))
+        ).rows;
+        await responder(
+          filas.length ? `🧰 <b>Tus tickets abiertos</b>${SEP}${lista(filas, (t) => `${ticket(t)}\n   ${PRIORIDAD[t.prioridad] ?? esc(t.prioridad)}`)}` : "🧰 No tenés tickets abiertos. 🎉",
+          filas.length ? { reply_markup: { inline_keyboard: filas.slice(0, 5).map((t) => [{ text: `✅ Resolver TK-${t.numero}`, callback_data: `resolver:${t.id}` }]) } } : {},
+        );
+        continue;
+      }
       let r = "";
-      if (cmd === "/estado" || cmd === "/start") r = textoResumen(await resumenHoy(), "📋 Estado del área");
+      if (cmd === "/estado" || (cmd === "/start" && (enGrupo || vinculo))) r = textoResumen(await resumenHoy(), "📋 Estado del área");
       else if (cmd === "/tickets") {
         const filas = (
           await query(
@@ -344,9 +514,18 @@ export function iniciarBot({ one, query }) {
       } else if (cmd === "/ayuda" || cmd === "/help")
         r = [
           "🤖 <b>Comandos del Bot Sistema</b>",
-          ["/estado — resumen del área ahora", "/tickets — tickets abiertos más urgentes", "/guardia — próximas guardias", "/toners — stock de tóners", "/pendientes — versiones e intercambios esperando"].join("\n"),
+          [
+            "/ticket texto — crea un ticket (\"urgente\" adelante = prioridad alta)",
+            "/mis — tus tickets abiertos",
+            "/estado — resumen del área ahora",
+            "/tickets — tickets abiertos más urgentes",
+            "/guardia — próximas guardias",
+            "/toners — stock de tóners",
+            "/pendientes — versiones e intercambios esperando",
+            "/vincular CÓDIGO — vincular tu cuenta (por privado)",
+          ].join("\n"),
         ].join(SEP);
-      if (r) await telegram("sendMessage", { chat_id: cfg.chat, text: r + pie(), reply_to_message_id: msg.message_id }).catch(() => {});
+      if (r) await responder(r);
     }
   }
 
