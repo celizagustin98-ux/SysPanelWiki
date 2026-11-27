@@ -13,6 +13,7 @@ import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { CATEGORIAS, PRIORIDADES, TIPOS, prioLabel } from "./constants";
 import { FRECUENCIAS, type Frecuencia } from "./recurrencia";
+import { lineasChecklist } from "./ChecklistTicket";
 
 type Recurrente = {
   id: string;
@@ -26,6 +27,7 @@ type Recurrente = {
   frecuencia: Frecuencia;
   proxima: string;
   dias_para_vencer: number | null;
+  checklist?: string[] | null;
   activo: boolean;
   ultima_creada: string | null;
 };
@@ -157,6 +159,7 @@ function FormRecurrente({ r, perfiles, onClose, onGuardado }: { r: Recurrente | 
     frecuencia: (r?.frecuencia ?? "mensual") as Frecuencia,
     proxima: r?.proxima ?? hoy(),
     dias_para_vencer: r?.dias_para_vencer != null ? String(r.dias_para_vencer) : "3",
+    checklist: (r?.checklist ?? []).join("\n"),
   });
   const [guardando, setGuardando] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -174,6 +177,7 @@ function FormRecurrente({ r, perfiles, onClose, onGuardado }: { r: Recurrente | 
       frecuencia: f.frecuencia,
       proxima: f.proxima,
       dias_para_vencer: f.dias_para_vencer.trim() ? Math.max(0, Number(f.dias_para_vencer) || 0) : null,
+      checklist: lineasChecklist(f.checklist),
     };
     setGuardando(true);
     const { error } = r ? await api.from("ticket_recurrentes").update(payload).eq("id", r.id) : await api.from("ticket_recurrentes").insert(payload);
@@ -197,6 +201,10 @@ function FormRecurrente({ r, perfiles, onClose, onGuardado }: { r: Recurrente | 
           <div className="space-y-1 sm:col-span-2">
             <Label className="text-xs">Qué hay que hacer</Label>
             <Textarea value={f.descripcion} onChange={(e) => set("descripcion", e.target.value)} rows={3} placeholder={"- Verificar que el respaldo de anoche terminó\n- Probar restaurar un archivo"} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Checklist de tareas (una por renglón)</Label>
+            <Textarea value={f.checklist} onChange={(e) => set("checklist", e.target.value)} rows={3} placeholder={"Revisar respaldo\nLimpiar temporales\nVer espacio en disco"} />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Se repite</Label>

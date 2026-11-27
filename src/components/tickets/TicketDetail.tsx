@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
-  CheckSquare,
   Clock3,
   Flag,
   MessageSquare,
@@ -39,6 +38,7 @@ import { ActivoPicker } from "@/components/activos/ActivoPicker";
 import { useAuth } from "@/lib/auth";
 import { cn, formatFecha } from "@/lib/utils";
 import { RespuestasGuardadas } from "./RespuestasGuardadas";
+import { ChecklistTicket, useChecklist } from "./ChecklistTicket";
 import { AvisoEquipoReciente, InstructivosSugeridos } from "./Sugerencias";
 import { pasoAnimado } from "@/lib/fila-clic";
 import {
@@ -75,7 +75,6 @@ export function TicketDetail({
 }) {
   const { isAdmin } = useAuth();
   const [comentario, setComentario] = useState("");
-  const [nuevaSub, setNuevaSub] = useState("");
   const [resolucionDraft, setResolucionDraft] = useState(ticket.resolucion ?? "");
   const [resolveOpen, setResolveOpen] = useState(false);
   const [docVinculo, setDocVinculo] = useState("");
@@ -84,16 +83,9 @@ export function TicketDetail({
   useEffect(() => {
     setResolucionDraft(ticket.resolucion ?? "");
     setComentario("");
-    setNuevaSub("");
   }, [ticket.id, ticket.resolucion]);
 
-  const { data: subtareas = [] } = useQuery({
-    queryKey: ["subtareas", ticket.id],
-    queryFn: async () => {
-      const { data } = await api.from("tarea_subtareas").select("*").eq("tarea_id", ticket.id).order("created_at");
-      return (data ?? []) as { id: string; titulo: string; hecha: boolean }[];
-    },
-  });
+  const { data: subtareas = [] } = useChecklist(ticket.id);
 
   const { data: comentarios = [] } = useQuery({
     queryKey: ["comentarios", ticket.id],
@@ -122,7 +114,6 @@ export function TicketDetail({
   const qc = useQueryClient();
   const nombre = (id: string | null) => perfiles.find((p) => p.id === id)?.full_name ?? "Usuario";
   const hechas = subtareas.filter((s) => s.hecha).length;
-  const progreso = subtareas.length ? Math.round((hechas / subtareas.length) * 100) : 0;
 
   const localRefetch = () => {
     qc.invalidateQueries({ queryKey: ["subtareas", ticket.id] });
@@ -161,6 +152,9 @@ export function TicketDetail({
   const resolver = async () => {
     const text = resolucionDraft.trim();
     if (!text) return toast.error("Indicá la resolución");
+    const pendientes = subtareas.length - hechas;
+    if (pendientes > 0 && !(await confirmar(`Quedan ${pendientes} ${pendientes === 1 ? "tarea" : "tareas"} del checklist sin tildar`, { detalle: "¿Lo marcás resuelto igual?", accion: "Resolver igual" })))
+      return;
     await cambiarEstado("resuelto", { resolucion: text, resuelto_en: new Date().toISOString(), ...(equipoCierre && !ticket.activo_id ? { activo_id: equipoCierre } : {}) }, "Ticket resuelto");
     setEquipoCierre(null);
     setResolveOpen(false);
@@ -267,6 +261,8 @@ export function TicketDetail({
               </p>
             </section>
 
+            <ChecklistTicket tareaId={ticket.id} canWrite={canWrite} onCambio={onRefresh} />
+
             {ticket.resolucion && (
               <section className="rounded-lg border border-ok/25 bg-ok/9 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-ok ">Resolución</p>
@@ -274,52 +270,6 @@ export function TicketDetail({
               </section>
             )}
 
-            <section>
-              <div className="mb-2 flex items-center justify-between">
-                <SectionTitle icon={<CheckSquare className="size-3.5" />}>Pasos</SectionTitle>
-                <span className="text-xs text-muted-foreground">{hechas}/{subtareas.length}{subtareas.length ? ` · ${progreso}%` : ""}</span>
-              </div>
-              {subtareas.length > 0 && (
-                <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progreso}%` }} />
-                </div>
-              )}
-              <div className="space-y-0.5">
-                {subtareas.map((s) => (
-                  <div key={s.id} className="flex items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/50">
-                    <Checkbox
-                      checked={s.hecha}
-                      disabled={!canWrite}
-                      onCheckedChange={async (v) => {
-                        await api.from("tarea_subtareas").update({ hecha: !!v }).eq("id", s.id);
-                        localRefetch();
-                      }}
-                    />
-                    <span className={cn("flex-1 text-sm", s.hecha && "text-muted-foreground line-through")}>{s.titulo}</span>
-                    {canWrite && (
-                      <Button size="icon" variant="ghost" className="size-7 opacity-60 hover:opacity-100" onClick={async () => {
-                        await api.from("tarea_subtareas").delete().eq("id", s.id);
-                        localRefetch();
-                      }}>
-                        <Trash2 className="size-3.5 text-destructive" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {canWrite && (
-                <form className="mt-2 flex gap-2" onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!nuevaSub.trim()) return;
-                  await api.from("tarea_subtareas").insert({ tarea_id: ticket.id, titulo: nuevaSub.trim() });
-                  setNuevaSub("");
-                  localRefetch();
-                }}>
-                  <Input className="h-8" placeholder="Agregar paso…" value={nuevaSub} onChange={(e) => setNuevaSub(e.target.value)} />
-                  <Button type="submit" size="icon" variant="secondary" className="size-8 shrink-0"><Plus className="size-4" /></Button>
-                </form>
-              )}
-            </section>
 
             <section>
               <SectionTitle icon={<MessageSquare className="size-3.5" />}>Actividad</SectionTitle>

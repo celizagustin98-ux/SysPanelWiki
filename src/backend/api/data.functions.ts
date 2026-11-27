@@ -824,8 +824,8 @@ export const apiRpc = createServerFn({ method: "POST" })
       if (!(await hasModulePermission(session.user.id, "tareas", "ver"))) return { data: { creados: 0 }, error: null };
       const hoy = await one<{ d: string }>(`select to_char(current_date, 'YYYY-MM-DD') d`);
       const vencidas = (
-        await query<{ id: string; proxima: string; frecuencia: Frecuencia; titulo: string; descripcion: string | null; tipo: string; prioridad: string; categoria: string; sector: string | null; asignado_a: string | null; dias_para_vencer: number | null }>(
-          `select id, to_char(proxima, 'YYYY-MM-DD') proxima, frecuencia, titulo, descripcion, tipo, prioridad, categoria, sector, asignado_a, dias_para_vencer
+        await query<{ id: string; proxima: string; frecuencia: Frecuencia; titulo: string; descripcion: string | null; tipo: string; prioridad: string; categoria: string; sector: string | null; asignado_a: string | null; dias_para_vencer: number | null; checklist: string[] | null }>(
+          `select id, to_char(proxima, 'YYYY-MM-DD') proxima, frecuencia, titulo, descripcion, tipo, prioridad, categoria, sector, asignado_a, dias_para_vencer, checklist
              from ticket_recurrentes where activo and proxima <= current_date order by proxima limit 50`,
         ).catch(() => ({ rows: [] }))
       ).rows;
@@ -853,11 +853,21 @@ export const apiRpc = createServerFn({ method: "POST" })
         );
         if (!t) continue;
         await query(`update ticket_recurrentes set ultimo_ticket_id = $2 where id = $1`, [r.id, t.id]);
+        if (r.checklist?.length)
+          await query(`insert into tarea_subtareas (tarea_id, titulo, orden) select $1, t, o - 1 from unnest($2::text[]) with ordinality as x(t, o)`, [t.id, r.checklist]);
         await writeAudit(session.user.id, "tareas", "crear", [t as unknown as Record<string, unknown>], { origen: "recurrente" });
         await notificarCambios("tareas", "insert", session.user.id, [t as unknown as Record<string, unknown>]);
         creados.push(t.id);
       }
       return { data: { creados: creados.length }, error: null };
+    }
+    if (data.name === "checklist_resumen") {
+      // Avance del checklist de varios tickets a la vez (para mostrarlo en la lista).
+      if (!(await hasModulePermission(session.user.id, "tareas", "ver"))) return { data: [], error: null };
+      const ids = (Array.isArray(data.args?._ids) ? data.args._ids : []).filter((x: unknown) => /^[0-9a-f-]{36}$/i.test(String(x))).slice(0, 200);
+      if (!ids.length) return { data: [], error: null };
+      const r = await query(`select tarea_id, count(*)::int total, count(*) filter (where hecha)::int hechas from tarea_subtareas where tarea_id = any($1::uuid[]) group by tarea_id`, [ids]);
+      return { data: r.rows, error: null };
     }
     if (data.name === "instructivos_sugeridos") {
       // Instructivos para una categoría de ticket: los que tienen esa etiqueta y los que más se vincularon

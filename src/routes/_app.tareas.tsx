@@ -759,6 +759,15 @@ function TicketTable({
   onPatch: (id: string, values: Record<string, unknown>, msg?: string) => Promise<void>;
   onAuto: (t: TicketT) => Promise<void>;
 }) {
+  // Avance del checklist de los tickets de la página, en una sola consulta.
+  const ids = items.map((t) => t.id);
+  const { data: checklist = [] } = useQuery({
+    queryKey: ["subtareas", "resumen", ids.join(",")],
+    enabled: ids.length > 0,
+    staleTime: 30_000,
+    queryFn: async () => ((await api.rpc("checklist_resumen", { _ids: ids })).data ?? []) as { tarea_id: string; total: number; hechas: number }[],
+  });
+  const avance = new Map(checklist.map((c) => [c.tarea_id, c]));
   return (
     <div className="overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-panel)]">
       <div className="hidden grid-cols-[minmax(0,1.7fr)_88px_120px_140px_100px_110px] gap-2 border-b border-border/50 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground lg:grid">
@@ -806,6 +815,17 @@ function TicketTable({
               ))}
               {t.categoria && (
                 <span className="rounded-full bg-muted px-1.5 py-px text-[10px]">#{t.categoria.toLowerCase()}</span>
+              )}
+              {avance.get(t.id) && (
+                <span
+                  title="Checklist de tareas"
+                  className={cn(
+                    "num inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
+                    avance.get(t.id)!.hechas === avance.get(t.id)!.total ? "bg-ok/14 text-ok" : "bg-primary/12 text-primary",
+                  )}
+                >
+                  ☑ {avance.get(t.id)!.hechas}/{avance.get(t.id)!.total}
+                </span>
               )}
             </p>
           </button>

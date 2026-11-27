@@ -112,7 +112,7 @@ async function copiarAcceso(c: Cred) {
   if (!c.usuario) return copiarClave();
   await navigator.clipboard.writeText(c.usuario);
   toast.success(`Usuario copiado: pegalo y después copiá la clave`, {
-    duration: 20_000,
+    duration: 10_000,
     action: { label: "Copiar clave", onClick: () => void copiarClave() },
   });
 }

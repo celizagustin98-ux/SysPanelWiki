@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ActivoPicker } from "@/components/activos/ActivoPicker";
 import { AvisoEquipoReciente, InstructivosSugeridos } from "./Sugerencias";
+import { crearChecklist, lineasChecklist } from "./ChecklistTicket";
 import { BookmarkPlus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/client";
 import { CATEGORIAS, PRIORIDADES, TIPOS, prioLabel } from "./constants";
 
-type Plantilla = { id: string; nombre: string; titulo: string; descripcion: string | null; tipo: string; prioridad: string; categoria: string };
+type Plantilla = { id: string; nombre: string; titulo: string; descripcion: string | null; tipo: string; prioridad: string; categoria: string; checklist?: string[] | null };
 
 export function NuevoTicket({
   perfiles,
@@ -46,6 +47,8 @@ export function NuevoTicket({
   const [activoId, setActivoId] = useState<string | null>(null);
   const [titulo, setTitulo] = useState("");
   const [descripcion, setDescripcion] = useState("");
+  // Checklist de tareas: una por renglón (se crean junto con el ticket).
+  const [checklist, setChecklist] = useState("");
   const qc = useQueryClient();
   const { data: plantillas = [] } = useQuery({
     queryKey: ["ticket_plantillas"],
@@ -64,13 +67,14 @@ export function NuevoTicket({
     setTipo(p.tipo);
     setPrioridad(p.prioridad);
     setCategoria(p.categoria);
+    if (p.checklist?.length) setChecklist(p.checklist.join("\n"));
   };
 
   const [nombrePlantilla, setNombrePlantilla] = useState<string | null>(null);
   const guardarPlantilla = async () => {
     const nombre = (nombrePlantilla ?? "").trim();
     if (nombre.length < 3) return toast.error("Poné un nombre a la plantilla");
-    const { error } = await api.from("ticket_plantillas").insert({ nombre, titulo: titulo.trim() || nombre, descripcion: descripcion || null, tipo, prioridad, categoria });
+    const { error } = await api.from("ticket_plantillas").insert({ nombre, titulo: titulo.trim() || nombre, descripcion: descripcion || null, tipo, prioridad, categoria, checklist: lineasChecklist(checklist) });
     if (error) return toast.error(error.message);
     toast.success("Plantilla guardada");
     setNombrePlantilla(null);
@@ -89,6 +93,7 @@ export function NuevoTicket({
           setCategoria("Otro");
           setTitulo("");
           setDescripcion("");
+          setChecklist("");
         }
       }}
     >
@@ -128,8 +133,13 @@ export function NuevoTicket({
               vence_el: String(fd.get("vence_el") || "") || null,
               created_by: userId ?? null,
             });
+            if (error) {
+              setSaving(false);
+              return toast.error(error.message);
+            }
+            const nuevoId = data && typeof data === "object" && !Array.isArray(data) ? (data as { id?: string }).id : undefined;
+            if (nuevoId) await crearChecklist(nuevoId, lineasChecklist(checklist));
             setSaving(false);
-            if (error) return toast.error(error.message);
             toast.success("Ticket creado");
             setOpen(false);
             setActivoId(null);
@@ -167,6 +177,19 @@ export function NuevoTicket({
             <div className="space-y-1.5">
               <Label>Descripción</Label>
               <Textarea name="descripcion" rows={4} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle del problema o pedido…" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center justify-between">
+                <span>Checklist de tareas (opcional)</span>
+                {lineasChecklist(checklist).length > 0 && <span className="num text-xs font-normal text-muted-foreground">{lineasChecklist(checklist).length} tareas</span>}
+              </Label>
+              <Textarea
+                rows={3}
+                value={checklist}
+                onChange={(e) => setChecklist(e.target.value)}
+                placeholder={"Una tarea por renglón:\nRevisar la PC\nCambiar monitor\nProbar impresora"}
+                className="text-[13px]"
+              />
             </div>
             {titulo.trim().length >= 3 &&
               (nombrePlantilla === null ? (

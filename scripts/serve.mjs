@@ -5,6 +5,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
+import { brotliCompressSync, constants as zlibC, createGzip, gzipSync } from "node:zlib";
 import pg from "pg";
 import { disco, estadoRespaldos, hacerRespaldo, iniciarRespaldoDiario, streamRespaldo } from "./respaldos.mjs";
 import { iniciarBot } from "./bot.mjs";
@@ -121,6 +122,34 @@ function getStaticFilePath(url) {
   return null;
 }
 
+// ── Compresión ──
+// Sin comprimir, el código de la app (~300 KB) y las listas grandes (ej. 2000 equipos) viajaban enteros:
+// en tablets por WiFi era lo que más se notaba. Los estáticos se comprimen una vez y quedan en memoria.
+const COMPRIMIBLE = /^(text\/|application\/(json|javascript|manifest\+json|xml)|image\/svg)/i;
+const cacheComprimidos = new Map();
+
+function codificacion(req) {
+  const acepta = String(req.headers["accept-encoding"] || "");
+  if (/\bbr\b/.test(acepta)) return "br";
+  if (/\bgzip\b/.test(acepta)) return "gzip";
+  return null;
+}
+
+function estaticoComprimido(filePath, stat, enc) {
+  const clave = `${filePath}|${enc}|${stat.mtimeMs}`;
+  let buf = cacheComprimidos.get(clave);
+  if (!buf) {
+    const crudo = readFileSync(filePath);
+    buf =
+      enc === "br"
+        ? brotliCompressSync(crudo, { params: { [zlibC.BROTLI_PARAM_QUALITY]: 9, [zlibC.BROTLI_PARAM_SIZE_HINT]: crudo.length } })
+        : gzipSync(crudo, { level: 9 });
+    if (cacheComprimidos.size > 500) cacheComprimidos.clear();
+    cacheComprimidos.set(clave, buf);
+  }
+  return buf;
+}
+
 function trySendStatic(req, res) {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   const filePath = getStaticFilePath(req.url || "/");
@@ -132,8 +161,18 @@ function trySendStatic(req, res) {
   // El service worker y el manifiesto se revisan siempre (si quedaran fijos en caché, la app instalada no se actualizaría).
   const sinCache = ext === ".html" || ext === ".webmanifest" || filePath.endsWith("sw.js");
   res.setHeader("cache-control", sinCache ? "no-cache" : "public, max-age=31536000, immutable");
+  res.setHeader("vary", "Accept-Encoding");
   if (req.method === "HEAD") {
     res.end();
+    return true;
+  }
+  const enc = codificacion(req);
+  const stat = statSync(filePath);
+  if (enc && stat.size > 1024 && COMPRIMIBLE.test(contentTypes[ext] || "")) {
+    const buf = estaticoComprimido(filePath, stat, enc);
+    res.setHeader("content-encoding", enc);
+    res.setHeader("content-length", buf.length);
+    res.end(buf);
     return true;
   }
   createReadStream(filePath).pipe(res);
@@ -1113,7 +1152,17 @@ const server = createServer(async (req, res) => {
       res.setHeader(key, value);
     });
     if (response.body) {
-      Readable.fromWeb(response.body).pipe(res);
+      // Datos de la app (JSON de las consultas, HTML): gzip en streaming, sin cortar las respuestas que se van enviando de a partes.
+      const tipo = response.headers.get("content-type") || "";
+      const enc = codificacion(req);
+      if (enc && COMPRIMIBLE.test(tipo) && !response.headers.get("content-encoding") && !/event-stream/i.test(tipo) && response.status !== 204 && response.status !== 304) {
+        res.removeHeader("content-length");
+        res.setHeader("content-encoding", "gzip");
+        res.setHeader("vary", "Accept-Encoding");
+        Readable.fromWeb(response.body).pipe(createGzip({ level: 5, flush: zlibC.Z_SYNC_FLUSH })).pipe(res);
+      } else {
+        Readable.fromWeb(response.body).pipe(res);
+      }
     } else {
       res.end();
     }
